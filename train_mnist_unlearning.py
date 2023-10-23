@@ -18,9 +18,11 @@ from utils import *
 def parse_args():
     parser = argparse.ArgumentParser(description="Training MNISTDiffusion")
     parser.add_argument('--lr',type = float ,default=0.001)
-    parser.add_argument('--batch_size',type = int ,default=128)    
+    parser.add_argument('--batch_size',type = int ,default=128)
     parser.add_argument('--epochs',type = int,default=100)
     parser.add_argument('--ckpt',type = str,help = 'define checkpoint path',default='')
+    parser.add_argument('--loss_type',type = str,help = 'define loss type',default='type1')
+
     parser.add_argument('--n_samples',type = int,help = 'define sampling amounts after every epoch trained',default=36)
     parser.add_argument('--model_base_dim',type = int,help = 'base dim of Unet',default=64)
     parser.add_argument('--timesteps',type = int,help = 'sampling steps of DDPM',default=1000)
@@ -29,6 +31,7 @@ def parse_args():
     parser.add_argument('--log_freq',type = int,help = 'training log message printing frequence',default=10)
     parser.add_argument('--no_clip',action='store_true',help = 'set to normal sampling method without clip x_0 which could yield unstable samples')
     parser.add_argument('--cpu',action='store_true',help = 'cpu training')
+    parser.add_argument('--device', type=str,help = 'gpu training', default="cuda:0")
 
     args = parser.parse_args()
 
@@ -36,20 +39,26 @@ def parse_args():
 
 
 def main(args):
-    device="cpu" if args.cpu else "cuda"
-    
-    for digit in range(11):
-        
-        if digit == 10:
-            exclude_label=None
-        
-        train_dataloader,test_dataloader=create_mnist_dataloaders(
+
+    # device="cpu" if args.cpu else "cuda:0"
+    device = args.device
+
+    for digit in range(10):
+
+        train_dataloader, ablated_dataloader = create_unlearning_dataloaders(
             batch_size=args.batch_size,
             image_size=28,
             exclude_label=digit
         )
 
-        model=MNISTDiffusion(timesteps=args.timesteps,
+        model=MNISTDiffusion(
+            timesteps=args.timesteps,
+                image_size=28,
+                in_channels=1,
+                base_dim=args.model_base_dim,
+                dim_mults=[2,4]).to(device)
+
+        model_frozen=MNISTDiffusion(timesteps=args.timesteps,
                     image_size=28,
                     in_channels=1,
                     base_dim=args.model_base_dim,
@@ -67,24 +76,62 @@ def main(args):
         scheduler=OneCycleLR(optimizer,args.lr,total_steps=args.epochs*len(train_dataloader),pct_start=0.25,anneal_strategy='cos')
         loss_fn=nn.MSELoss(reduction='mean')
 
+        alpha1 = 1
+        alpha2 = 5e-1
         #load checkpoint
-        if args.ckpt:
-            ckpt=torch.load(args.ckpt)
-            model_ema.load_state_dict(ckpt["model_ema"])
-            model.load_state_dict(ckpt["model"])
+
+        ckpt=torch.load("results/full/models/steps_00042300.pt")
+
+        model_ema.load_state_dict(ckpt["model_ema"])
+        model.load_state_dict(ckpt["model"])
+
+        model_frozen.load_state_dict(ckpt["model"])
+        model_frozen.eval()
 
         global_steps=0
 
         for i in range(args.epochs):
+
             model.train()
 
-            for j,(image,target) in enumerate(train_dataloader):
+            ## iterating thorugh the size of unlearn dataset.
 
-                noise=torch.randn_like(image).to(device)
-                image=image.to(device)
-                pred=model(image,noise)
+            for j, ((image_r, label_r), (image_e, label_e)) in enumerate(zip(train_dataloader, ablated_dataloader)):
+                # import ipdb;ipdb.set_trace()
 
-                loss=loss_fn(pred,noise)
+                image_r=image_r.to(device)
+                image_e=image_e.to(device)
+
+                ## Sample random noise e_t
+
+                noise=torch.randn_like(image_r).to(device)
+                t=torch.randint(0, args.timesteps,(image_e.shape[0],)).to(device)
+
+                with torch.no_grad():
+
+                    # get scores for D_r and D_e from the frozen model
+
+                    eps_e_frozen = model_frozen(image_e, noise, t)
+                    eps_r_frozen = model_frozen(image_e, noise, t)
+
+                # Scores from the fine-tunning model
+
+                eps_r = model(image_r, noise, t)
+
+                if args.loss_type == "type1":
+                    # delta logP(D_r) - delta logP(D_e)
+                    loss = loss_fn(eps_r, eps_r_frozen - alpha2*eps_e_frozen)
+
+                elif args.loss_type == "type2":
+                    # delta logP(D_r) - delta logP(D_e)
+                    loss1 =loss_fn(eps_r, eps_r_frozen - alpha2*eps_e_frozen)
+
+                    # delta logP(D_r)
+                    loss2 =loss_fn(eps_r, eps_r_frozen)
+
+                    loss = alpha1*loss1 + loss2
+
+
                 loss.backward()
 
                 optimizer.step()
@@ -94,7 +141,7 @@ def main(args):
                 if global_steps%args.model_ema_steps==0:
                     model_ema.update_parameters(model)
                 global_steps+=1
-                
+
                 if j % args.log_freq == 0:
                     print(f"Epoch[{i+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}],loss:{loss.detach().cpu().item():.5f},lr:{scheduler.get_last_lr()[0]:.5f}")
 
@@ -103,21 +150,18 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
 
-            if not digit:
-                digit = "full"
-                
-            os.makedirs(f"results/{digit}", exist_ok=True)
-            os.makedirs(f"results/{digit}/models", exist_ok=True)
-            os.makedirs(f"results/{digit}/samples", exist_ok=True)
+            path = f"results/unlearn_remaining_ablated/{digit}/{args.epochs}_{eta}_{args.loss_type}"
 
-            torch.save(ckpt, f"results/{digit}/models/steps_{global_steps:0>8}.pt")
+            os.makedirs(path, exist_ok=True)
+            os.makedirs(path+"/models", exist_ok=True)
+            os.makedirs(path+"/samples", exist_ok=True)
+
+            torch.save(ckpt, path+ f"/models/steps_{global_steps:0>8}.pt")
 
             model_ema.eval()
             samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
+            save_image(samples, path + f"/samples/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
 
-            save_image(samples, f"results/{digit}/samples/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
-
-            
 if __name__=="__main__":
     args=parse_args()
     main(args)
