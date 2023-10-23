@@ -150,7 +150,7 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
 
-            path = f"results/unlearn_remaining_ablated/{digit}/{args.epochs}_{eta}_{args.loss_type}"
+            path = f"results/unlearn_remaining_ablated/{digit}/{args.epochs}_{alpha2}_{args.loss_type}"
 
             os.makedirs(path, exist_ok=True)
             os.makedirs(path+"/models", exist_ok=True)
