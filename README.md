@@ -6,10 +6,15 @@ Install packages
 ```bash
 pip install -r requirements.txt
 ```
-Start default setting training 
+Training ablated diffusion model 
+```bash
+python train_mnist.py
+```
+Training with unlearning 
 ```bash
 python train_mnist_unlearning.py --epochs=300 --loss_type="type2" --device="cuda:1"
 ```
+
 Feel free to tuning training parameters, type `python train_mnist.py -h` to get help message of arguments.
 
 
