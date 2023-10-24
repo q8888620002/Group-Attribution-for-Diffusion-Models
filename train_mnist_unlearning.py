@@ -77,7 +77,7 @@ def main(args):
         loss_fn=nn.MSELoss(reduction='mean')
 
         alpha1 = 1
-        alpha2 = 5e-1
+        alpha2 = 1e-1
         #load checkpoint
 
         ckpt=torch.load("results/full/models/steps_00042300.pt")
@@ -112,7 +112,7 @@ def main(args):
                     # get scores for D_r and D_e from the frozen model
 
                     eps_e_frozen = model_frozen(image_e, noise, t)
-                    eps_r_frozen = model_frozen(image_e, noise, t)
+                    eps_r_frozen = model_frozen(image_r, noise, t)
 
                 # Scores from the fine-tunning model
 
@@ -150,7 +150,7 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
 
-            path = f"results/unlearn_remaining_ablated/{digit}/{args.epochs}_{alpha2}_{args.loss_type}"
+            path = f"results/unlearn_remaining_ablated/{digit}/epochs={args.epochs}_loss={args.loss_type}:{alpha1}_{alpha2}"
 
             os.makedirs(path, exist_ok=True)
             os.makedirs(path+"/models", exist_ok=True)
