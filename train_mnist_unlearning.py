@@ -124,12 +124,12 @@ def main(args):
 
                 elif args.loss_type == "type2":
                     # delta logP(D_r) - delta logP(D_e)
-                    loss1 =loss_fn(eps_r, eps_r_frozen - alpha2*eps_e_frozen)
+                    loss =loss_fn(eps_r, eps_r_frozen - alpha2*eps_e_frozen)
 
                     # delta logP(D_r)
                     loss2 =loss_fn(eps_r, eps_r_frozen)
 
-                    loss = alpha1*loss1 + loss2
+                    loss = alpha1*loss + loss2
 
 
                 loss.backward()
@@ -138,6 +138,8 @@ def main(args):
                 optimizer.zero_grad()
                 scheduler.step()
 
+                ## Update learning rate
+                
                 if global_steps%args.model_ema_steps==0:
                     model_ema.update_parameters(model)
                 global_steps+=1
@@ -150,7 +152,7 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
 
-            path = f"results/unlearn_remaining_ablated/{digit}/epochs={args.epochs}_loss={args.loss_type}:{alpha1}_{alpha2}"
+            path = f"results/unlearn_remaining_ablated/{digit}/epochs={args.epochs}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}"
 
             os.makedirs(path, exist_ok=True)
             os.makedirs(path+"/models", exist_ok=True)

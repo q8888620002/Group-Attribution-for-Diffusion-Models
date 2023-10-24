@@ -47,11 +47,14 @@ class MNISTDiffusion(nn.Module):
     )-> torch.tensor:
         # x:NCHW
 
-        ## random t
         if t is None:
+            ## random t
             t=torch.randint(0,self.timesteps,(x.shape[0],)).to(x.device)
 
         x_t=self._forward_diffusion(x,t,noise)
+
+        ## pred noise from U-Net
+        
         pred_noise=self.model(x_t,t)
 
         return pred_noise
@@ -63,6 +66,9 @@ class MNISTDiffusion(nn.Module):
             clipped_reverse_diffusion: bool=True,
             device: str="cuda"
     ) ->  torch.tensor:
+        """
+        Sampling process for the model x_T -> x_0
+        """
 
         x_t=torch.randn((n_samples,self.in_channels,self.image_size,self.image_size)).to(device)
 
@@ -108,9 +114,20 @@ class MNISTDiffusion(nn.Module):
 
         return betas
 
-    def _forward_diffusion(self,x_0,t,noise):
+    def _forward_diffusion(
+            self,
+            x_0: torch.tensor,
+            t: torch.tensor,
+            noise: torch.tensor
+        )-> torch.tensor:
+
+        """
+        Forward process q(x_{t}|x_{t-1})
+        """
+
         assert x_0.shape==noise.shape
-        #q(x_{t}|x_{t-1})
+        
+
         return self.sqrt_alphas_cumprod.gather(-1,t).reshape(x_0.shape[0],1,1,1)*x_0+ \
                 self.sqrt_one_minus_alphas_cumprod.gather(-1,t).reshape(x_0.shape[0],1,1,1)*noise
 
@@ -123,9 +140,8 @@ class MNISTDiffusion(nn.Module):
             noise: torch.tensor
         ) -> torch.tensor:
         '''
-        p(x_{t-1}|x_{t})-> mean,std
-
-        pred_noise-> pred_mean and pred_std
+        Reverse process: p(x_{t-1}|x_{t})-> mean,std
+                        pred_noise-> pred_mean and pred_std
         '''
         pred=self.model(x_t,t)
 
