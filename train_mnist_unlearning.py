@@ -17,21 +17,31 @@ from utils import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Training MNISTDiffusion")
+
+    # Training params
     parser.add_argument('--lr',type = float ,default=0.001)
     parser.add_argument('--batch_size',type = int ,default=128)
     parser.add_argument('--epochs',type = int,default=100)
     parser.add_argument('--ckpt',type = str,help = 'define checkpoint path',default='')
-    parser.add_argument('--loss_type',type = str,help = 'define loss type',default='type1')
+    parser.add_argument('--cpu',action='store_true',help = 'cpu training')
+    parser.add_argument('--device', type=str,help = 'gpu training', default="cuda:0")
+    parser.add_argument('--log_freq',type = int,help = 'training log message printing frequence',default=10)
+
+    ## Diffusion params
 
     parser.add_argument('--n_samples',type = int,help = 'define sampling amounts after every epoch trained',default=36)
     parser.add_argument('--model_base_dim',type = int,help = 'base dim of Unet',default=64)
     parser.add_argument('--timesteps',type = int,help = 'sampling steps of DDPM',default=1000)
     parser.add_argument('--model_ema_steps',type = int,help = 'ema model evaluation interval',default=10)
     parser.add_argument('--model_ema_decay',type = float,help = 'ema model decay',default=0.995)
-    parser.add_argument('--log_freq',type = int,help = 'training log message printing frequence',default=10)
     parser.add_argument('--no_clip',action='store_true',help = 'set to normal sampling method without clip x_0 which could yield unstable samples')
-    parser.add_argument('--cpu',action='store_true',help = 'cpu training')
-    parser.add_argument('--device', type=str,help = 'gpu training', default="cuda:0")
+
+    ## Loss related params
+
+    parser.add_argument('--loss_type',type = str,help = 'define loss type',default='type1')
+    parser.add_argument('--alpha1',type = float,help = 'loss params: alpha1',default=1)
+    parser.add_argument('--alpha2',type = float,help = 'loss params: alpha2',default=1e-1)
+    parser.add_argument('--keep_digits', action='store_true', help = 'whether to keep other digits in the ablated dataset')
 
     args = parser.parse_args()
 
@@ -43,11 +53,12 @@ def main(args):
     # device="cpu" if args.cpu else "cuda:0"
     device = args.device
 
-    for digit in range(10):
+    for digit in range(1, 10):
 
         train_dataloader, ablated_dataloader = create_unlearning_dataloaders(
             batch_size=args.batch_size,
             image_size=28,
+            keep_digits=True,
             exclude_label=digit
         )
 
@@ -76,8 +87,8 @@ def main(args):
         scheduler=OneCycleLR(optimizer,args.lr,total_steps=args.epochs*len(train_dataloader),pct_start=0.25,anneal_strategy='cos')
         loss_fn=nn.MSELoss(reduction='mean')
 
-        alpha1 = 1
-        alpha2 = 1e-1
+        alpha1 = args.alpha1
+        alpha2 = args.alpha2
         #load checkpoint
 
         ckpt=torch.load("results/full/models/steps_00042300.pt")
@@ -88,6 +99,9 @@ def main(args):
         model_frozen.load_state_dict(ckpt["model"])
         model_frozen.eval()
 
+        for params in model_frozen.parameters():
+            params.require_grad=False
+
         global_steps=0
 
         for i in range(args.epochs):
@@ -96,8 +110,7 @@ def main(args):
 
             ## iterating thorugh the size of unlearn dataset.
 
-            for j, ((image_r, label_r), (image_e, label_e)) in enumerate(zip(train_dataloader, ablated_dataloader)):
-                # import ipdb;ipdb.set_trace()
+            for j, ((image_r, _), (image_e, _)) in enumerate(zip(train_dataloader, ablated_dataloader)):
 
                 image_r=image_r.to(device)
                 image_e=image_e.to(device)
@@ -131,6 +144,11 @@ def main(args):
 
                     loss = alpha1*loss + loss2
 
+                elif args.loss_type  == "type3":
+                    loss = loss_fn(eps_r, (1-alpha2)*eps_e_frozen)
+
+                elif args.loss_type  == "type4":
+                    loss = loss_fn(eps_r, eps_r_frozen)
 
                 loss.backward()
 
@@ -139,7 +157,7 @@ def main(args):
                 scheduler.step()
 
                 ## Update learning rate
-                
+
                 if global_steps%args.model_ema_steps==0:
                     model_ema.update_parameters(model)
                 global_steps+=1
@@ -152,7 +170,7 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
 
-            path = f"results/unlearn_remaining_ablated/{digit}/epochs={args.epochs}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}"
+            path = f"results/unlearn_remaining_ablated/{digit}/epochs={args.epochs}_datasets={args.keep_digits}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}"
 
             os.makedirs(path, exist_ok=True)
             os.makedirs(path+"/models", exist_ok=True)

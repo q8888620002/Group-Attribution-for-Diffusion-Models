@@ -78,6 +78,7 @@ def create_mnist_dataloaders(
 def create_unlearning_dataloaders(
         batch_size,image_size=28,
         num_workers=4,
+        keep_digits: bool=True,
         exclude_label=None
     ):
 
@@ -90,34 +91,49 @@ def create_unlearning_dataloaders(
         num_worksrs: int
         exclude_label: int e.g. 1,2
     Return:
-        MNIST dataset.
+        ablated_subset: Dataloader that ONLY contains excluded digit.
+        remaining_subset: Dataloader that contains digits excluded digit.
 
+        ablated_subset: Dataloader that contains excluded digit. (The original mnist datasets.)
+        remaining_subset: Dataloader that contains digits excluded digit.
     """
 
-    preprocess=transforms.Compose([transforms.Resize(image_size),\
-                                    transforms.ToTensor(),\
-                                    transforms.Normalize([0.5],[0.5])]) #[0,1] to [-1,1]
+    preprocess=transforms.Compose(
+        [transforms.Resize(image_size),\
+        transforms.ToTensor(),\
+        transforms.Normalize([0.5],[0.5])
+    ]) #[0,1] to [-1,1]
 
     train_dataset=MNIST(
         root="./mnist_data",
         train=True,
         download=True,
         transform=preprocess
-        )
+    )
+
+    all_indices = [i for i, (_, label) in enumerate(train_dataset)]
 
     if exclude_label is not None:
-        train_indices = [i for i, (_, label) in enumerate(train_dataset) if label != exclude_label]
-        ablated_indices = [i for i, (_, label) in enumerate(train_dataset) if label == exclude_label]
 
-        # Create a random sampler for train_indices to make its size equal to ablated_indices
+        exclude_indices = [i for i, (_, label) in enumerate(train_dataset) if label == exclude_label]
+        remaining_indices = [i for i in all_indices if i not in exclude_indices]
 
-        remaining_indices = random.sample(train_indices, len(ablated_indices))
+        if keep_digits:
+            ablated_indices = random.sample(all_indices, len(remaining_indices))
+        else:
+            ablated_indices = exclude_indices
+            # Resize remaining_indices to match the length of ablated_indices
+            remaining_indices = random.sample(remaining_indices, len(ablated_indices))
 
-        remaining_subset = Subset(train_dataset, remaining_indices)
         ablated_subset = Subset(train_dataset, ablated_indices)
+        remaining_subset = Subset(train_dataset, remaining_indices)
 
-        return (DataLoader(remaining_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers),
+
+
+    return (DataLoader(remaining_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers),
                 DataLoader(ablated_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers))
+
+
 
 
 def calculate_fid_mnist(images1, images2):
