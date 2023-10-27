@@ -55,10 +55,10 @@ def main(args):
 
     for digit in range(1, 10):
 
-        train_dataloader, ablated_dataloader = create_unlearning_dataloaders(
+        train_dataloader, ablated_dataloader = create_unlearning_dataloaders_v2(
             batch_size=args.batch_size,
             image_size=28,
-            keep_digits=True,
+            keep_digits=args.keep_digits,
             exclude_label=digit
         )
 
@@ -98,6 +98,8 @@ def main(args):
 
         model_frozen.load_state_dict(ckpt["model"])
         model_frozen.eval()
+
+        ## Make sure parameters of frozen mdoel is freezed.
 
         for params in model_frozen.parameters():
             params.require_grad=False
@@ -141,7 +143,6 @@ def main(args):
 
                     # delta logP(D_r)
                     loss2 =loss_fn(eps_r, eps_r_frozen)
-
                     loss = alpha1*loss + loss2
 
                 elif args.loss_type  == "type3":

@@ -135,11 +135,73 @@ def create_unlearning_dataloaders(
 
 
 
+def create_unlearning_dataloaders_v2(
+        batch_size,image_size=28,
+        num_workers=4,
+        keep_digits: bool=True,
+        exclude_label=None
+    ):
+
+    """
+
+    Create a mnist dataset with/without filtered labels
+
+    Args:
+        batch_size: int
+        num_worksrs: int
+        exclude_label: int e.g. 1,2
+    Return:
+        ablated_subset: Dataloader that ONLY contains excluded digit.
+        remaining_subset: Dataloader that contains digits excluded digit.
+
+        ablated_subset: Dataloader that contains excluded digit. (The original mnist datasets.)
+        remaining_subset: Dataloader that contains digits excluded digit.
+    """
+
+    preprocess=transforms.Compose(
+        [transforms.Resize(image_size),\
+        transforms.ToTensor(),\
+        transforms.Normalize([0.5],[0.5])
+    ]) #[0,1] to [-1,1]
+
+    train_dataset=MNIST(
+        root="./mnist_data",
+        train=True,
+        download=True,
+        transform=preprocess
+    )
+
+    all_indices = [i for i, (_, label) in enumerate(train_dataset)]
+
+    if exclude_label is not None:
+
+        exclude_indices = [i for i, (_, label) in enumerate(train_dataset) if label == exclude_label]
+        remaining_indices = [i for i in all_indices]
+
+        if keep_digits:
+            ablated_indices = random.sample(all_indices, len(remaining_indices))
+        else:
+            ablated_indices = exclude_indices
+            # Resize remaining_indices to match the length of ablated_indices
+            remaining_indices = random.sample(remaining_indices, len(ablated_indices))
+
+        ablated_subset = Subset(train_dataset, ablated_indices)
+        remaining_subset = Subset(train_dataset, remaining_indices)
+
+
+
+    return (DataLoader(remaining_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers),
+                DataLoader(ablated_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers))
+
+
 
 def calculate_fid_mnist(images1, images2):
     """
 
     Create a mnist dataset with/without filtered labels
+
+    TODO: Calcualte FID with mnist is probably not a good idea - https://stackoverflow.com/questions/57183647/frechet-inception-distance-for-dc-gan-trained-on-mnist-dataset
+
 
     Args:
         images1:
@@ -193,7 +255,10 @@ clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 
 
 def preprocess_clip_mnist(batch_images):
-    """Preprocess a batch of MNIST images for CLIP."""
+    """
+    Preprocess a batch of MNIST images for CLIP.
+
+    """
 
     transform = Compose([
         ToPILImage(),
@@ -210,10 +275,15 @@ def preprocess_clip_mnist(batch_images):
 
 def clip_score(images1, images2):
 
+    """
+    TODO: fix clip rescaling issues with MNIST.
+    """
+
     images1 = preprocess_clip_mnist(images1).to(device)
     images2 = preprocess_clip_mnist(images2).to(device)
 
     # Get the model's visual features (without text features)
+
     with torch.no_grad():
         features1 = clip_model.encode_image(images1)
         features2 = clip_model.encode_image(images2)
