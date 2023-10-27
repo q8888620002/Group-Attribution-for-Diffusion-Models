@@ -4,6 +4,7 @@ import math
 from unet import Unet
 from tqdm import tqdm
 
+
 class MNISTDiffusion(nn.Module):
     def __init__(
             self,
@@ -54,7 +55,7 @@ class MNISTDiffusion(nn.Module):
         x_t=self._forward_diffusion(x,t,noise)
 
         ## pred noise from U-Net
-        
+
         pred_noise=self.model(x_t,t)
 
         return pred_noise
@@ -126,7 +127,7 @@ class MNISTDiffusion(nn.Module):
         """
 
         assert x_0.shape==noise.shape
-        
+
 
         return self.sqrt_alphas_cumprod.gather(-1,t).reshape(x_0.shape[0],1,1,1)*x_0+ \
                 self.sqrt_one_minus_alphas_cumprod.gather(-1,t).reshape(x_0.shape[0],1,1,1)*noise
@@ -192,3 +193,38 @@ class MNISTDiffusion(nn.Module):
             std=0.0
 
         return mean+std*noise
+
+
+class CNN(nn.Module):
+    """
+    CNN for prediction MNIST.
+
+    """
+    def __init__(self):
+        super(CNN, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(
+                in_channels=1,
+                out_channels=16,
+                kernel_size=5,
+                stride=1,
+                padding=2,
+            ),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2),
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(16, 32, 5, 1, 2),
+            nn.ReLU(),
+            nn.MaxPool2d(2),
+        )
+        # fully connected layer, output 10 classes
+        self.out = nn.Linear(32 * 7 * 7, 10)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        # flatten the output of conv2 to (batch_size, 32 * 7 * 7)
+        x = x.view(x.size(0), -1)
+        output = self.out(x)
+        return output, x
