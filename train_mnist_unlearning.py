@@ -36,12 +36,14 @@ def parse_args():
     parser.add_argument('--model_ema_decay',type = float,help = 'ema model decay',default=0.995)
     parser.add_argument('--no_clip',action='store_true',help = 'set to normal sampling method without clip x_0 which could yield unstable samples')
 
+
     ## Loss related params
 
     parser.add_argument('--loss_type',type = str,help = 'define loss type',default='type1')
     parser.add_argument('--alpha1',type = float,help = 'loss params: alpha1',default=1)
     parser.add_argument('--alpha2',type = float,help = 'loss params: alpha2',default=1e-1)
-    parser.add_argument('--keep_digits', action='store_true', help = 'whether to keep other digits in the ablated dataset')
+    parser.add_argument('--keep_digits', action='store_true', help = 'whether to keep other digits in the remaining dataset')
+    parser.add_argument('--weight_reg', action='store_true', help = 'whether to use weight as regularization.')
 
     args = parser.parse_args()
 
@@ -55,10 +57,11 @@ def main(args):
 
     for digit in range(1, 10):
 
-        train_dataloader, ablated_dataloader = create_unlearning_dataloaders_v2(
+        train_dataloader, ablated_dataloader = create_unlearning_dataloaders(
             batch_size=args.batch_size,
             image_size=28,
-            keep_digits=args.keep_digits,
+            keep_digits_in_ablated=False,
+            keep_digits_in_remaining=args.keep_digits,
             exclude_label=digit
         )
 
@@ -98,11 +101,15 @@ def main(args):
 
         model_frozen.load_state_dict(ckpt["model"])
         model_frozen.eval()
+        freezed_model_dict = ckpt["model"]
 
         ## Make sure parameters of frozen mdoel is freezed.
 
         for params in model_frozen.parameters():
             params.require_grad=False
+
+
+        ## Adding weight regularization
 
         global_steps=0
 
@@ -120,36 +127,48 @@ def main(args):
                 ## Sample random noise e_t
 
                 noise=torch.randn_like(image_r).to(device)
-                t=torch.randint(0, args.timesteps,(image_e.shape[0],)).to(device)
+
+                t=torch.randint(0, args.timesteps,(noise.shape[0],)).to(device)
 
                 with torch.no_grad():
-
                     # get scores for D_r and D_e from the frozen model
 
                     eps_e_frozen = model_frozen(image_e, noise, t)
                     eps_r_frozen = model_frozen(image_r, noise, t)
+
+                eps_e_frozen.require_grad = False
+                eps_r_frozen.require_grad = False
 
                 # Scores from the fine-tunning model
 
                 eps_r = model(image_r, noise, t)
 
                 if args.loss_type == "type1":
+
                     # delta logP(D_r) - delta logP(D_e)
                     loss = loss_fn(eps_r, eps_r_frozen - alpha2*eps_e_frozen)
 
                 elif args.loss_type == "type2":
+
                     # delta logP(D_r) - delta logP(D_e)
                     loss =loss_fn(eps_r, eps_r_frozen - alpha2*eps_e_frozen)
-
-                    # delta logP(D_r)
                     loss2 =loss_fn(eps_r, eps_r_frozen)
+
                     loss = alpha1*loss + loss2
 
                 elif args.loss_type  == "type3":
-                    loss = loss_fn(eps_r, (1-alpha2)*eps_e_frozen)
+                    loss = loss_fn(eps_r, alpha2*eps_e_frozen)
 
                 elif args.loss_type  == "type4":
                     loss = loss_fn(eps_r, eps_r_frozen)
+
+                ## weight regularization lambda*(\hat_{\theta} - \theta)
+
+                if args.weight_reg:
+                    for n, p in model.named_parameters():
+                        _loss = (p - freezed_model_dict[n].to(device)) ** 2
+                        loss += 0.5 * _loss.sum()
+
 
                 loss.backward()
 
@@ -171,7 +190,7 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
 
-            path = f"results/unlearn_remaining_ablated/{digit}/epochs={args.epochs}_datasets={args.keep_digits}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}"
+            path = f"results/unlearn_remaining_ablated/{digit}/epochs={args.epochs}_datasets={args.keep_digits}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
 
             os.makedirs(path, exist_ok=True)
             os.makedirs(path+"/models", exist_ok=True)
