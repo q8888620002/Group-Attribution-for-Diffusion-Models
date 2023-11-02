@@ -94,7 +94,7 @@ def main(args):
         alpha2 = args.alpha2
         #load checkpoint
 
-        ckpt=torch.load("results/full/models/steps_00042300.pt")
+        ckpt=torch.load("/projects/leelab2/mingyulu/unlearning/results/full/models/steps_00042300.pt")
 
         model_ema.load_state_dict(ckpt["model_ema"])
         model.load_state_dict(ckpt["model"])
@@ -133,8 +133,8 @@ def main(args):
                 with torch.no_grad():
                     # get scores for D_r and D_e from the frozen model
 
-                    eps_e_frozen = model_frozen(image_e, noise, t)
                     eps_r_frozen = model_frozen(image_r, noise, t)
+                    eps_e_frozen = model_frozen(image_e, noise, t)
 
                 eps_e_frozen.require_grad = False
                 eps_r_frozen.require_grad = False
@@ -142,6 +142,7 @@ def main(args):
                 # Scores from the fine-tunning model
 
                 eps_r = model(image_r, noise, t)
+                eps_e = model(image_e, noise, t)
 
                 if args.loss_type == "type1":
 
@@ -151,7 +152,7 @@ def main(args):
                 elif args.loss_type == "type2":
 
                     # delta logP(D_r) - delta logP(D_e)
-                    loss =loss_fn(eps_r, eps_r_frozen - alpha2*eps_e_frozen)
+                    loss = loss_fn(eps_r, eps_r_frozen - alpha2*eps_e_frozen)
                     loss2 =loss_fn(eps_r, eps_r_frozen)
 
                     loss = alpha1*loss + loss2
@@ -160,15 +161,19 @@ def main(args):
                     loss = loss_fn(eps_r, alpha2*eps_e_frozen)
 
                 elif args.loss_type  == "type4":
-                    loss = loss_fn(eps_r, eps_r_frozen)
+                    loss = alpha1*loss_fn(eps_r, eps_r_frozen) + alpha2*loss_fn(eps_e, eps_r_frozen)
+
+                elif args.loss_type  == "type5":
+                    loss = alpha1*loss_fn(eps_r, eps_r_frozen) + alpha2*loss_fn(eps_r, eps_e_frozen)
+
+                    # print(loss_fn(eps_r, eps_r_frozen), loss_fn(eps_r, eps_e_frozen))
 
                 ## weight regularization lambda*(\hat_{\theta} - \theta)
-
+                ## TODO fisher information
                 if args.weight_reg:
                     for n, p in model.named_parameters():
                         _loss = (p - freezed_model_dict[n].to(device)) ** 2
                         loss += 0.5 * _loss.sum()
-
 
                 loss.backward()
 
@@ -190,17 +195,17 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
 
-            path = f"results/unlearn_remaining_ablated/{digit}/epochs={args.epochs}_datasets={args.keep_digits}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
+            path = f"unlearn_remaining_ablated/{digit}/epochs={args.epochs}_datasets={args.keep_digits}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
 
-            os.makedirs(path, exist_ok=True)
-            os.makedirs(path+"/models", exist_ok=True)
-            os.makedirs(path+"/samples", exist_ok=True)
-
-            torch.save(ckpt, path+ f"/models/steps_{global_steps:0>8}.pt")
+            os.makedirs("results", exist_ok=True)
+            os.makedirs("results/models/" + path, exist_ok=True)
+            os.makedirs("results/samples/" + path, exist_ok=True)
 
             model_ema.eval()
             samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
-            save_image(samples, path + f"/samples/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+            save_image(samples, "results/samples/"+ path + f"/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+
+        torch.save(ckpt, "results/models/" + path+ f"/steps_{global_steps:0>8}.pt")
 
 if __name__=="__main__":
     args=parse_args()
