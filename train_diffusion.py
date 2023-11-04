@@ -127,8 +127,7 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
                 
-
-            if not excluded_class:
+            if excluded_class is None:
                 excluded_class = "full"
 
             model_ema.eval()
