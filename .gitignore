@@ -2,3 +2,5 @@
 __pycache__
 results/*
 data/*
+mnist_data/*
+cfair_10/*
