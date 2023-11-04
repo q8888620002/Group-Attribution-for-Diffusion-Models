@@ -5,7 +5,7 @@ from unet import Unet
 from tqdm import tqdm
 
 
-class MNISTDiffusion(nn.Module):
+class DDPM(nn.Module):
     def __init__(
             self,
             image_size,in_channels,

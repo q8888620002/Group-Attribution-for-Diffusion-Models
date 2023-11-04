@@ -22,7 +22,7 @@ from utils import *
 def parse_args():
     parser = argparse.ArgumentParser(description="Training MNISTDiffusion")
     parser.add_argument('--lr',type = float ,default=0.001)
-    parser.add_argument('--batch_size',type = int ,default=128)    
+    parser.add_argument('--batch_size',type = int ,default=128)
     parser.add_argument('--epochs',type = int,default=100)
     parser.add_argument('--ckpt',type = str,help = 'define checkpoint path',default='')
     parser.add_argument('--n_samples',type = int,help = 'define sampling amounts after every epoch trained',default=36)
@@ -40,19 +40,19 @@ def parse_args():
 
 def main(args):
     device="cpu" if args.cpu else "cuda"
-    
+
     model_full=MNISTDiffusion(timesteps=args.timesteps,
                 image_size=28,
                 in_channels=1,
                 base_dim=args.model_base_dim,
                 dim_mults=[2,4]).to(device)
-    
+
     model_ablated=MNISTDiffusion(timesteps=args.timesteps,
                 image_size=28,
                 in_channels=1,
                 base_dim=args.model_base_dim,
                 dim_mults=[2,4]).to(device)
-    
+
     model_unlearn=MNISTDiffusion(timesteps=args.timesteps,
                 image_size=28,
                 in_channels=1,
@@ -84,13 +84,14 @@ def main(args):
     os.makedirs(f"results/generated_samples/original/samples", exist_ok=True)
     os.makedirs(f"results/generated_samples/ablated/samples", exist_ok=True)
     os.makedirs(f"results/generated_samples/unlearn/samples", exist_ok=True)
-    
+
     save_image(samples_original, f"results/generated_samples/original/samples/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
     save_image(samples_ablated, f"results/generated_samples/ablated/samples/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
     save_image(samples_unlearn, f"results/generated_samples/unlearn/samples/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
 
-    print(calculate_fid_mnist(samples_unlearn, samples_original), calculate_fid_mnist(samples_ablated, samples_original), calculate_fid_mnist(samples_ablated, samples_unlearn))
-    # print(clip_score(samples_unlearn, samples_original), clip_score(samples_ablated, samples_original))
+    # print(calculate_fid_mnist(samples_unlearn, samples_original), calculate_fid_mnist(samples_ablated, samples_original), calculate_fid_mnist(samples_ablated, samples_unlearn))
+
+    print(clip_score(samples_unlearn, samples_original), clip_score(samples_ablated, samples_original))
 
 
 

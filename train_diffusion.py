@@ -10,13 +10,14 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
-from model import MNISTDiffusion
+from model import DDPM
 from utils import *
 
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Training MNISTDiffusion")
+    parser = argparse.ArgumentParser(description="Training DDPM")
+
     parser.add_argument('--lr',type = float ,default=0.001)
     parser.add_argument('--batch_size',type = int ,default=128)    
     parser.add_argument('--epochs',type = int,default=100)
@@ -28,7 +29,9 @@ def parse_args():
     parser.add_argument('--model_ema_decay',type = float,help = 'ema model decay',default=0.995)
     parser.add_argument('--log_freq',type = int,help = 'training log message printing frequence',default=10)
     parser.add_argument('--no_clip',action='store_true',help = 'set to normal sampling method without clip x_0 which could yield unstable samples')
-    parser.add_argument('--cpu',action='store_true',help = 'cpu training')
+    parser.add_argument('--device', type=str ,help = 'device of training', default="cuda:0")
+    parser.add_argument('--dataset',type = str, help="dataset name", default = '')
+
 
     args = parser.parse_args()
 
@@ -36,24 +39,45 @@ def parse_args():
 
 
 def main(args):
-    device="cpu" if args.cpu else "cuda"
     
-    for digit in range(11):
+    device = args.device
+
+    for excluded_class in range(11):
         
-        if digit == 10:
-            exclude_label=None
+        if excluded_class == 10:
+            excluded_class = None
         
-        train_dataloader,test_dataloader=create_mnist_dataloaders(
+        if args.dataset == "cifar":
+
+            image_size=32
+            model=DDPM(
+                timesteps=args.timesteps,
+                image_size=image_size,
+                in_channels=3,
+                base_dim=args.model_base_dim,
+            ).to(device)
+
+        elif args.dataset == "mnist":
+            image_size=28
+
+            model=DDPM(
+                timesteps=args.timesteps,
+                image_size=image_size,
+                in_channels=1,
+                base_dim=args.model_base_dim,
+                dim_mults=[2,4]
+            ).to(device)
+        else:
+            raise ValueError(f"Unknown dataset {args.dataset}, choose 'cifar' or 'mnist'.")
+        
+
+        train_dataloader, _ = create_dataloader(
+            dataset_name=args.dataset,
             batch_size=args.batch_size,
-            image_size=28,
-            exclude_label=digit
+            image_size=image_size,
+            excluded_class=excluded_class
         )
 
-        model=MNISTDiffusion(timesteps=args.timesteps,
-                    image_size=28,
-                    in_channels=1,
-                    base_dim=args.model_base_dim,
-                    dim_mults=[2,4]).to(device)
 
         #torchvision ema setting
         #https://github.com/pytorch/vision/blob/main/references/classification/train.py#
@@ -78,7 +102,7 @@ def main(args):
         for i in range(args.epochs):
             model.train()
 
-            for j,(image,target) in enumerate(train_dataloader):
+            for j,(image, _) in enumerate(train_dataloader):
 
                 noise=torch.randn_like(image).to(device)
                 image=image.to(device)
@@ -102,20 +126,21 @@ def main(args):
                 "model": model.state_dict(),
                 "model_ema": model_ema.state_dict()
             }
-
-            if not digit:
-                digit = "full"
                 
-            os.makedirs(f"results/{digit}", exist_ok=True)
-            os.makedirs(f"results/{digit}/models", exist_ok=True)
-            os.makedirs(f"results/{digit}/samples", exist_ok=True)
 
-            torch.save(ckpt, f"results/{digit}/models/steps_{global_steps:0>8}.pt")
+            if not excluded_class:
+                excluded_class = "full"
 
             model_ema.eval()
+
             samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
 
-            save_image(samples, f"results/{digit}/samples/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+            os.makedirs(f"results/{args.dataset}/retrain/models/{excluded_class}", exist_ok=True)
+            os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
+
+            save_image(samples, f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+
+        torch.save(ckpt, f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
 
             
 if __name__=="__main__":

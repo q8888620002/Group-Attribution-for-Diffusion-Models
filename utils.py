@@ -5,7 +5,7 @@ import random
 
 from torch.utils.data import DataLoader, Subset
 
-from torchvision.datasets import MNIST
+from torchvision.datasets import MNIST , CIFAR10
 from torchvision import transforms
 from torchvision.transforms import Lambda
 from torchvision.models import inception_v3
@@ -28,51 +28,90 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
         super().__init__(model, device, ema_avg, use_buffers=True)
 
 
-def create_mnist_dataloaders(
-        batch_size,image_size=28,
-        num_workers=4,
-        exclude_label=None
-    ):
+from torchvision import transforms
+from torchvision.datasets import CIFAR10, MNIST
+from torch.utils.data import DataLoader, Subset
 
+def create_dataloader(
+    dataset_name: str,
+    batch_size: int,
+    image_size: int = 32,
+    num_workers: int = 4,
+    excluded_class: int = None
+) -> tuple:
+    
     """
-
-    Create a mnist dataset with/without filtered labels
+    Function to create dataloader for image datasets e.g. mnist and cfair-10
 
     Args:
-        batch_size: int
-        num_worksrs: int
-        exclude_label: int e.g. 1,2
-    Return:
-        MNIST dataset.
+        dataset_name: name of the dataset for generative models
+        batch_size: batch size 
+        image_size
+        num_workers:
+        excluded_class: ablated classes e.g. digit 1 in mnist or class 1 in cfair-10
 
+    Return:
+        Train loader and test loader. 
+        
     """
 
-    preprocess=transforms.Compose([transforms.Resize(image_size),\
-                                    transforms.ToTensor(),\
-                                    transforms.Normalize([0.5],[0.5])]) #[0,1] to [-1,1]
+    if dataset_name == 'cifar':
+        preprocess = transforms.Compose([
+            transforms.Resize((image_size, image_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+        DatasetClass = CIFAR10
+        root_dir = './cfair_10'
+    elif dataset_name == 'mnist':
+        preprocess = transforms.Compose([
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize([0.5], [0.5])
+        ])
+        DatasetClass = MNIST
+        root_dir = './mnist_data'
+    else:
+        raise ValueError(f"Unknown dataset {dataset_name}, choose 'cifar' or 'mnist'.")
 
-    train_dataset=MNIST(
-        root="./mnist_data",
+    # Load the specified dataset
+    train_dataset = DatasetClass(
+        root=root_dir,
         train=True,
         download=True,
         transform=preprocess
-        )
-    test_dataset=MNIST(
-        root="./mnist_data",
+    )
+
+    test_dataset = DatasetClass(
+        root=root_dir,
         train=False,
         download=True,
         transform=preprocess
-        )
+    )
 
-    if exclude_label is not None:
-        train_indices = [i for i, (_, label) in enumerate(train_dataset) if label != exclude_label]
-        test_indices = [i for i, (_, label) in enumerate(test_dataset) if label != exclude_label]
+    # Filter the datasets if excluded_class is specified
+    if excluded_class is not None:
+        train_indices = [i for i, (_, label) in enumerate(train_dataset) if label != excluded_class]
+        test_indices = [i for i, (_, label) in enumerate(test_dataset) if label != excluded_class]
 
         train_dataset = Subset(train_dataset, train_indices)
         test_dataset = Subset(test_dataset, test_indices)
 
-    return DataLoader(train_dataset,batch_size=batch_size,shuffle=True,num_workers=num_workers),\
-            DataLoader(test_dataset,batch_size=batch_size,shuffle=True,num_workers=num_workers)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers
+    )
+
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,  
+        num_workers=num_workers
+    )
+
+    return train_loader, test_loader
 
 
 def create_unlearning_dataloaders(
@@ -134,7 +173,7 @@ def create_unlearning_dataloaders(
 
             ablated_indices = random.sample(all_indices, len(remaining_indices))
         else:
-            
+
             ablated_indices = exclude_indices
             # Resize remaining_indices to match the length of ablated_indices
             remaining_indices = random.sample(remaining_indices, len(ablated_indices))
@@ -146,7 +185,6 @@ def create_unlearning_dataloaders(
 
     return (DataLoader(remaining_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers),
                 DataLoader(ablated_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers))
-
 
 
 def calculate_fid_mnist(images1, images2):
@@ -213,7 +251,6 @@ def preprocess_clip_mnist(batch_images):
     Preprocess a batch of MNIST images for CLIP.
 
     """
-
     transform = Compose([
         ToPILImage(),
         Resize((224, 224)),

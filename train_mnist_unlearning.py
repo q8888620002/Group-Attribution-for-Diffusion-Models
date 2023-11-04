@@ -166,6 +166,10 @@ def main(args):
                 elif args.loss_type  == "type5":
                     loss = alpha1*loss_fn(eps_r, eps_r_frozen) + alpha2*loss_fn(eps_r, eps_e_frozen)
 
+                elif args.loss_type  == "type6":
+                    loss = alpha1*loss_fn(eps_r, eps_r_frozen) + alpha2*loss_fn(eps_e, eps_e_frozen)
+
+
                     # print(loss_fn(eps_r, eps_r_frozen), loss_fn(eps_r, eps_e_frozen))
 
                 ## weight regularization lambda*(\hat_{\theta} - \theta)
