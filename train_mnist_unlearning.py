@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
-from model import MNISTDiffusion
+from model import DDPM
 from utils import *
 
 
@@ -65,14 +65,14 @@ def main(args):
             exclude_label=digit
         )
 
-        model=MNISTDiffusion(
+        model=DDPM(
             timesteps=args.timesteps,
                 image_size=28,
                 in_channels=1,
                 base_dim=args.model_base_dim,
                 dim_mults=[2,4]).to(device)
 
-        model_frozen=MNISTDiffusion(timesteps=args.timesteps,
+        model_frozen=DDPM(timesteps=args.timesteps,
                     image_size=28,
                     in_channels=1,
                     base_dim=args.model_base_dim,

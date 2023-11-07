@@ -36,7 +36,8 @@ class DDPM(nn.Module):
             time_embedding_dim,
             in_channels,
             in_channels,
-            base_dim,dim_mults
+            base_dim,
+            dim_mults
        )
 
 
@@ -87,21 +88,30 @@ class DDPM(nn.Module):
 
         return x_t
 
-    # def _sampling(self, x_t, n_samples,clipped_reverse_diffusion=True,device="cuda"):
 
-    #     for i in tqdm(range(self.timesteps-1,-1,-1),desc="Sampling"):
+    def _sampling(
+        self,
+        x_t,
+        n_samples,
+        clipped_reverse_diffusion=True,
+        device="cuda"
+    )-> torch.tensor:
+        """
+        Sampling process for the model x_T -> x_0
+        """
+        for i in tqdm(range(self.timesteps-1,-1,-1),desc="Sampling"):
 
-    #         noise=torch.randn_like(x_t).to(device)
-    #         t=torch.tensor([i for _ in range(n_samples)]).to(device)
+            noise=torch.randn_like(x_t).to(device)
+            t=torch.tensor([i for _ in range(n_samples)]).to(device)
 
-    #         if clipped_reverse_diffusion:
-    #             x_t=self._reverse_diffusion_with_clip(x_t,t,noise)
-    #         else:
-    #             x_t=self._reverse_diffusion(x_t,t,noise)
+            if clipped_reverse_diffusion:
+                x_t=self._reverse_diffusion_with_clip(x_t,t,noise)
+            else:
+                x_t=self._reverse_diffusion(x_t,t,noise)
 
-    #     x_t=(x_t+1.)/2. #[-1,1] to [0,1]
+        x_t=(x_t+1.)/2. #[-1,1] to [0,1]
 
-    #     return x_t
+        return x_t
 
     def _cosine_variance_schedule(
             self,
@@ -111,7 +121,7 @@ class DDPM(nn.Module):
 
         steps=torch.linspace(0,timesteps,steps=timesteps+1,dtype=torch.float32)
         f_t=torch.cos(((steps/timesteps+epsilon)/(1.0+epsilon))*math.pi*0.5)**2
-        betas=torch.clip(1.0-f_t[1:]/f_t[:timesteps],0.0,0.999)
+        betas=torch.clip(1.0-f_t[1:]/f_t[:timesteps], 0.0 , 0.999 )
 
         return betas
 

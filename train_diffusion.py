@@ -19,7 +19,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training DDPM")
 
     parser.add_argument('--lr',type = float ,default=0.001)
-    parser.add_argument('--batch_size',type = int ,default=128)    
+    parser.add_argument('--batch_size',type = int ,default=128)
     parser.add_argument('--epochs',type = int,default=100)
     parser.add_argument('--ckpt',type = str,help = 'define checkpoint path',default='')
     parser.add_argument('--n_samples',type = int,help = 'define sampling amounts after every epoch trained',default=36)
@@ -39,22 +39,23 @@ def parse_args():
 
 
 def main(args):
-    
+
     device = args.device
 
-    for excluded_class in range(11):
-        
+    for excluded_class in range(10, -1, -1):
+
         if excluded_class == 10:
             excluded_class = None
-        
+
         if args.dataset == "cifar":
 
             image_size=32
+
             model=DDPM(
                 timesteps=args.timesteps,
                 image_size=image_size,
                 in_channels=3,
-                base_dim=args.model_base_dim,
+                base_dim=128,
             ).to(device)
 
         elif args.dataset == "mnist":
@@ -69,7 +70,7 @@ def main(args):
             ).to(device)
         else:
             raise ValueError(f"Unknown dataset {args.dataset}, choose 'cifar' or 'mnist'.")
-        
+
 
         train_dataloader, _ = create_dataloader(
             dataset_name=args.dataset,
@@ -92,6 +93,7 @@ def main(args):
         loss_fn=nn.MSELoss(reduction='mean')
 
         #load checkpoint
+
         if args.ckpt:
             ckpt=torch.load(args.ckpt)
             model_ema.load_state_dict(ckpt["model_ema"])
@@ -118,7 +120,7 @@ def main(args):
                 if global_steps%args.model_ema_steps==0:
                     model_ema.update_parameters(model)
                 global_steps+=1
-                
+
                 if j % args.log_freq == 0:
                     print(f"Epoch[{i+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}],loss:{loss.detach().cpu().item():.5f},lr:{scheduler.get_last_lr()[0]:.5f}")
 
@@ -126,7 +128,7 @@ def main(args):
                 "model": model.state_dict(),
                 "model_ema": model_ema.state_dict()
             }
-                
+
             if excluded_class is None:
                 excluded_class = "full"
 
@@ -141,7 +143,7 @@ def main(args):
 
         torch.save(ckpt, f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
 
-            
+
 if __name__=="__main__":
     args=parse_args()
     main(args)

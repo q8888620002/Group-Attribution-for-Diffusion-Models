@@ -39,30 +39,34 @@ def create_dataloader(
     num_workers: int = 4,
     excluded_class: int = None
 ) -> tuple:
-    
+
     """
     Function to create dataloader for image datasets e.g. mnist and cfair-10
 
     Args:
         dataset_name: name of the dataset for generative models
-        batch_size: batch size 
+        batch_size: batch size
         image_size
         num_workers:
         excluded_class: ablated classes e.g. digit 1 in mnist or class 1 in cfair-10
 
     Return:
-        Train loader and test loader. 
-        
+        Train loader and test loader.
+
     """
 
     if dataset_name == 'cifar':
         preprocess = transforms.Compose([
-            transforms.Resize((image_size, image_size)),
+            transforms.Resize(image_size),
+            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+            # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
         ])
+
         DatasetClass = CIFAR10
         root_dir = './cfair_10'
+
     elif dataset_name == 'mnist':
         preprocess = transforms.Compose([
             transforms.Resize(image_size),
@@ -107,7 +111,7 @@ def create_dataloader(
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
-        shuffle=False,  
+        shuffle=False,
         num_workers=num_workers
     )
 
@@ -194,7 +198,6 @@ def calculate_fid_mnist(images1, images2):
 
     TODO: Calcualte FID with mnist is probably not a good idea - https://stackoverflow.com/questions/57183647/frechet-inception-distance-for-dc-gan-trained-on-mnist-dataset
 
-
     Args:
         images1:
         images2:
@@ -203,11 +206,11 @@ def calculate_fid_mnist(images1, images2):
     """
 
     # Define preprocessing steps for MNIST
-    preprocess_mnist = Compose([
-        Resize((299, 299)),
-        Lambda(lambda x: x.repeat(3, 1, 1)),  # Convert grayscale to RGB format
-        Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),  # Adjust normalization for MNIST
-    ])
+    # preprocess_mnist = Compose([
+    #     Resize((299, 299)),
+    #     Lambda(lambda x: x.repeat(3, 1, 1)),  # Convert grayscale to RGB format
+    #     Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),  # Adjust normalization for MNIST
+    # ])
 
     model = inception_v3(pretrained=True, transform_input=False, aux_logits=True)
 
@@ -245,12 +248,12 @@ def calculate_fid_mnist(images1, images2):
 device = "cuda" if torch.cuda.is_available() else "cpu"
 clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 
-
 def preprocess_clip_mnist(batch_images):
     """
     Preprocess a batch of MNIST images for CLIP.
 
     """
+
     transform = Compose([
         ToPILImage(),
         Resize((224, 224)),
@@ -259,7 +262,6 @@ def preprocess_clip_mnist(batch_images):
         Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711))
     ])
 
-    # Apply the transformations
     batch_processed = torch.stack([transform(img) for img in batch_images])
 
     return batch_processed
@@ -267,7 +269,8 @@ def preprocess_clip_mnist(batch_images):
 def clip_score(images1, images2):
 
     """
-    TODO: fix clip rescaling issues with MNIST.
+    Function that calculate CLIP score, cosine similarity between images1 and images2
+
     """
 
     images1 = preprocess_clip_mnist(images1).to(device)
@@ -283,4 +286,4 @@ def clip_score(images1, images2):
     features2 = features2 / features2.norm(dim=-1, keepdim=True)
     similarity = (features1 @ features2.T).cpu().numpy()
 
-    return similarity
+    return similarity.mean()
