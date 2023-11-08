@@ -2,14 +2,14 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import random
+import torchvision.transforms.functional as TF
 
 from torch.utils.data import DataLoader, Subset
-
 from torchvision.datasets import MNIST , CIFAR10
 from torchvision import transforms
-from torchvision.transforms import Lambda
-from torchvision.models import inception_v3
 from torchvision.transforms import Compose, Resize, Lambda, Normalize, ToPILImage
+from torchvision.models import inception_v3
+
 from scipy.linalg import sqrtm
 from CLIP.clip import clip
 from PIL import Image
@@ -26,11 +26,6 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
             return decay * avg_model_param + (1 - decay) * model_param
 
         super().__init__(model, device, ema_avg, use_buffers=True)
-
-
-from torchvision import transforms
-from torchvision.datasets import CIFAR10, MNIST
-from torch.utils.data import DataLoader, Subset
 
 def create_dataloader(
     dataset_name: str,
@@ -60,8 +55,7 @@ def create_dataloader(
             transforms.Resize(image_size),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-            # transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
 
         DatasetClass = CIFAR10
@@ -191,12 +185,10 @@ def create_unlearning_dataloaders(
                 DataLoader(ablated_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers))
 
 
-def calculate_fid_mnist(images1, images2):
+def calculate_fid(images1, images2, device):
     """
 
     Create a mnist dataset with/without filtered labels
-
-    TODO: Calcualte FID with mnist is probably not a good idea - https://stackoverflow.com/questions/57183647/frechet-inception-distance-for-dc-gan-trained-on-mnist-dataset
 
     Args:
         images1:
@@ -205,21 +197,18 @@ def calculate_fid_mnist(images1, images2):
         fid score between images1 and images2
     """
 
-    # Define preprocessing steps for MNIST
-    # preprocess_mnist = Compose([
-    #     Resize((299, 299)),
-    #     Lambda(lambda x: x.repeat(3, 1, 1)),  # Convert grayscale to RGB format
-    #     Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),  # Adjust normalization for MNIST
-    # ])
+    model = inception_v3(
+        weights='DEFAULT',
+        transform_input=False,
+        aux_logits=True
+    ).to(device)
 
-    model = inception_v3(pretrained=True, transform_input=False, aux_logits=True)
-
-    model = model.cuda() if torch.cuda.is_available() else model
     model.eval()
 
-    # Preprocess images
-    images1 = torch.stack([preprocess_mnist(img) for img in images1])
-    images2 = torch.stack([preprocess_mnist(img) for img in images2])
+    ## resize images for inception_v3 as it expects tensors with a size of (N x 3 x 299 x 299).
+
+    images1 = torch.stack([TF.resize(img, (299, 299), antialias=True) for img in images1])
+    images2 = torch.stack([TF.resize(img, (299, 299), antialias=True) for img in images2])
 
     with torch.no_grad():
         act1 = model(images1)

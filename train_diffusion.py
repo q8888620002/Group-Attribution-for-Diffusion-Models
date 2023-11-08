@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
-from model import DDPM
+from diffusion.diffusions import DDPM
 from utils import *
 
 
@@ -53,21 +53,32 @@ def main(args):
 
             model=DDPM(
                 timesteps=args.timesteps,
+                base_dim=128,
+                channel_mult=[1,2,3,4],
                 image_size=image_size,
                 in_channels=3,
-                base_dim=128,
+                out_channels=3
             ).to(device)
 
+            mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(device)
+            std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(device)
+
         elif args.dataset == "mnist":
-            image_size=28
+
+            image_size=32
 
             model=DDPM(
                 timesteps=args.timesteps,
+                base_dim=64,
+                channel_mult=[1,2,4,8],
                 image_size=image_size,
                 in_channels=1,
-                base_dim=args.model_base_dim,
-                dim_mults=[2,4]
+                out_channels=1
             ).to(device)
+
+            mean = torch.tensor([0.5]).view(1, 1, 1, 1).to(device)
+            std = torch.tensor([0.5]).view(1, 1, 1, 1).to(device)
+
         else:
             raise ValueError(f"Unknown dataset {args.dataset}, choose 'cifar' or 'mnist'.")
 
@@ -101,10 +112,15 @@ def main(args):
 
         global_steps=0
 
+        total_steps = len(train_dataloader) * args.epochs
+
+        fid_scores = []
+
         for i in range(args.epochs):
             model.train()
+            real_images = torch.Tensor().to(device)
 
-            for j,(image, _) in enumerate(train_dataloader):
+            for j, (image, _) in enumerate(train_dataloader):
 
                 noise=torch.randn_like(image).to(device)
                 image=image.to(device)
@@ -122,12 +138,28 @@ def main(args):
                 global_steps+=1
 
                 if j % args.log_freq == 0:
+
                     print(f"Epoch[{i+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}],loss:{loss.detach().cpu().item():.5f},lr:{scheduler.get_last_lr()[0]:.5f}")
 
-            ckpt = {
-                "model": model.state_dict(),
-                "model_ema": model_ema.state_dict()
-            }
+                if global_steps > 0 and global_steps % (total_steps//4) == 0:
+
+                    ## Checkpoints for training
+
+                    print(f"Checkpoint saved at step {global_steps}")
+
+                    ckpt = {
+                        "model": model.state_dict(),
+                        "model_ema": model_ema.state_dict()
+                    }
+
+                    os.makedirs(f"results/{args.dataset}/retrain/models/{excluded_class}", exist_ok=True)
+                    torch.save(ckpt, f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
+
+                ## adding images for FID evaluation
+
+                if real_images.size(0) < args.n_samples:
+                    with torch.no_grad():
+                        real_images = torch.cat((real_images, image), dim=0)
 
             if excluded_class is None:
                 excluded_class = "full"
@@ -136,13 +168,29 @@ def main(args):
 
             samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
 
-            os.makedirs(f"results/{args.dataset}/retrain/models/{excluded_class}", exist_ok=True)
-            os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
+            ## Calculating Fid Score
 
+            if real_images.size(0) > args.n_samples:
+                real_images = real_images[:args.n_samples]
+
+            fid_value = calculate_fid(samples, real_images, device)
+            fid_scores.append(fid_value)
+
+            print(f"FID score after {global_steps} steps: {fid_value}")
+
+            samples = samples * std + mean
+
+            os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
             save_image(samples, f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+
+        ckpt = {
+            "model": model.state_dict(),
+            "model_ema": model_ema.state_dict()
+        }
 
         torch.save(ckpt, f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
 
+        np.save(f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.npy",  np.array(fid_scores))
 
 if __name__=="__main__":
     args=parse_args()

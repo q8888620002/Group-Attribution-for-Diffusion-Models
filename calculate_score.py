@@ -6,6 +6,7 @@ import glob
 import torch
 import torch.nn as nn
 import numpy as np
+import torchvision
 from scipy.linalg import sqrtm
 
 from torchvision.utils import save_image
@@ -82,27 +83,60 @@ def main(args):
         model_full.load_state_dict(ckpt["model"])
         model_full.eval()
 
-    for i in range(1, 10):
-        max_step_file_ablated = find_max_step_file(f"/projects/leelab2/mingyulu/unlearning/results/ablated/{i}/models/steps_*.pt")
-        ckpt_ablated = torch.load(max_step_file_ablated)
-        model_ablated.load_state_dict(ckpt_ablated["model"])
-        model_ablated.eval()
+        for i in range(1, 10):
+            max_step_file_ablated = find_max_step_file(f"/projects/leelab2/mingyulu/unlearning/results/ablated/{i}/models/steps_*.pt")
+            ckpt_ablated = torch.load(max_step_file_ablated)
+            model_ablated.load_state_dict(ckpt_ablated["model"])
+            model_ablated.eval()
 
-        max_step_file_unlearn = find_max_step_file(f"results/models/unlearn_remaining_ablated/{i}/epochs=100_datasets=False_loss=type1:alpha1=1.0_alpha2=0.01_weight_reg=False/steps_*.pt")
-        ckpt_unlearn = torch.load(max_step_file_unlearn)
-        model_unlearn.load_state_dict(ckpt_unlearn["model"])
-        model_unlearn.eval()
+            max_step_file_unlearn = find_max_step_file(f"results/models/unlearn_remaining_ablated/{i}/epochs=100_datasets=False_loss=type1:alpha1=1.0_alpha2=0.01_weight_reg=False/steps_*.pt")
+            ckpt_unlearn = torch.load(max_step_file_unlearn)
+            model_unlearn.load_state_dict(ckpt_unlearn["model"])
+            model_unlearn.eval()
 
-        x_t=torch.randn((args.n_samples, 1, config["image_size"], config["image_size"])).to(device)
+            x_t=torch.randn((args.n_samples, 1, config["image_size"], config["image_size"])).to(device)
 
-        samples_original = model_full._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
-        samples_ablated = model_ablated._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
-        samples_unlearn = model_unlearn._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
+            samples_original = model_full._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
+            samples_ablated = model_ablated._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
+            samples_unlearn = model_unlearn._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
 
-        # print(calculate_fid_mnist(samples_unlearn, samples_original), calculate_fid_mnist(samples_ablated, samples_original), calculate_fid_mnist(samples_ablated, samples_unlearn))
 
-        print(clip_score(samples_unlearn, samples_original), clip_score(samples_ablated, samples_original), clip_score(samples_ablated, samples_unlearn))
+            print(clip_score(samples_unlearn, samples_original), clip_score(samples_ablated, samples_original), clip_score(samples_ablated, samples_unlearn))
 
+    if args.dataset == "cifar":
+
+        max_step_file = find_max_step_file("results/cifar/retrain/models/full/steps_*.pt")
+        ckpt = torch.load(max_step_file)
+        model_full.load_state_dict(ckpt["model"])
+        model_full.eval()
+
+        transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.RandomHorizontalFlip(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            ]
+        )
+
+        trainset = torchvision.datasets.CIFAR10(
+            root='./cfair_10', 
+            train=True,
+            download=True, 
+            transform=transform
+        )
+
+        images = torch.stack([trainset[i][0] for i in range(36)]).to(device)
+
+        x_t=torch.randn((args.n_samples, config["in_channels"], config["image_size"], config["image_size"])).to(device)
+
+        samples = model_full._sampling(
+            x_t, 
+            args.n_samples, 
+            clipped_reverse_diffusion=not args.no_clip, 
+            device=device
+        )
+
+        print(calculate_fid(samples, images, device))
 
 
 if __name__=="__main__":

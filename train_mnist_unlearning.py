@@ -10,9 +10,8 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
-from model import DDPM
+from Diffusion.diffusions import DDPM
 from utils import *
-
 
 
 def parse_args():
@@ -36,7 +35,6 @@ def parse_args():
     parser.add_argument('--model_ema_decay',type = float,help = 'ema model decay',default=0.995)
     parser.add_argument('--no_clip',action='store_true',help = 'set to normal sampling method without clip x_0 which could yield unstable samples')
 
-
     ## Loss related params
 
     parser.add_argument('--loss_type',type = str,help = 'define loss type',default='type1')
@@ -55,7 +53,7 @@ def main(args):
     # device="cpu" if args.cpu else "cuda:0"
     device = args.device
 
-    for digit in range(1, 10):
+    for digit in range(10):
 
         train_dataloader, ablated_dataloader = create_unlearning_dataloaders(
             batch_size=args.batch_size,
@@ -67,16 +65,19 @@ def main(args):
 
         model=DDPM(
             timesteps=args.timesteps,
-                image_size=28,
-                in_channels=1,
-                base_dim=args.model_base_dim,
-                dim_mults=[2,4]).to(device)
+            image_size=28,
+            in_channels=1,
+            base_dim=args.model_base_dim,
+            dim_mults=[2,4]
+        ).to(device)
 
-        model_frozen=DDPM(timesteps=args.timesteps,
-                    image_size=28,
-                    in_channels=1,
-                    base_dim=args.model_base_dim,
-                    dim_mults=[2,4]).to(device)
+        model_frozen=DDPM(
+            timesteps=args.timesteps,
+            image_size=28,
+            in_channels=1,
+            base_dim=args.model_base_dim,
+            dim_mults=[2,4]
+        ).to(device)
 
         #torchvision ema setting
         #https://github.com/pytorch/vision/blob/main/references/classification/train.py#
@@ -92,6 +93,7 @@ def main(args):
 
         alpha1 = args.alpha1
         alpha2 = args.alpha2
+
         #load checkpoint
 
         ckpt=torch.load("/projects/leelab2/mingyulu/unlearning/results/full/models/steps_00042300.pt")
@@ -107,7 +109,6 @@ def main(args):
 
         for params in model_frozen.parameters():
             params.require_grad=False
-
 
         ## Adding weight regularization
 
@@ -142,38 +143,19 @@ def main(args):
                 # Scores from the fine-tunning model
 
                 eps_r = model(image_r, noise, t)
-                eps_e = model(image_e, noise, t)
 
                 if args.loss_type == "type1":
 
                     # delta logP(D_r) - delta logP(D_e)
                     loss = loss_fn(eps_r, eps_r_frozen - alpha2*eps_e_frozen)
 
-                elif args.loss_type == "type2":
-
-                    # delta logP(D_r) - delta logP(D_e)
-                    loss = loss_fn(eps_r, eps_r_frozen - alpha2*eps_e_frozen)
-                    loss2 =loss_fn(eps_r, eps_r_frozen)
-
-                    loss = alpha1*loss + loss2
-
-                elif args.loss_type  == "type3":
-                    loss = loss_fn(eps_r, alpha2*eps_e_frozen)
-
-                elif args.loss_type  == "type4":
-                    loss = alpha1*loss_fn(eps_r, eps_r_frozen) + alpha2*loss_fn(eps_e, eps_r_frozen)
-
                 elif args.loss_type  == "type5":
+
                     loss = alpha1*loss_fn(eps_r, eps_r_frozen) + alpha2*loss_fn(eps_r, eps_e_frozen)
-
-                elif args.loss_type  == "type6":
-                    loss = alpha1*loss_fn(eps_r, eps_r_frozen) + alpha2*loss_fn(eps_e, eps_e_frozen)
-
-
-                    # print(loss_fn(eps_r, eps_r_frozen), loss_fn(eps_r, eps_e_frozen))
 
                 ## weight regularization lambda*(\hat_{\theta} - \theta)
                 ## TODO fisher information
+
                 if args.weight_reg:
                     for n, p in model.named_parameters():
                         _loss = (p - freezed_model_dict[n].to(device)) ** 2
