@@ -6,13 +6,14 @@ Install packages
 ```bash
 pip install -r requirements.txt
 ```
-Training ablated diffusion model 
+Training diffusion model 
 ```bash
-python train_mnist.py
+python train_mnist.py --dataset="mnist" --epochs=100 --device="cuda:0"
 ```
+
 Training with unlearning 
 ```bash
-python train_mnist_unlearning.py --epochs=300 --loss_type="type2" --device="cuda:1"
+python train_mnist_unlearning.py --dataset="mnist" --epochs=300 --loss_type="type2" --device="cuda:1"
 ```
 
 Feel free to tuning training parameters, type `python train_mnist.py -h` to get help message of arguments.
