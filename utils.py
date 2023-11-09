@@ -114,10 +114,11 @@ def create_dataloader(
 
 
 def create_unlearning_dataloaders(
-        batch_size,image_size=28,
+        batch_size,
+        image_size=28,
         num_workers=4,
-        keep_digits_in_ablated: bool=True,
-        keep_digits_in_remaining: bool=True,
+        keep_digits_in_ablated: bool=False,
+        keep_digits_in_remaining: bool=False,
         exclude_label=None
     ):
 

@@ -1,7 +1,6 @@
 import os
 import math
 import argparse
-
 import torch
 import torch.nn as nn
 
@@ -10,21 +9,23 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
-from Diffusion.diffusions import DDPM
+from diffusion.diffusions import DDPM
 from utils import *
 
 
 def parse_args():
+
     parser = argparse.ArgumentParser(description="Training MNISTDiffusion")
 
     # Training params
-    parser.add_argument('--lr',type = float ,default=0.001)
+    parser.add_argument('--lr',type = float ,default=0.0001)
     parser.add_argument('--batch_size',type = int ,default=128)
     parser.add_argument('--epochs',type = int,default=100)
     parser.add_argument('--ckpt',type = str,help = 'define checkpoint path',default='')
     parser.add_argument('--cpu',action='store_true',help = 'cpu training')
     parser.add_argument('--device', type=str,help = 'gpu training', default="cuda:0")
     parser.add_argument('--log_freq',type = int,help = 'training log message printing frequence',default=10)
+    parser.add_argument('--dataset', type=str,help = 'name of the dataset', default="")
 
     ## Diffusion params
 
@@ -47,70 +48,116 @@ def parse_args():
 
     return args
 
+def load_checkpoint(directory):
+
+    all_files = [f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))]
+    sorted_files = sorted(all_files, key=lambda f: int(f.split("_")[1].split(".")[0]))
+    max_step = int(sorted_files[-1].split("_")[1].split(".")[0])
+    checkpoint_path = os.path.join(directory, f"steps_{max_step:0>8}.pt")
+    ckpt = torch.load(checkpoint_path)
+
+    return ckpt
+
 
 def main(args):
 
-    # device="cpu" if args.cpu else "cuda:0"
     device = args.device
 
-    for digit in range(10):
+    if args.dataset == "cifar":
+
+        image_size=32
+        base_dim = 128
+        channel_mult = [1,2,3,4]
+        in_channels = 3
+        out_channels = 3
+
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(device)
+        std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(device)
+
+    elif args.dataset == "mnist":
+
+        image_size=28
+        base_dim = 64
+        channel_mult = [1,2,4]
+        in_channels = 1
+        out_channels = 1
+
+        mean = torch.tensor([0.5]).view(1, 1, 1, 1).to(device)
+        std = torch.tensor([0.5]).view(1, 1, 1, 1).to(device)
+
+    else:
+        raise ValueError(f"Unknown dataset {args.dataset}, choose 'cifar' or 'mnist'.")
+
+    model_frozen=DDPM(
+        timesteps=args.timesteps,
+        base_dim=base_dim,
+        channel_mult=channel_mult,
+        image_size=image_size,
+        in_channels=in_channels,
+        out_channels=out_channels
+    ).to(device)
+
+    ## loss params
+
+    alpha1 = args.alpha1
+    alpha2 = args.alpha2
+
+    #torchvision ema setting - https://github.com/pytorch/vision/blob/main/references/classification/train.py#
+
+    adjust = 1* args.batch_size * args.model_ema_steps / args.epochs
+    alpha = 1.0 - args.model_ema_decay
+    alpha = min(1.0, alpha * adjust)
+
+    #load checkpoint - old_ckpt=torch.load("/projects/leelab2/mingyulu/unlearning/results/full/models/steps_00042300.pt")
+
+    ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
+
+    model_frozen.load_state_dict(ckpt["model"])
+    model_frozen.eval()
+    freezed_model_dict = ckpt["model"]
+
+    ## Make sure parameters of frozen mdoel is freezed.
+    for params in model_frozen.parameters():
+        params.requires_grad=False
+
+    for excluded_class in range(10):
 
         train_dataloader, ablated_dataloader = create_unlearning_dataloaders(
             batch_size=args.batch_size,
-            image_size=28,
+            image_size=image_size,
             keep_digits_in_ablated=False,
-            keep_digits_in_remaining=args.keep_digits,
-            exclude_label=digit
+            keep_digits_in_remaining=False,
+            exclude_label=excluded_class
         )
+
+        ## Init new model for unlearning.
 
         model=DDPM(
             timesteps=args.timesteps,
-            image_size=28,
-            in_channels=1,
-            base_dim=args.model_base_dim,
-            dim_mults=[2,4]
+            base_dim=base_dim,
+            channel_mult=channel_mult,
+            image_size=image_size,
+            in_channels=in_channels,
+            out_channels=out_channels
         ).to(device)
 
-        model_frozen=DDPM(
-            timesteps=args.timesteps,
-            image_size=28,
-            in_channels=1,
-            base_dim=args.model_base_dim,
-            dim_mults=[2,4]
-        ).to(device)
-
-        #torchvision ema setting
-        #https://github.com/pytorch/vision/blob/main/references/classification/train.py#
-
-        adjust = 1* args.batch_size * args.model_ema_steps / args.epochs
-        alpha = 1.0 - args.model_ema_decay
-        alpha = min(1.0, alpha * adjust)
         model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
+        ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
+
+        model.load_state_dict(ckpt["model"])
+        model_ema.load_state_dict(ckpt["model_ema"])
+
         optimizer=AdamW(model.parameters(),lr=args.lr)
-        scheduler=OneCycleLR(optimizer,args.lr,total_steps=args.epochs*len(train_dataloader),pct_start=0.25,anneal_strategy='cos')
+        scheduler=OneCycleLR(
+            optimizer,
+            args.lr,
+            total_steps=args.epochs*len(train_dataloader),
+            pct_start=0.25,
+            anneal_strategy='cos'
+        )
         loss_fn=nn.MSELoss(reduction='mean')
 
-        alpha1 = args.alpha1
-        alpha2 = args.alpha2
-
-        #load checkpoint
-
-        ckpt=torch.load("/projects/leelab2/mingyulu/unlearning/results/full/models/steps_00042300.pt")
-
-        model_ema.load_state_dict(ckpt["model_ema"])
-        model.load_state_dict(ckpt["model"])
-
-        model_frozen.load_state_dict(ckpt["model"])
-        model_frozen.eval()
-        freezed_model_dict = ckpt["model"]
-
-        ## Make sure parameters of frozen mdoel is freezed.
-
-        for params in model_frozen.parameters():
-            params.require_grad=False
-
-        ## Adding weight regularization
 
         global_steps=0
 
@@ -131,27 +178,25 @@ def main(args):
 
                 t=torch.randint(0, args.timesteps,(noise.shape[0],)).to(device)
 
-                with torch.no_grad():
-                    # get scores for D_r and D_e from the frozen model
+                # get scores for D_r and D_e from the frozen model
 
+                with torch.no_grad():
                     eps_r_frozen = model_frozen(image_r, noise, t)
                     eps_e_frozen = model_frozen(image_e, noise, t)
-
-                eps_e_frozen.require_grad = False
-                eps_r_frozen.require_grad = False
 
                 # Scores from the fine-tunning model
 
                 eps_r = model(image_r, noise, t)
 
+
+                # delta logP(D_r) - delta logP(D_e)
                 if args.loss_type == "type1":
 
-                    # delta logP(D_r) - delta logP(D_e)
-                    loss = loss_fn(eps_r, eps_r_frozen - alpha2*eps_e_frozen)
+                    loss = loss_fn(eps_r, alpha1*eps_r_frozen - alpha2*eps_e_frozen)
 
-                elif args.loss_type  == "type5":
+                elif args.loss_type  == "type2":
 
-                    loss = alpha1*loss_fn(eps_r, eps_r_frozen) + alpha2*loss_fn(eps_r, eps_e_frozen)
+                    loss = alpha1*loss_fn(eps_r, eps_r_frozen) - alpha2*loss_fn(eps_r, eps_e_frozen)
 
                 ## weight regularization lambda*(\hat_{\theta} - \theta)
                 ## TODO fisher information
@@ -161,10 +206,9 @@ def main(args):
                         _loss = (p - freezed_model_dict[n].to(device)) ** 2
                         loss += 0.5 * _loss.sum()
 
-                loss.backward()
-
-                optimizer.step()
                 optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
                 scheduler.step()
 
                 ## Update learning rate
@@ -181,17 +225,19 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
 
-            path = f"unlearn_remaining_ablated/{digit}/epochs={args.epochs}_datasets={args.keep_digits}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
+            path = f"results/{args.dataset}/unlearn_remaining_ablated/"
+            params = f"/{excluded_class}/epochs={args.epochs}_datasets={args.keep_digits}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
 
-            os.makedirs("results", exist_ok=True)
-            os.makedirs("results/models/" + path, exist_ok=True)
-            os.makedirs("results/samples/" + path, exist_ok=True)
+            os.makedirs(path, exist_ok=True)
+            os.makedirs(path + "samples" + params, exist_ok=True)
 
             model_ema.eval()
-            samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
-            save_image(samples, "results/samples/"+ path + f"/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
 
-        torch.save(ckpt, "results/models/" + path+ f"/steps_{global_steps:0>8}.pt")
+            samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
+            save_image(samples, path + "samples" + params + f"/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+
+        os.makedirs(path + "models" + params, exist_ok=True)
+        torch.save(ckpt,path + "models" + params +  f"/steps_{global_steps:0>8}.pt")
 
 if __name__=="__main__":
     args=parse_args()

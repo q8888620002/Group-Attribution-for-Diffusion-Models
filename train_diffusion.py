@@ -18,7 +18,7 @@ from utils import *
 def parse_args():
     parser = argparse.ArgumentParser(description="Training DDPM")
 
-    parser.add_argument('--lr',type = float ,default=0.001)
+    parser.add_argument('--lr',type = float ,default=1e-4)
     parser.add_argument('--batch_size',type = int ,default=128)
     parser.add_argument('--epochs',type = int,default=100)
     parser.add_argument('--ckpt',type = str,help = 'define checkpoint path',default='')
@@ -64,12 +64,12 @@ def main(args):
 
         elif args.dataset == "mnist":
 
-            image_size=32
+            image_size=28
 
             model=DDPM(
                 timesteps=args.timesteps,
                 base_dim=64,
-                channel_mult=[1,2,4,8],
+                channel_mult=[1,2,4],
                 image_size=image_size,
                 in_channels=1,
                 out_channels=1
@@ -98,7 +98,13 @@ def main(args):
         model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
         optimizer=AdamW(model.parameters(),lr=args.lr)
-        scheduler=OneCycleLR(optimizer,args.lr,total_steps=args.epochs*len(train_dataloader),pct_start=0.25,anneal_strategy='cos')
+
+        scheduler=OneCycleLR(
+            optimizer,args.lr,
+            total_steps=args.epochs*len(train_dataloader),
+            pct_start=0.25,
+            anneal_strategy='cos'
+        )
         loss_fn=nn.MSELoss(reduction='mean')
 
         #load checkpoint
@@ -136,7 +142,7 @@ def main(args):
                     model_ema.update_parameters(model)
 
                 if j % args.log_freq == 0:
-                    print(f"Epoch[{i+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}], loss:{loss.detach().cpu().item():.5f}, lr:{scheduler.get_last_lr()[0]:.5f}")
+                    print(f"Epoch[{i+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}], loss:{loss.detach().cpu().item():.5f}, lr:{scheduler.get_last_lr()[0]:.6f}")
 
                 if global_steps > 0 and global_steps % (total_steps//4) == 0:
 
@@ -170,8 +176,7 @@ def main(args):
 
             if args.dataset != "mnist":
 
-                samples = (samples - mean)/(std)
-                fid_value = calculate_fid(samples, real_images, device)
+                fid_value = calculate_fid((samples - mean)/(std), real_images, device)
                 fid_scores.append(fid_value)
 
                 print(f"FID score after {global_steps} steps: {fid_value}")
@@ -191,7 +196,6 @@ def main(args):
 
         if args.dataset != "mnist":
             np.save(f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.npy",  np.array(fid_scores))
-
 
 
 if __name__=="__main__":

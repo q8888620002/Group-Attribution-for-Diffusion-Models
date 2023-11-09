@@ -40,7 +40,7 @@ class DDPM(nn.Module):
             ch_mult=channel_mult,
             attn=[2],
             num_res_blocks=2,
-            dropout=0.15,
+            dropout=0.1,
             input_ch_dim = in_channels,
             output_ch_dim = out_channels
         )
@@ -93,7 +93,7 @@ class DDPM(nn.Module):
 
         return x_t
 
-
+    @torch.no_grad()
     def _sampling(
         self,
         x_t,
@@ -141,7 +141,7 @@ class DDPM(nn.Module):
         Forward process q(x_{t}|x_{t-1})
         """
 
-        assert x_0.shape==noise.shape
+        assert x_0.shape == noise.shape
 
 
         return self.sqrt_alphas_cumprod.gather(-1,t).reshape(x_0.shape[0],1,1,1)*x_0+ \
