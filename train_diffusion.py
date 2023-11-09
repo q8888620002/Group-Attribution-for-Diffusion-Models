@@ -32,7 +32,6 @@ def parse_args():
     parser.add_argument('--device', type=str ,help = 'device of training', default="cuda:0")
     parser.add_argument('--dataset',type = str, help="dataset name", default = '')
 
-
     args = parser.parse_args()
 
     return args
@@ -90,7 +89,6 @@ def main(args):
             excluded_class=excluded_class
         )
 
-
         #torchvision ema setting
         #https://github.com/pytorch/vision/blob/main/references/classification/train.py#
 
@@ -117,6 +115,7 @@ def main(args):
         fid_scores = []
 
         for i in range(args.epochs):
+
             model.train()
             real_images = torch.Tensor().to(device)
 
@@ -135,11 +134,9 @@ def main(args):
 
                 if global_steps%args.model_ema_steps==0:
                     model_ema.update_parameters(model)
-                global_steps+=1
 
                 if j % args.log_freq == 0:
-
-                    print(f"Epoch[{i+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}],loss:{loss.detach().cpu().item():.5f},lr:{scheduler.get_last_lr()[0]:.5f}")
+                    print(f"Epoch[{i+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}], loss:{loss.detach().cpu().item():.5f}, lr:{scheduler.get_last_lr()[0]:.5f}")
 
                 if global_steps > 0 and global_steps % (total_steps//4) == 0:
 
@@ -147,38 +144,42 @@ def main(args):
 
                     print(f"Checkpoint saved at step {global_steps}")
 
+                    os.makedirs(f"results/{args.dataset}/retrain/models/{excluded_class}", exist_ok=True)
                     ckpt = {
                         "model": model.state_dict(),
                         "model_ema": model_ema.state_dict()
                     }
-
-                    os.makedirs(f"results/{args.dataset}/retrain/models/{excluded_class}", exist_ok=True)
                     torch.save(ckpt, f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
 
                 ## adding images for FID evaluation
 
-                if real_images.size(0) < args.n_samples:
-                    with torch.no_grad():
-                        real_images = torch.cat((real_images, image), dim=0)
+                if args.dataset != "mnist":
+                    if real_images.size(0) < args.n_samples:
+                        with torch.no_grad():
+                            real_images = torch.cat((real_images, image), dim=0)
+
+                    if real_images.size(0) > args.n_samples:
+                        real_images = real_images[:args.n_samples]
+
+                global_steps+=1
+
+            model_ema.eval()
+            samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
+
+            ## Calculating Fid Score for non-mnist dataset
+
+            if args.dataset != "mnist":
+
+                # samples = (samples - mean)/(std)
+                fid_value = calculate_fid(samples, real_images, device)
+                fid_scores.append(fid_value)
+
+                print(f"FID score after {global_steps} steps: {fid_value}")
 
             if excluded_class is None:
                 excluded_class = "full"
 
-            model_ema.eval()
-
-            samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
-
-            ## Calculating Fid Score
-
-            if real_images.size(0) > args.n_samples:
-                real_images = real_images[:args.n_samples]
-
-            fid_value = calculate_fid(samples, real_images, device)
-            fid_scores.append(fid_value)
-
-            print(f"FID score after {global_steps} steps: {fid_value}")
-
-            samples = samples * std + mean
+            ## Unnormalized data
 
             os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
             save_image(samples, f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
@@ -190,7 +191,10 @@ def main(args):
 
         torch.save(ckpt, f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
 
-        np.save(f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.npy",  np.array(fid_scores))
+        if args.dataset != "mnist":
+            np.save(f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.npy",  np.array(fid_scores))
+
+
 
 if __name__=="__main__":
     args=parse_args()
