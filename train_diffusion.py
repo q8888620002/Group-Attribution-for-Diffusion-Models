@@ -170,7 +170,7 @@ def main(args):
 
             if args.dataset != "mnist":
 
-                # samples = (samples - mean)/(std)
+                samples = (samples - mean)/(std)
                 fid_value = calculate_fid(samples, real_images, device)
                 fid_scores.append(fid_value)
 
@@ -178,8 +178,6 @@ def main(args):
 
             if excluded_class is None:
                 excluded_class = "full"
-
-            ## Unnormalized data
 
             os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
             save_image(samples, f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))

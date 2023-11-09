@@ -88,6 +88,7 @@ def create_dataloader(
     )
 
     # Filter the datasets if excluded_class is specified
+
     if excluded_class is not None:
         train_indices = [i for i, (_, label) in enumerate(train_dataset) if label != excluded_class]
         test_indices = [i for i, (_, label) in enumerate(test_dataset) if label != excluded_class]
