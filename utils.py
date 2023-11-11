@@ -30,7 +30,6 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
 def create_dataloader(
     dataset_name: str,
     batch_size: int,
-    image_size: int = 32,
     num_workers: int = 4,
     excluded_class: int = None
 ) -> tuple:
@@ -52,23 +51,21 @@ def create_dataloader(
 
     if dataset_name == 'cifar':
         preprocess = transforms.Compose([
-            transforms.Resize(image_size),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
 
         DatasetClass = CIFAR10
-        root_dir = './cfair_10'
-
+        root_dir = '/data2/mingyulu/cfair_10'
+    
     elif dataset_name == 'mnist':
         preprocess = transforms.Compose([
-            transforms.Resize(image_size),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5])
         ])
         DatasetClass = MNIST
-        root_dir = './mnist_data'
+        root_dir = '/data2/mingyulu/mnist_data'
     else:
         raise ValueError(f"Unknown dataset {dataset_name}, choose 'cifar' or 'mnist'.")
 
@@ -145,7 +142,7 @@ def create_unlearning_dataloaders(
     ]) #[0,1] to [-1,1]
 
     train_dataset=MNIST(
-        root="./mnist_data",
+        root='data2/mingyulu/mnist_data',
         train=True,
         download=True,
         transform=preprocess

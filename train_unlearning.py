@@ -18,7 +18,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training MNISTDiffusion")
 
     # Training params
-    parser.add_argument('--lr',type = float ,default=0.0001)
+    parser.add_argument('--lr',type = float ,default=5e-4)
     parser.add_argument('--batch_size',type = int ,default=128)
     parser.add_argument('--epochs',type = int,default=100)
     parser.add_argument('--ckpt',type = str,help = 'define checkpoint path',default='')
@@ -110,10 +110,14 @@ def main(args):
 
     #load checkpoint - old_ckpt=torch.load("/projects/leelab2/mingyulu/unlearning/results/full/models/steps_00042300.pt")
 
-    ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
+    ckpt = load_checkpoint(f"/data2/mingyulu/data_att/results/{args.dataset}/retrain/models/full/")
+
+    path = f"/data2/mingyulu/data_att/results/{args.dataset}/unlearn_remaining_ablated/"
+    params = f"/{excluded_class}/epochs={args.epochs}_datasets={args.keep_digits}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
 
     model_frozen.load_state_dict(ckpt["model"])
     model_frozen.eval()
+
     freezed_model_dict = ckpt["model"]
 
     ## Make sure parameters of frozen mdoel is freezed.
@@ -143,7 +147,7 @@ def main(args):
 
         model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
-        ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
+        ckpt = load_checkpoint(f"/data2/mingyulu/data_att/results/{args.dataset}/retrain/models/full/")
 
         model.load_state_dict(ckpt["model"])
         model_ema.load_state_dict(ckpt["model_ema"])
@@ -161,7 +165,7 @@ def main(args):
 
         global_steps=0
 
-        for i in range(args.epochs):
+        for epoch in range(args.epochs):
 
             model.train()
 
@@ -218,23 +222,22 @@ def main(args):
                 global_steps+=1
 
                 if j % args.log_freq == 0:
-                    print(f"Epoch[{i+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}],loss:{loss.detach().cpu().item():.5f},lr:{scheduler.get_last_lr()[0]:.5f}")
+                    print(f"Epoch[{epoch+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}],loss:{loss.detach().cpu().item():.5f},lr:{scheduler.get_last_lr()[0]:.6f}")
 
             ckpt = {
                 "model": model.state_dict(),
                 "model_ema": model_ema.state_dict()
             }
 
-            path = f"results/{args.dataset}/unlearn_remaining_ablated/"
-            params = f"/{excluded_class}/epochs={args.epochs}_datasets={args.keep_digits}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
+            if (epoch+1)%10 ==0 or (epoch+1)% args.epochs==0:
 
-            os.makedirs(path, exist_ok=True)
-            os.makedirs(path + "samples" + params, exist_ok=True)
+                model_ema.eval()
+                
+                os.makedirs(path, exist_ok=True)
+                os.makedirs(path + "samples" + params, exist_ok=True)
 
-            model_ema.eval()
-
-            samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
-            save_image(samples, path + "samples" + params + f"/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+                samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
+                save_image(samples, path + "samples" + params + f"/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
 
         os.makedirs(path + "models" + params, exist_ok=True)
         torch.save(ckpt,path + "models" + params +  f"/steps_{global_steps:0>8}.pt")

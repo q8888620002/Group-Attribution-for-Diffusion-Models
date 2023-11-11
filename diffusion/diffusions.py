@@ -40,7 +40,7 @@ class DDPM(nn.Module):
             ch_mult=channel_mult,
             attn=[2],
             num_res_blocks=2,
-            dropout=0.1,
+            dropout=0.15,
             input_ch_dim = in_channels,
             output_ch_dim = out_channels
         )
@@ -126,7 +126,7 @@ class DDPM(nn.Module):
 
         steps=torch.linspace(0,timesteps,steps=timesteps+1,dtype=torch.float32)
         f_t=torch.cos(((steps/timesteps+epsilon)/(1.0+epsilon))*math.pi*0.5)**2
-        betas=torch.clip(1.0-f_t[1:]/f_t[:timesteps], 0.0 , 0.999 )
+        betas=torch.clip(1.0 - f_t[1:]/f_t[:timesteps], 0.0 , 0.9999)
 
         return betas
 

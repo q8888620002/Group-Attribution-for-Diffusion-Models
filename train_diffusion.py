@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
+from ddpm_config import DDPMConfig
 from diffusion.diffusions import DDPM
 from utils import *
 
@@ -18,19 +19,14 @@ from utils import *
 def parse_args():
     parser = argparse.ArgumentParser(description="Training DDPM")
 
-    parser.add_argument('--lr',type = float ,default=1e-4)
-    parser.add_argument('--batch_size',type = int ,default=128)
-    parser.add_argument('--epochs',type = int,default=100)
     parser.add_argument('--ckpt',type = str,help = 'define checkpoint path',default='')
     parser.add_argument('--n_samples',type = int,help = 'define sampling amounts after every epoch trained',default=36)
-    parser.add_argument('--model_base_dim',type = int,help = 'base dim of Unet',default=64)
-    parser.add_argument('--timesteps',type = int,help = 'sampling steps of DDPM',default=1000)
-    parser.add_argument('--model_ema_steps',type = int,help = 'ema model evaluation interval',default=10)
-    parser.add_argument('--model_ema_decay',type = float,help = 'ema model decay',default=0.995)
+    parser.add_argument('--dataset', type=str, default='' )
+
     parser.add_argument('--log_freq',type = int,help = 'training log message printing frequence',default=10)
     parser.add_argument('--no_clip',action='store_true',help = 'set to normal sampling method without clip x_0 which could yield unstable samples')
     parser.add_argument('--device', type=str ,help = 'device of training', default="cuda:0")
-    parser.add_argument('--dataset',type = str, help="dataset name", default = '')
+
 
     args = parser.parse_args()
 
@@ -41,67 +37,53 @@ def main(args):
 
     device = args.device
 
-    for excluded_class in range(10, -1, -1):
-
-        if excluded_class == 10:
-            excluded_class = None
+    for excluded_class in range(10, -1 ,-1):
 
         if args.dataset == "cifar":
-
-            image_size=32
-
-            model=DDPM(
-                timesteps=args.timesteps,
-                base_dim=128,
-                channel_mult=[1,2,3,4],
-                image_size=image_size,
-                in_channels=3,
-                out_channels=3
-            ).to(device)
-
-            mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(device)
-            std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(device)
-
-        elif args.dataset == "mnist":
-
-            image_size=28
-
-            model=DDPM(
-                timesteps=args.timesteps,
-                base_dim=64,
-                channel_mult=[1,2,4],
-                image_size=image_size,
-                in_channels=1,
-                out_channels=1
-            ).to(device)
-
-            mean = torch.tensor([0.5]).view(1, 1, 1, 1).to(device)
-            std = torch.tensor([0.5]).view(1, 1, 1, 1).to(device)
-
+            config = {**DDPMConfig.cifar_config}
+        elif args.dataset  == "mnist":
+            config = {**DDPMConfig.mnist_config}
         else:
-            raise ValueError(f"Unknown dataset {args.dataset}, choose 'cifar' or 'mnist'.")
+            raise ValueError(f"Unknown dataset {config['dataset']}, choose 'cifar' or 'mnist'.")
 
+        model = DDPM(
+            timesteps=config['timesteps'],
+            base_dim=config['base_dim'],
+            channel_mult=config['channel_mult'],
+            image_size=config['image_size'],
+            in_channels=config['in_channels'],
+            out_channels=config['out_channels']
+        ).to(device)
+
+        mean = torch.tensor(config['mean']).view(1, -1, 1, 1).to(device)
+        std = torch.tensor(config['std']).view(1, -1, 1, 1).to(device)
+
+        excluded_class = None if excluded_class== 10 else excluded_class
 
         train_dataloader, _ = create_dataloader(
-            dataset_name=args.dataset,
-            batch_size=args.batch_size,
-            image_size=image_size,
+            dataset_name=config["dataset"],
+            batch_size=config["batch_size"],
             excluded_class=excluded_class
         )
 
         #torchvision ema setting
         #https://github.com/pytorch/vision/blob/main/references/classification/train.py#
 
-        adjust = 1* args.batch_size * args.model_ema_steps / args.epochs
-        alpha = 1.0 - args.model_ema_decay
+        adjust = 1* config['batch_size'] *config['model_ema_steps'] / config['epochs']
+        alpha = 1.0 - config['model_ema_decay']
         alpha = min(1.0, alpha * adjust)
         model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
-        optimizer=AdamW(model.parameters(),lr=args.lr)
+        optimizer=AdamW(
+            model.parameters(),
+            lr=config["lr"],
+            weight_decay=1e-4
+        )
 
         scheduler=OneCycleLR(
-            optimizer,args.lr,
-            total_steps=args.epochs*len(train_dataloader),
+            optimizer,
+            config["lr"],
+            total_steps=config['epochs']*len(train_dataloader),
             pct_start=0.25,
             anneal_strategy='cos'
         )
@@ -116,11 +98,9 @@ def main(args):
 
         global_steps=0
 
-        total_steps = len(train_dataloader) * args.epochs
-
         fid_scores = []
 
-        for i in range(args.epochs):
+        for epoch in range(config['epochs']):
 
             model.train()
             real_images = torch.Tensor().to(device)
@@ -138,28 +118,15 @@ def main(args):
                 optimizer.zero_grad()
                 scheduler.step()
 
-                if global_steps%args.model_ema_steps==0:
+                if global_steps%config['model_ema_steps']==0:
                     model_ema.update_parameters(model)
 
                 if j % args.log_freq == 0:
-                    print(f"Epoch[{i+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}], loss:{loss.detach().cpu().item():.5f}, lr:{scheduler.get_last_lr()[0]:.6f}")
-
-                if global_steps > 0 and global_steps % (total_steps//4) == 0:
-
-                    ## Checkpoints for training
-
-                    print(f"Checkpoint saved at step {global_steps}")
-
-                    os.makedirs(f"results/{args.dataset}/retrain/models/{excluded_class}", exist_ok=True)
-                    ckpt = {
-                        "model": model.state_dict(),
-                        "model_ema": model_ema.state_dict()
-                    }
-                    torch.save(ckpt, f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
+                    print(f"Epoch[{epoch+1}/{config['epochs']}],Step[{j}/{len(train_dataloader)}], loss:{loss.detach().cpu().item():.5f}, lr:{scheduler.get_last_lr()[0]:.6f}")
 
                 ## adding images for FID evaluation
 
-                if args.dataset != "mnist":
+                if config['dataset'] != "mnist":
                     if real_images.size(0) < args.n_samples:
                         with torch.no_grad():
                             real_images = torch.cat((real_images, image), dim=0)
@@ -169,33 +136,49 @@ def main(args):
 
                 global_steps+=1
 
-            model_ema.eval()
-            samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
+            ## Generate samples and calculate fid score for non-mnist dataset every 15 epochs
+            excluded_class = "full" if excluded_class is None else excluded_class
 
-            ## Calculating Fid Score for non-mnist dataset
+            if  (epoch+1) % 15 == 0 or (epoch+1) % config['epochs'] == 0:
+                
+                model_ema.eval()
+                samples = model_ema.module.sampling(
+                    args.n_samples, 
+                    clipped_reverse_diffusion=not args.no_clip, 
+                    device=device
+                )
 
-            if args.dataset != "mnist":
+                if config["dataset"] != "mnist":
+                    fid_value = calculate_fid(samples, real_images, device)
+                    fid_scores.append(fid_value)
+                    print(f"FID score after {global_steps} steps: {fid_value}")
+                
+                os.makedirs(f"results/{config['dataset']}/retrain/samples/{excluded_class}", exist_ok=True)
+                save_image((samples*std + mean), f"results/{config['dataset']}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
 
-                fid_value = calculate_fid((samples - mean)/(std), real_images, device)
-                fid_scores.append(fid_value)
 
-                print(f"FID score after {global_steps} steps: {fid_value}")
+            ## Checkpoints for training
 
-            if excluded_class is None:
-                excluded_class = "full"
+            if  (epoch+1) % (config['epochs'] //2) == 0 or (epoch+1) % config['epochs'] == 0:
 
-            os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
-            save_image(samples, f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+                print(f"Checkpoint saved at step {global_steps}")
+                os.makedirs(f"/data2/mingyulu/data_att/results/{config['dataset']}/retrain/models/{excluded_class}", exist_ok=True)
+                ckpt = {
+                    "model": model.state_dict(),
+                    "model_ema": model_ema.state_dict()
+                }
+                torch.save(ckpt, f"/data2/mingyulu/data_att/results/{config['dataset']}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
+
 
         ckpt = {
             "model": model.state_dict(),
             "model_ema": model_ema.state_dict()
         }
 
-        torch.save(ckpt, f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
+        torch.save(ckpt, f"/data2/mingyulu/data_att/results/{config['dataset']}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
 
-        if args.dataset != "mnist":
-            np.save(f"results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.npy",  np.array(fid_scores))
+        if config['dataset'] != "mnist":
+            np.save(f"/data2/mingyulu/data_att/results/{config['dataset']}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.npy",  np.array(fid_scores))
 
 
 if __name__=="__main__":
