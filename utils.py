@@ -58,7 +58,7 @@ def create_dataloaders(
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
         DatasetClass = CIFAR10
-        root_dir = 'data2/mingyulu/cfair_10'
+        root_dir = '/data2/mingyulu/data_att/cifar'
     
     elif dataset_name == 'mnist':
         preprocess = transforms.Compose([
@@ -67,7 +67,7 @@ def create_dataloaders(
             transforms.Normalize([0.5], [0.5])
         ])
         DatasetClass = MNIST
-        root_dir = 'data2/mingyulu/mnist_data'
+        root_dir = '/data2/mingyulu/data_att/mnist'
     else:
         raise ValueError(f"Unknown dataset {dataset_name}, choose 'cifar' or 'mnist'.")
 
