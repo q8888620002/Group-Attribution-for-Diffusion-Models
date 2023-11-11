@@ -27,26 +27,28 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
 
         super().__init__(model, device, ema_avg, use_buffers=True)
 
-def create_dataloader(
+def create_dataloaders(
     dataset_name: str,
     batch_size: int,
+    image_size: int = 28,
     num_workers: int = 4,
-    excluded_class: int = None
-) -> tuple:
-
+    excluded_class: int = None,
+    unlearning: bool = False
+):
     """
-    Function to create dataloader for image datasets e.g. mnist and cfair-10
+    Create dataloaders for CIFAR10 and MNIST datasets with options for excluding 
+    specific classes and creating subsets for unlearning.
 
     Args:
-        dataset_name: name of the dataset for generative models
-        batch_size: batch size
-        image_size
-        num_workers:
-        excluded_class: ablated classes e.g. digit 1 in mnist or class 1 in cfair-10
+        dataset_name (str): Name of the dataset ('cifar' or 'mnist').
+        batch_size (int): Batch size for the dataloaders.
+        image_size (int): Image size for resizing (used for MNIST).
+        num_workers (int): Number of workers for dataloaders.
+        excluded_class (int, optional): Class to be excluded (for ablation).
+        unlearning (bool, optional): Flag to create subsets for unlearning.
 
-    Return:
-        Train loader and test loader.
-
+    Returns:
+        Tuple[DataLoader, DataLoader]: Train and test dataloaders.
     """
 
     if dataset_name == 'cifar':
@@ -55,12 +57,12 @@ def create_dataloader(
             transforms.ToTensor(),
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
-
         DatasetClass = CIFAR10
         root_dir = '/data2/mingyulu/cfair_10'
     
     elif dataset_name == 'mnist':
         preprocess = transforms.Compose([
+            transforms.Resize(image_size),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5])
         ])
@@ -69,119 +71,38 @@ def create_dataloader(
     else:
         raise ValueError(f"Unknown dataset {dataset_name}, choose 'cifar' or 'mnist'.")
 
-    # Load the specified dataset
-    train_dataset = DatasetClass(
-        root=root_dir,
-        train=True,
-        download=True,
-        transform=preprocess
-    )
+    train_dataset = DatasetClass(root=root_dir, train=True, download=True, transform=preprocess)
+    test_dataset = DatasetClass(root=root_dir, train=False, download=True, transform=preprocess)
 
-    test_dataset = DatasetClass(
-        root=root_dir,
-        train=False,
-        download=True,
-        transform=preprocess
-    )
-
-    # Filter the datasets if excluded_class is specified
-
-    if excluded_class is not None:
+    # Exclude specified class if needed
+    if not unlearning and excluded_class is not None:
         train_indices = [i for i, (_, label) in enumerate(train_dataset) if label != excluded_class]
         test_indices = [i for i, (_, label) in enumerate(test_dataset) if label != excluded_class]
 
         train_dataset = Subset(train_dataset, train_indices)
         test_dataset = Subset(test_dataset, test_indices)
 
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers
-    )
+    # Handle unlearning subsets if needed
+    if unlearning and excluded_class is not None:
+        ablated_indices = [i for i, (_, label) in enumerate(train_dataset) if label == excluded_class]
+        remaining_indices = [i for i, (_, label) in enumerate(train_dataset) if label != excluded_class]
+        
+        remaining_indices = random.sample(remaining_indices, len(ablated_indices))
 
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers
-    )
+        remaining_dataset = Subset(train_dataset, remaining_indices)
+        ablated_dataset = Subset(train_dataset, ablated_indices)
+
+        # Return dataloaders for unlearning
+        return (
+            DataLoader(remaining_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers),
+            DataLoader(ablated_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+        )
+
+    # Regular dataloaders
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     return train_loader, test_loader
-
-
-def create_unlearning_dataloaders(
-        batch_size,
-        image_size=28,
-        num_workers=4,
-        keep_digits_in_ablated: bool=False,
-        keep_digits_in_remaining: bool=False,
-        exclude_label=None
-    ):
-
-    """
-
-    Create a mnist dataset with/without filtered labels
-
-    Args:
-        batch_size: int
-        num_worksrs: int
-        exclude_label: int e.g. 1,2
-    Return:
-        ablated_subset: Dataloader that ONLY contains excluded digit.
-        remaining_subset: Dataloader that contains digits excluded digit.
-
-        ablated_subset: Dataloader that contains excluded digit. (The original mnist datasets.)
-        remaining_subset: Dataloader that contains digits excluded digit.
-    """
-
-    preprocess=transforms.Compose(
-        [transforms.Resize(image_size),\
-        transforms.ToTensor(),\
-        transforms.Normalize([0.5],[0.5])
-    ]) #[0,1] to [-1,1]
-
-    train_dataset=MNIST(
-        root='data2/mingyulu/mnist_data',
-        train=True,
-        download=True,
-        transform=preprocess
-    )
-
-    all_indices = [i for i, (_, label) in enumerate(train_dataset)]
-
-    if exclude_label is not None:
-
-        exclude_indices = [i for i, (_, label) in enumerate(train_dataset) if label == exclude_label]
-
-        if keep_digits_in_remaining:
-
-            # D_r = D
-
-            remaining_indices = [i for i in all_indices]
-        else:
-            # D_r = D - D_a
-
-            remaining_indices = [i for i in all_indices if i not in exclude_indices]
-
-        if keep_digits_in_ablated:
-
-            # D_a = D_a + some random digits in original dataset.
-
-            ablated_indices = random.sample(all_indices, len(remaining_indices))
-        else:
-
-            ablated_indices = exclude_indices
-            # Resize remaining_indices to match the length of ablated_indices
-            remaining_indices = random.sample(remaining_indices, len(ablated_indices))
-
-        ablated_subset = Subset(train_dataset, ablated_indices)
-        remaining_subset = Subset(train_dataset, remaining_indices)
-
-
-
-    return (DataLoader(remaining_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers),
-                DataLoader(ablated_subset, batch_size=batch_size, shuffle=True, num_workers=num_workers))
 
 
 def calculate_fid(images1, images2, device):

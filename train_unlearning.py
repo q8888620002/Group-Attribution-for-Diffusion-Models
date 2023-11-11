@@ -11,6 +11,7 @@ from torch.optim.lr_scheduler import OneCycleLR
 
 from diffusion.diffusions import DDPM
 from utils import *
+from ddpm_config import DDPMConfig
 
 
 def parse_args():
@@ -64,37 +65,31 @@ def main(args):
     device = args.device
 
     if args.dataset == "cifar":
-
-        image_size=32
-        base_dim = 128
-        channel_mult = [1,2,3,4]
-        in_channels = 3
-        out_channels = 3
-
-        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(device)
-        std = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(device)
-
-    elif args.dataset == "mnist":
-
-        image_size=28
-        base_dim = 64
-        channel_mult = [1,2,4]
-        in_channels = 1
-        out_channels = 1
-
-        mean = torch.tensor([0.5]).view(1, 1, 1, 1).to(device)
-        std = torch.tensor([0.5]).view(1, 1, 1, 1).to(device)
-
+        config = {**DDPMConfig.cifar_config}
+    elif args.dataset  == "mnist":
+        config = {**DDPMConfig.mnist_config}
     else:
-        raise ValueError(f"Unknown dataset {args.dataset}, choose 'cifar' or 'mnist'.")
+        raise ValueError(f"Unknown dataset {config['dataset']}, choose 'cifar' or 'mnist'.")
 
-    model_frozen=DDPM(
-        timesteps=args.timesteps,
-        base_dim=base_dim,
-        channel_mult=channel_mult,
-        image_size=image_size,
-        in_channels=in_channels,
-        out_channels=out_channels
+    model = DDPM(
+        timesteps=config['timesteps'],
+        base_dim=config['base_dim'],
+        channel_mult=config['channel_mult'],
+        image_size=config['image_size'],
+        in_channels=config['in_channels'],
+        out_channels=config['out_channels']
+    ).to(device)
+
+    mean = torch.tensor(config['mean']).view(1, -1, 1, 1).to(device)
+    std = torch.tensor(config['std']).view(1, -1, 1, 1).to(device)
+
+    model_frozen = DDPM(
+        timesteps=config['timesteps'],
+        base_dim=config['base_dim'],
+        channel_mult=config['channel_mult'],
+        image_size=config['image_size'],
+        in_channels=config['in_channels'],
+        out_channels=config['out_channels']
     ).to(device)
 
     ## loss params
@@ -110,10 +105,7 @@ def main(args):
 
     #load checkpoint - old_ckpt=torch.load("/projects/leelab2/mingyulu/unlearning/results/full/models/steps_00042300.pt")
 
-    ckpt = load_checkpoint(f"/data2/mingyulu/data_att/results/{args.dataset}/retrain/models/full/")
-
-    path = f"/data2/mingyulu/data_att/results/{args.dataset}/unlearn_remaining_ablated/"
-    params = f"/{excluded_class}/epochs={args.epochs}_datasets={args.keep_digits}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
+    ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
 
     model_frozen.load_state_dict(ckpt["model"])
     model_frozen.eval()
@@ -126,28 +118,32 @@ def main(args):
 
     for excluded_class in range(10):
 
-        train_dataloader, ablated_dataloader = create_unlearning_dataloaders(
+        path = f"/data2/mingyulu/data_att/results/{args.dataset}/unlearn_remaining_ablated/"
+        params = f"/{excluded_class}/epochs={args.epochs}_datasets={args.keep_digits}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
+
+        train_dataloader, ablated_dataloader = create_dataloaders(
+            dataset_name=args.dataset,
             batch_size=args.batch_size,
-            image_size=image_size,
-            keep_digits_in_ablated=False,
-            keep_digits_in_remaining=False,
-            exclude_label=excluded_class
+            image_size=config['image_size'],
+            excluded_class=excluded_class,
+            unlearning=True
         )
 
         ## Init new model for unlearning.
 
-        model=DDPM(
-            timesteps=args.timesteps,
-            base_dim=base_dim,
-            channel_mult=channel_mult,
-            image_size=image_size,
-            in_channels=in_channels,
-            out_channels=out_channels
+        model = DDPM(
+            timesteps=config['timesteps'],
+            base_dim=config['base_dim'],
+            channel_mult=config['channel_mult'],
+            image_size=config['image_size'],
+            in_channels=config['in_channels'],
+            out_channels=config['out_channels']
         ).to(device)
+
 
         model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
-        ckpt = load_checkpoint(f"/data2/mingyulu/data_att/results/{args.dataset}/retrain/models/full/")
+        ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
 
         model.load_state_dict(ckpt["model"])
         model_ema.load_state_dict(ckpt["model_ema"])
@@ -232,7 +228,7 @@ def main(args):
             if (epoch+1)%10 ==0 or (epoch+1)% args.epochs==0:
 
                 model_ema.eval()
-                
+
                 os.makedirs(path, exist_ok=True)
                 os.makedirs(path + "samples" + params, exist_ok=True)
 

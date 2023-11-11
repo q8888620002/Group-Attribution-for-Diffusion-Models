@@ -60,10 +60,12 @@ def main(args):
 
         excluded_class = None if excluded_class== 10 else excluded_class
 
-        train_dataloader, _ = create_dataloader(
+        train_dataloader, _ = create_dataloaders(
             dataset_name=config["dataset"],
             batch_size=config["batch_size"],
-            excluded_class=excluded_class
+            image_size=config['image_size'],
+            excluded_class=excluded_class,
+            unlearning=False
         )
 
         #torchvision ema setting
