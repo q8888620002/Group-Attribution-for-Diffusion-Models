@@ -3,6 +3,7 @@ import torch
 import math
 
 from diffusion.models import UNet
+from diffusion.unet_old import Unet as Old_Unet
 from tqdm import tqdm
 
 
@@ -14,7 +15,11 @@ class DDPM(nn.Module):
             channel_mult=[1, 2, 3, 4],
             image_size:int=32,
             in_channels:int=3,
-            out_channels:int=3
+            out_channels:int=3,
+            attn: bool=True,
+            attn_layer=[2],
+            num_res_blocks:int=2,
+            dropout: int= 0.15,
         ):
 
         super().__init__()
@@ -23,7 +28,7 @@ class DDPM(nn.Module):
         self.image_size=image_size
         self.in_channels = in_channels
 
-        betas=self._cosine_variance_schedule(timesteps)
+        betas= self._cosine_variance_schedule(timesteps)
 
         alphas=1.-betas
         alphas_cumprod=torch.cumprod(alphas,dim=-1)
@@ -34,16 +39,26 @@ class DDPM(nn.Module):
         self.register_buffer("sqrt_alphas_cumprod",torch.sqrt(alphas_cumprod))
         self.register_buffer("sqrt_one_minus_alphas_cumprod",torch.sqrt(1.-alphas_cumprod))
 
-        self.model = UNet(
-            T=timesteps,
-            ch=base_dim,
-            ch_mult=channel_mult,
-            attn=[2],
-            num_res_blocks=2,
-            dropout=0.15,
-            input_ch_dim = in_channels,
-            output_ch_dim = out_channels
-        )
+        if not attn:
+            self.model = Old_Unet(
+                timesteps=1000,
+                time_embedding_dim=256,
+                in_channels=1,
+                out_channels=1,
+                base_dim=64,
+                dim_mults=[2,4]
+            )
+        else:
+            self.model = UNet(
+                T=timesteps,
+                ch=base_dim,
+                ch_mult=channel_mult,
+                attn=attn_layer,
+                num_res_blocks=num_res_blocks,
+                dropout=dropout,
+                input_ch_dim = in_channels,
+                output_ch_dim = out_channels
+            )
 
 
     def forward(

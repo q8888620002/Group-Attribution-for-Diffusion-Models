@@ -71,25 +71,17 @@ def main(args):
     else:
         raise ValueError(f"Unknown dataset {config['dataset']}, choose 'cifar' or 'mnist'.")
 
-    model = DDPM(
-        timesteps=config['timesteps'],
-        base_dim=config['base_dim'],
-        channel_mult=config['channel_mult'],
-        image_size=config['image_size'],
-        in_channels=config['in_channels'],
-        out_channels=config['out_channels']
-    ).to(device)
-
-    mean = torch.tensor(config['mean']).view(1, -1, 1, 1).to(device)
-    std = torch.tensor(config['std']).view(1, -1, 1, 1).to(device)
-
     model_frozen = DDPM(
         timesteps=config['timesteps'],
         base_dim=config['base_dim'],
         channel_mult=config['channel_mult'],
         image_size=config['image_size'],
         in_channels=config['in_channels'],
-        out_channels=config['out_channels']
+        out_channels=config['out_channels'],
+        attn=config['attn'],
+        attn_layer=config['attn_layer'],        
+        num_res_blocks=config['num_res_blocks'],
+        dropout=config['dropout'],
     ).to(device)
 
     ## loss params
@@ -103,9 +95,10 @@ def main(args):
     alpha = 1.0 - args.model_ema_decay
     alpha = min(1.0, alpha * adjust)
 
-    #load checkpoint - old_ckpt=torch.load("/projects/leelab2/mingyulu/unlearning/results/full/models/steps_00042300.pt")
 
-    ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
+    ckpt=torch.load(config['trained_model'])
+
+    # ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
 
     model_frozen.load_state_dict(ckpt["model"])
     model_frozen.eval()
@@ -118,13 +111,12 @@ def main(args):
 
     for excluded_class in range(10):
 
-        path = f"/data2/mingyulu/data_att/results/{args.dataset}/unlearn_remaining_ablated/"
+        path = f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/unlearning/"
         params = f"/{excluded_class}/epochs={args.epochs}_datasets={args.keep_digits}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
 
         train_dataloader, ablated_dataloader = create_dataloaders(
             dataset_name=args.dataset,
-            batch_size=args.batch_size,
-            image_size=config['image_size'],
+            batch_size=config['batch_size'],
             excluded_class=excluded_class,
             unlearning=True
         )
@@ -137,13 +129,20 @@ def main(args):
             channel_mult=config['channel_mult'],
             image_size=config['image_size'],
             in_channels=config['in_channels'],
-            out_channels=config['out_channels']
+            out_channels=config['out_channels'],
+            attn=config['attn'],
+            attn_layer=config['attn_layer'],
+            num_res_blocks=config['num_res_blocks'],
+            dropout=config['dropout'],
         ).to(device)
 
 
         model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
-        ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
+
+        ckpt=torch.load(config['trained_model'])
+
+        # ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
 
         model.load_state_dict(ckpt["model"])
         model_ema.load_state_dict(ckpt["model_ema"])
@@ -215,6 +214,7 @@ def main(args):
 
                 if global_steps%args.model_ema_steps==0:
                     model_ema.update_parameters(model)
+
                 global_steps+=1
 
                 if j % args.log_freq == 0:
@@ -225,19 +225,23 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
 
-            if (epoch+1)%10 ==0 or (epoch+1)% args.epochs==0:
+            if (epoch+1)%10 ==0 or (epoch+1)% args.epochs==0 or global_steps == config['epochs']*len(train_dataloader):
 
                 model_ema.eval()
 
-                os.makedirs(path, exist_ok=True)
-                os.makedirs(path + "samples" + params, exist_ok=True)
+                os.makedirs(f"results/{args.dataset}/unlearning/samples", exist_ok=True)
+                os.makedirs(f"results/{args.dataset}/unlearning/samples" + params, exist_ok=True)
 
-                samples = model_ema.module.sampling(args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
-                save_image(samples, path + "samples" + params + f"/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+                samples = model_ema.module.sampling(
+                    args.n_samples, 
+                    clipped_reverse_diffusion=not args.no_clip, 
+                    device=device
+                )
+                save_image(samples,f"results/{args.dataset}/unlearning/samples" + params + f"/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
 
         os.makedirs(path + "models" + params, exist_ok=True)
-        torch.save(ckpt,path + "models" + params +  f"/steps_{global_steps:0>8}.pt")
-
+        torch.save(ckpt, path + "models" + params +  f"/steps_{global_steps:0>8}.pt")
+   
 if __name__=="__main__":
     args=parse_args()
     main(args)

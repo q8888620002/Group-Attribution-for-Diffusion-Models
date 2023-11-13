@@ -1,3 +1,5 @@
+import glob
+import os
 import torch
 import torch.nn.functional as F
 import numpy as np
@@ -13,6 +15,13 @@ from torchvision.models import inception_v3
 from scipy.linalg import sqrtm
 from CLIP.clip import clip
 from PIL import Image
+
+
+
+# Load CLIP model and transformation outside of the function for efficiency
+device = "cuda" if torch.cuda.is_available() else "cpu"
+clip_model, clip_transform = clip.load("ViT-B/32", device=device)
+
 
 class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
     """Maintains moving averages of model parameters using an exponential decay.
@@ -30,7 +39,6 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
 def create_dataloaders(
     dataset_name: str,
     batch_size: int,
-    image_size: int = 28,
     num_workers: int = 4,
     excluded_class: int = None,
     unlearning: bool = False
@@ -58,16 +66,15 @@ def create_dataloaders(
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
         DatasetClass = CIFAR10
-        root_dir = '/data2/mingyulu/data_att/cifar'
+        root_dir = '/projects/leelab/mingyulu/data_att/cifar'
     
     elif dataset_name == 'mnist':
         preprocess = transforms.Compose([
-            transforms.Resize(image_size),
             transforms.ToTensor(),
             transforms.Normalize([0.5], [0.5])
         ])
         DatasetClass = MNIST
-        root_dir = '/data2/mingyulu/data_att/mnist'
+        root_dir = '/projects/leelab/mingyulu/data_att/mnist'
     else:
         raise ValueError(f"Unknown dataset {dataset_name}, choose 'cifar' or 'mnist'.")
 
@@ -105,9 +112,56 @@ def create_dataloaders(
     return train_loader, test_loader
 
 
-def calculate_fid(images1, images2, device):
+
+def find_max_step_file(path_pattern):
+    """
+    Obtain max steps pt in a folder.
+
+    """
+    files = glob.glob(path_pattern)
+    max_step_file = max(files, key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[0]))
+    return max_step_file
+
+
+def get_features(
+        dataloader, 
+        model, 
+        n_samples, 
+        device
+    ) -> np.ndarray:
+    
+    """
+    Feature extraction for Inception V3
     """
 
+    model.eval()
+    features = []
+
+    processed_samples = 0
+    
+    for images, _ in dataloader:
+        if processed_samples >= n_samples:
+            break
+        
+        with torch.no_grad():
+            # Apply preprocessing to each image in the batch
+
+            images = images.to(device)
+
+            batch_features = model(images)[0]
+            batch_features = batch_features.squeeze(3).squeeze(2).cpu().numpy()
+
+            features.append(batch_features)
+            processed_samples += images.size(0)
+
+    features = np.concatenate(features, axis=0)
+
+    # Trim the features if necessary
+    return features[:n_samples]
+
+
+def calculate_fid(images1, images2, device):
+    """
     Create a mnist dataset with/without filtered labels
 
     Args:
@@ -118,7 +172,7 @@ def calculate_fid(images1, images2, device):
     """
 
     model = inception_v3(
-        weights='DEFAULT',
+        weights='pretrained',
         transform_input=False,
         aux_logits=True
     ).to(device)
@@ -134,8 +188,8 @@ def calculate_fid(images1, images2, device):
         act1 = model(images1)
         act2 = model(images2)
 
-    act1 = act1.cpu().numpy()
-    act2 = act2.cpu().numpy()
+    act1 = act1.detach().cpu().numpy()
+    act2 = act2.detach().cpu().numpy()
 
     mu1, sigma1 = act1.mean(axis=0), np.cov(act1, rowvar=False)
     mu2, sigma2 = act2.mean(axis=0), np.cov(act2, rowvar=False)
@@ -152,10 +206,6 @@ def calculate_fid(images1, images2, device):
     fid = ss_diff + np.trace(sigma1 + sigma2 - 2.0 * cov_mean)
 
     return fid
-
-# Load CLIP model and transformation outside of the function for efficiency
-device = "cuda" if torch.cuda.is_available() else "cpu"
-clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 
 def preprocess_clip_mnist(batch_images):
     """

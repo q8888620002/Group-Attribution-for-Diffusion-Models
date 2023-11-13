@@ -3,17 +3,26 @@ class DDPMConfig:
     # CIFAR specific configurations
 
     cifar_config = {
-        "image_size": 32,
-        "timesteps": 1000, 
         "dataset": "cifar",
+        "image_size": 32,
+        "mean": [0.485, 0.456, 0.406],
+        "std": [0.229, 0.224, 0.225],
+        # Unet params
+
+        "timesteps": 2000, 
         "base_dim": 128,
         "channel_mult": [1, 2, 3, 4],
         "in_channels": 3,
         "out_channels": 3,
-        "mean": [0.485, 0.456, 0.406],
-        "std": [0.229, 0.224, 0.225],
-
+        "num_res_blocks": 2,
+        "dropout": 0.15,
+        "attn": True,
+        "attn_layer":[2],
         ### Training params
+        
+        ## old - trained with FID 541: results/cifar/retrain/models/full/steps_00078200.pt
+
+        "trained_model": "/projects/leelab/mingyulu/data_att/results/cifar/retrain/models/full/steps_00125000.pt",
 
         "lr": 1e-4,
         "batch_size": 80,
@@ -25,16 +34,25 @@ class DDPMConfig:
     # MNIST specific configurations
 
     mnist_config = {
-        "image_size": 28,
-        "timesteps": 1000, 
+
         "dataset": "mnist",
-        "base_dim": 64,
-        "channel_mult": [1, 2, 4],
-        "in_channels": 1,
-        "out_channels": 1,
+        "image_size": 28,
         "mean": [0.5],
         "std": [0.5],
-        
+
+        ## Unet params
+
+        "timesteps": 1000, 
+        "base_dim": 64,
+        "channel_mult": [2, 4],
+        "in_channels": 1,
+        "out_channels": 1,
+        "attn": False,
+        "attn_layer":[2],
+        "num_res_blocks": 2,
+        "dropout": 0.15,
+        "trained_model": "/projects/leelab2/mingyulu/unlearning/results/full/models/steps_00042300.pt",
+
         ### Training params
 
         "lr": 1e-4,

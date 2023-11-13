@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 
 from torchvision.utils import save_image
-from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
@@ -52,7 +51,11 @@ def main(args):
             channel_mult=config['channel_mult'],
             image_size=config['image_size'],
             in_channels=config['in_channels'],
-            out_channels=config['out_channels']
+            out_channels=config['out_channels'],
+            attn=config['attn'],
+            attn_layer=config['attn_layer'],
+            num_res_blocks=config['num_res_blocks'],
+            dropout=config['dropout']
         ).to(device)
 
         mean = torch.tensor(config['mean']).view(1, -1, 1, 1).to(device)
@@ -63,7 +66,6 @@ def main(args):
         train_dataloader, _ = create_dataloaders(
             dataset_name=config["dataset"],
             batch_size=config["batch_size"],
-            image_size=config['image_size'],
             excluded_class=excluded_class,
             unlearning=False
         )
@@ -141,7 +143,7 @@ def main(args):
             ## Generate samples and calculate fid score for non-mnist dataset every 15 epochs
             excluded_class = "full" if excluded_class is None else excluded_class
 
-            if  (epoch+1) % 15 == 0 or (epoch+1) % config['epochs'] == 0:
+            if  (epoch+1) % 15 == 0 or (epoch+1) % config['epochs'] == 0 or global_steps == config['epochs']*len(train_dataloader):
                 
                 model_ema.eval()
                 samples = model_ema.module.sampling(
@@ -155,8 +157,8 @@ def main(args):
                     fid_scores.append(fid_value)
                     print(f"FID score after {global_steps} steps: {fid_value}")
                 
-                os.makedirs(f"results/{config['dataset']}/retrain/samples/{excluded_class}", exist_ok=True)
-                save_image((samples*std + mean), f"results/{config['dataset']}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+                os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
+                save_image(samples, f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
 
 
             ## Checkpoints for training
@@ -164,12 +166,13 @@ def main(args):
             if  (epoch+1) % (config['epochs'] //2) == 0 or (epoch+1) % config['epochs'] == 0:
 
                 print(f"Checkpoint saved at step {global_steps}")
-                os.makedirs(f"/data2/mingyulu/data_att/results/{config['dataset']}/retrain/models/{excluded_class}", exist_ok=True)
+
+                os.makedirs(f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}", exist_ok=True)
                 ckpt = {
                     "model": model.state_dict(),
                     "model_ema": model_ema.state_dict()
                 }
-                torch.save(ckpt, f"/data2/mingyulu/data_att/results/{config['dataset']}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
+                torch.save(ckpt, f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
 
 
         ckpt = {
@@ -177,10 +180,11 @@ def main(args):
             "model_ema": model_ema.state_dict()
         }
 
-        torch.save(ckpt, f"/data2/mingyulu/data_att/results/{config['dataset']}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
+
+        torch.save(ckpt, f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
 
         if config['dataset'] != "mnist":
-            np.save(f"/data2/mingyulu/data_att/results/{config['dataset']}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.npy",  np.array(fid_scores))
+            np.save(f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.npy",  np.array(fid_scores))
 
 
 if __name__=="__main__":

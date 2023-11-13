@@ -1,25 +1,14 @@
-import os
-import math
 import argparse
-import glob
-
 import torch
-import torch.nn as nn
 import numpy as np
 import torchvision
-from scipy.linalg import sqrtm
-from scipy import linalg
 
-from torchvision.utils import save_image
 from torch.utils.data import DataLoader
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import OneCycleLR
-from torchvision.models import inception_v3
-from torchvision.transforms import Resize, Normalize, ToTensor, Compose, Lambda, Grayscale
-from scipy.linalg import sqrtm
+from torchvision import transforms
 
-
+from ddpm_config import DDPMConfig
 from diffusion.diffusions import DDPM
+from inception import InceptionV3
 from utils import *
 
 def parse_args():
@@ -44,170 +33,144 @@ def parse_args():
 
     return args
 
-def calculate_fid(real_features, fake_features):
-    # calculate mean and covariance statistics
-    mu1, sigma1 = real_features.mean(axis=0), np.cov(real_features, rowvar=False)
-    mu2, sigma2 = fake_features.mean(axis=0), np.cov(fake_features, rowvar=False)
-    
-    # calculate sum squared difference between means
-    ssdiff = np.sum((mu1 - mu2)**2.0)
-    
-    # calculate sqrt of product between cov
-    covmean = linalg.sqrtm(sigma1.dot(sigma2))
-    
-    # check and correct imaginary numbers from sqrt
-    if np.iscomplexobj(covmean):
-        covmean = covmean.real
-    
-    # calculate score
-    fid = ssdiff + np.trace(sigma1 + sigma2 - 2.0 * covmean)
-    return fid
-
-# Feature extraction
-def get_features(dataloader, model, n_samples):
-
-    
-    model.eval()
-
-    with torch.no_grad():
-
-        images, _ = next(iter(dataloader))
-        images = images.to(device)[:n_samples]
-        images = torch.stack([TF.resize(img, (299, 299), antialias=True) for img in images])
-
-        features = model(images)
-    return features.cpu().numpy()
 
 def main(args):
 
-    dataset_configs = {
-        "mnist": {
-            "timesteps":1000,
-            "base_dim": 64,
-            "image_size": 28,
-            "in_channels": 1,
-            "out_channels":1,
-            "channel_mult": [2, 4],
-        },
-        "cifar": {
-            "timesteps":1000,
-            "base_dim": 128,
-            "channel_mult": [1, 2, 3, 4],
-            "image_size": 32,
-            "in_channels": 3,
-            "out_channels": 3,
-        },
-    }
-
-
-
-    config = dataset_configs.get(args.dataset)
+    if args.dataset == "cifar":
+        config = {**DDPMConfig.cifar_config}
+    elif args.dataset  == "mnist":
+        config = {**DDPMConfig.mnist_config}
 
     if config is None:
         raise ValueError(f"Invalid dataset: {args.dataset}")
 
-    model_full = DDPM(**config).to(device)
-    model_ablated = DDPM(**config).to(device)
-    model_unlearn = DDPM(**config).to(device)
+    model_full =  DDPM(
+            timesteps=config['timesteps'],
+            base_dim=config['base_dim'],
+            channel_mult=config['channel_mult'],
+            image_size=config['image_size'],
+            in_channels=config['in_channels'],
+            out_channels=config['out_channels'],
+            attn=config['attn'],
+            attn_layer=config['attn_layer'],
+            num_res_blocks=config['num_res_blocks'],
+            dropout=config['dropout']
+        ).to(device).to(device)
+    
+    # model_ablated = DDPM(**config).to(device)
+    # model_unlearn = DDPM(**config).to(device)
 
-    #load checkpoint
-
-
-    def find_max_step_file(path_pattern):
-        files = glob.glob(path_pattern)
-        max_step_file = max(files, key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[0]))
-        return max_step_file
 
     if args.dataset == "mnist":
+
+        ## TODO mnist evaluation
+
         max_step_file = find_max_step_file("/projects/leelab2/mingyulu/unlearning/results/full/models/steps_*.pt")
         ckpt = torch.load(max_step_file)
 
-        model_full.load_state_dict(ckpt["model"])
-        model_full.eval()
+        # model_full.load_state_dict(ckpt["model"])
+        # model_full.eval()
 
-        for i in range(1, 10):
-            max_step_file_ablated = find_max_step_file(f"/projects/leelab2/mingyulu/unlearning/results/ablated/{i}/models/steps_*.pt")
-            ckpt_ablated = torch.load(max_step_file_ablated)
-            model_ablated.load_state_dict(ckpt_ablated["model"])
-            model_ablated.eval()
+        # for i in range(1, 10):
+        #     max_step_file_ablated = find_max_step_file(f"/projects/leelab2/mingyulu/unlearning/results/ablated/{i}/models/steps_*.pt")
+        #     ckpt_ablated = torch.load(max_step_file_ablated)
+        #     model_ablated.load_state_dict(ckpt_ablated["model"])
+        #     model_ablated.eval()
 
-            max_step_file_unlearn = find_max_step_file(f"results/models/unlearn_remaining_ablated/{i}/epochs=100_datasets=False_loss=type1:alpha1=1.0_alpha2=0.01_weight_reg=False/steps_*.pt")
-            ckpt_unlearn = torch.load(max_step_file_unlearn)
-            model_unlearn.load_state_dict(ckpt_unlearn["model"])
-            model_unlearn.eval()
+        #     max_step_file_unlearn = find_max_step_file(f"results/models/unlearn_remaining_ablated/{i}/epochs=100_datasets=False_loss=type1:alpha1=1.0_alpha2=0.01_weight_reg=False/steps_*.pt")
+        #     ckpt_unlearn = torch.load(max_step_file_unlearn)
+        #     model_unlearn.load_state_dict(ckpt_unlearn["model"])
+        #     model_unlearn.eval()
 
-            x_t=torch.randn((args.n_samples, 1, config["image_size"], config["image_size"])).to(device)
+        #     x_t=torch.randn((args.n_samples, 1, config["image_size"], config["image_size"])).to(device)
 
-            samples_original = model_full._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
-            samples_ablated = model_ablated._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
-            samples_unlearn = model_unlearn._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
+        #     samples_original = model_full._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
+        #     samples_ablated = model_ablated._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
+        #     samples_unlearn = model_unlearn._sampling(x_t, args.n_samples, clipped_reverse_diffusion=not args.no_clip, device=device)
 
 
-            print(clip_score(samples_unlearn, samples_original), clip_score(samples_ablated, samples_original), clip_score(samples_ablated, samples_unlearn))
+            # print(clip_score(samples_unlearn, samples_original), clip_score(samples_ablated, samples_original), clip_score(samples_ablated, samples_unlearn))
 
-    if args.dataset == "cifar":
+    elif args.dataset == "cifar":
 
         # max_step_file = find_max_step_file("results/cifar/retrain/models/full/steps_*.pt")
-        # import ipdb;ipdb.set_trace()
 
-        ckpt = torch.load("results/cifar/retrain/models/full/steps_00078200.pt")
+        ckpt = torch.load("/projects/leelab/mingyulu/data_att/results/cifar/retrain/models/full/steps_00125000.pt")
+
+        # ckpt = torch.load("results/cifar/retrain/models/full/steps_00078200.pt")
 
         model_full.load_state_dict(ckpt["model"])
         model_full.eval()
 
         transform = transforms.Compose(
             [
-                transforms.ToTensor(),
+                transforms.Resize(299),
+                transforms.CenterCrop(299),
                 transforms.RandomHorizontalFlip(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                transforms.ToTensor(),
+                transforms.Normalize(mean=config['mean'], std=config['std'])
             ]
         )
 
+        mean = torch.tensor(config['mean']).view( -1, 1, 1).to(device)
+        std = torch.tensor(config['std']).view( -1, 1, 1).to(device)
+
         trainset = torchvision.datasets.CIFAR10(
-            root='/data2/mingyulu/cfair_10', 
+            root=f'/projects/leelab/mingyulu/data_att/{args.dataset}',
             train=True,
             download=True, 
             transform=transform,
         )
-
-        inception_model = inception_v3(
-            weights='DEFAULT',
-            transform_input=False,
-            aux_logits=True
-        ).to(device)
-        
-        inception_model.to(device)
-        inception_model.eval()
-
         batch_size = 128  
 
         trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True) 
+        
+        block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
 
-        # Calculate real image features
-        real_features = get_features(trainloader, inception_model, n_samples=args.n_samples)
+        inception = InceptionV3([block_idx]).to(device)
 
-
+        real_features = get_features(
+            trainloader, 
+            inception, 
+            args.n_samples,
+            device
+        )
+        
         fake_features = []
+        fake_features_norm = []
 
         n_batches = args.n_samples // batch_size
-        
+
         with torch.no_grad(): 
             for _ in range(n_batches):
-                x_t = torch.randn((batch_size, config["in_channels"], config["image_size"], config["image_size"])).to(device)
-                samples = model_full._sampling(x_t, batch_size, clipped_reverse_diffusion=not args.no_clip, device=device)
+
+                samples = model_full.sampling(batch_size, clipped_reverse_diffusion=not args.no_clip, device=device)
+
+                normalized_samples = torch.stack([TF.resize((sample - mean)/std, (299, 299), antialias=True) for sample in samples])
+
                 samples = torch.stack([TF.resize(sample, (299, 299), antialias=True) for sample in samples])
-            
-                fake_feat = inception_model(samples).cpu().numpy()
+
+                fake_feat = inception(samples)[0]
+                fake_feat = fake_feat.squeeze(3).squeeze(2).cpu().numpy()
                 fake_features.append(fake_feat)
+
+                fake_feat_norm = inception(normalized_samples)[0]
+                fake_feat_norm = fake_feat_norm.squeeze(3).squeeze(2).cpu().numpy()
+
+                fake_features_norm.append(fake_feat_norm)
 
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
         fake_features = np.concatenate(fake_features, axis=0)
+        fake_features_norm = np.concatenate(fake_features_norm, axis=0)
 
         # Calculate FID
         fid_value = calculate_fid(real_features, fake_features)
         print('FID:', fid_value)
+
+        fid_value = calculate_fid(real_features, fake_features_norm)
+        print('FID (norm):', fid_value)
 
 
 if __name__=="__main__":
