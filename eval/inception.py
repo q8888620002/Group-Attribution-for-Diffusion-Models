@@ -28,12 +28,14 @@ class InceptionV3(nn.Module):
         2048: 3  # Final average pooling features
     }
 
-    def __init__(self,
-                 output_blocks=(DEFAULT_BLOCK_INDEX,),
-                 resize_input=True,
-                 normalize_input=True,
-                 requires_grad=False,
-                 use_fid_inception=True):
+    def __init__(
+            self,
+            output_blocks=(DEFAULT_BLOCK_INDEX,),
+            resize_input=True,
+            normalize_input=True,
+            requires_grad=False,
+            use_fid_inception=True
+        ):
         """Build pretrained InceptionV3
 
         Parameters
