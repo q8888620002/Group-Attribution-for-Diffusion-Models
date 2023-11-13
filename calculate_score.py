@@ -9,7 +9,7 @@ from torchvision import transforms
 from ddpm_config import DDPMConfig
 from diffusion.diffusions import DDPM
 from utils import *
-from data_attribution.eval.inception import InceptionV3
+from eval.inception import InceptionV3
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Training MNISTDiffusion")

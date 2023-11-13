@@ -1,21 +1,16 @@
 import glob
 import os
 import torch
-import torch.nn.functional as F
 import numpy as np
 import random
-import torchvision.transforms.functional as TF
 
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import MNIST , CIFAR10
 from torchvision import transforms
 from torchvision.transforms import Compose, Resize, Lambda, Normalize, ToPILImage
-from torchvision.models import inception_v3
 
 from scipy.linalg import sqrtm
 from CLIP.clip import clip
-from PIL import Image
-
 
 
 # Load CLIP model and transformation outside of the function for efficiency
@@ -160,42 +155,20 @@ def get_features(
     return features[:n_samples]
 
 
-def calculate_fid(images1, images2, device):
+def calculate_fid(real_features, fake_features):
     """
-    Create a mnist dataset with/without filtered labels
+    Calculating fid score, squared Wasserstein metric between two multidimensional Gaussian distributions.
 
     Args:
-        images1:
-        images2:
+        real_features:
+        fake_features:
     Return:
         fid score between images1 and images2
     """
 
-    model = inception_v3(
-        weights='pretrained',
-        transform_input=False,
-        aux_logits=True
-    ).to(device)
-
-    model.eval()
-
-    ## resize images for inception_v3 as it expects tensors with a size of (N x 3 x 299 x 299).
-
-    images1 = torch.stack([TF.resize(img, (299, 299), antialias=True) for img in images1])
-    images2 = torch.stack([TF.resize(img, (299, 299), antialias=True) for img in images2])
-
-    with torch.no_grad():
-        act1 = model(images1)
-        act2 = model(images2)
-
-    act1 = act1.detach().cpu().numpy()
-    act2 = act2.detach().cpu().numpy()
-
-    mu1, sigma1 = act1.mean(axis=0), np.cov(act1, rowvar=False)
-    mu2, sigma2 = act2.mean(axis=0), np.cov(act2, rowvar=False)
-
-    ss_diff = np.sum((mu1 - mu2)**2.0)
-
+    mu1, sigma1 = real_features.mean(axis=0), np.cov(real_features, rowvar=False)
+    mu2, sigma2 = fake_features.mean(axis=0), np.cov(fake_features, rowvar=False)
+    
     cov_mean = sqrtm(sigma1.dot(sigma2))
 
     # Check and correct imaginary numbers from sqrt
@@ -203,7 +176,7 @@ def calculate_fid(images1, images2, device):
         cov_mean = cov_mean.real
 
     # Calculate score
-    fid = ss_diff + np.trace(sigma1 + sigma2 - 2.0 * cov_mean)
+    fid = np.sum((mu1 - mu2)**2.0) + np.trace(sigma1 + sigma2 - 2.0 * cov_mean)
 
     return fid
 
