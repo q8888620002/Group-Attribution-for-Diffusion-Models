@@ -5,23 +5,28 @@ class DDPMConfig:
     cifar_config = {
         "dataset": "cifar",
         "image_size": 32,
-        "mean": [0.485, 0.456, 0.406],
-        "std": [0.229, 0.224, 0.225],
+
+        # "mean": [0.485, 0.456, 0.406],
+        # "std": [0.229, 0.224, 0.225],
+
+        "mean": [0.5, 0.5, 0.5],
+        "std": [0.5, 0.5, 0.5],
         # Unet params
 
-        "timesteps": 2000, 
+        "timesteps": 1000, 
         "base_dim": 128,
-        "channel_mult": [1, 2, 3, 4],
+        "channel_mult": [1, 2, 2, 2],
         "in_channels": 3,
         "out_channels": 3,
         "num_res_blocks": 2,
         "dropout": 0.15,
         "attn": True,
         "attn_layer":[2],
+
         ### Training params
         
         ## old - trained with FID 541: results/cifar/retrain/models/full/steps_00078200.pt
-
+        # FID: 40
         "trained_model": "/projects/leelab/mingyulu/data_att/results/cifar/retrain/models/full/steps_00125000.pt",
 
         "lr": 1e-4,

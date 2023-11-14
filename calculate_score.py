@@ -37,6 +37,8 @@ def parse_args():
 
 def main(args):
 
+    device = args.device
+
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
     elif args.dataset  == "mnist":
@@ -146,7 +148,7 @@ def main(args):
             for _ in range(n_batches):
 
                 samples = model_full.sampling(batch_size, clipped_reverse_diffusion=not args.no_clip, device=device)
-
+                import ipdb;ipdb.set_trace()
                 normalized_samples = torch.stack([TF.resize((sample - mean)/std, (299, 299), antialias=True) for sample in samples])
 
                 samples = torch.stack([TF.resize(sample, (299, 299), antialias=True) for sample in samples])

@@ -3,6 +3,7 @@ import torch
 import math
 
 from diffusion.models import UNet
+from diffusion.unetmodel import UNetModel
 from diffusion.unet_old import Unet as Unet_wo_attn
 from tqdm import tqdm
 
@@ -27,6 +28,7 @@ class DDPM(nn.Module):
         self.timesteps=timesteps
         self.image_size=image_size
         self.in_channels = in_channels
+        self.in_channels = in_channels
 
         betas= self._cosine_variance_schedule(timesteps)
 
@@ -39,26 +41,46 @@ class DDPM(nn.Module):
         self.register_buffer("sqrt_alphas_cumprod",torch.sqrt(alphas_cumprod))
         self.register_buffer("sqrt_one_minus_alphas_cumprod",torch.sqrt(1.-alphas_cumprod))
 
-        if not attn:
+        if self.in_channels==1:
+
             self.model = Unet_wo_attn(
                 timesteps=timesteps,
                 time_embedding_dim=256,
-                in_channels=in_channels,
-                out_channels=out_channels,
+                in_channels=1,
+                out_channels=1,
                 base_dim=base_dim,
-                dim_mults=channel_mult
+                dim_mults=channel_mult,
             )
+
         else:
-            self.model = UNet(
-                T=timesteps,
-                ch=base_dim,
-                ch_mult=channel_mult,
-                attn=attn_layer,
+
+            attention_ds = []
+            attention_resolutions = "16,8"
+
+            for res in attention_resolutions.split(","):
+                attention_ds.append(image_size // int(res))
+
+            self.model = UNetModel(
+                in_channels=in_channels,
+                out_channels= out_channels,
+                model_channels = base_dim,
                 num_res_blocks=num_res_blocks,
+                attention_resolutions=tuple(attention_ds),
                 dropout=dropout,
-                input_ch_dim = in_channels,
-                output_ch_dim = out_channels
+                channel_mult=channel_mult,
+                num_heads=4,
+                use_scale_shift_norm=True
             )
+            # self.model = UNet(
+            #     T=timesteps,
+            #     ch=base_dim,
+            #     ch_mult=channel_mult,
+            #     attn=attn_layer,
+            #     num_res_blocks=num_res_blocks,
+            #     dropout=dropout,
+            #     input_ch_dim = in_channels,
+            #     output_ch_dim = out_channels
+            # )
 
 
     def forward(
@@ -82,6 +104,7 @@ class DDPM(nn.Module):
         return pred_noise
 
     @torch.no_grad()
+
     def sampling(
             self,
             n_samples: int,
@@ -103,10 +126,17 @@ class DDPM(nn.Module):
                 x_t=self._reverse_diffusion_with_clip(x_t,t,noise)
             else:
                 x_t=self._reverse_diffusion(x_t,t,noise)
+        
+        # depending on normalization of inputs,  x_0, to [-1,1] to [0,1] 
+        
+        if self.in_channels == 1:
+            x_t=(x_t+1.)/2. 
 
-        x_t=(x_t+1.)/2. #[-1,1] to [0,1]
+            return torch.clamp(x_t, 0, 1)
 
-        return x_t
+        
+        return torch.clamp(x_t, -1, 1)
+
 
     @torch.no_grad()
     def _sampling(
@@ -129,9 +159,15 @@ class DDPM(nn.Module):
             else:
                 x_t=self._reverse_diffusion(x_t,t,noise)
 
-        x_t=(x_t+1.)/2. #[-1,1] to [0,1]
+        # depending on normalization of inputs,  x_0, to [-1,1] to [0,1] 
 
-        return x_t
+        if self.in_channels == 1:
+            x_t=(x_t+1.)/2. 
+
+            return torch.clamp(x_t, 0, 1)
+
+        
+        return torch.clamp(x_t, -1, 1)
 
     def _cosine_variance_schedule(
             self,

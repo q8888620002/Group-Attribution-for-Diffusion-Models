@@ -4,6 +4,7 @@ import argparse
 
 import torch
 import torch.nn as nn
+import torchvision.transforms.functional as TF
 
 from torchvision.utils import save_image
 from torch.optim import AdamW
@@ -12,6 +13,7 @@ from torch.optim.lr_scheduler import OneCycleLR
 from ddpm_config import DDPMConfig
 from diffusion.diffusions import DDPM
 from utils import *
+from eval.inception import InceptionV3
 
 
 
@@ -107,7 +109,6 @@ def main(args):
         for epoch in range(config['epochs']):
 
             model.train()
-            real_images = torch.Tensor().to(device)
 
             for j, (image, _) in enumerate(train_dataloader):
 
@@ -128,24 +129,14 @@ def main(args):
                 if j % args.log_freq == 0:
                     print(f"Epoch[{epoch+1}/{config['epochs']}],Step[{j}/{len(train_dataloader)}], loss:{loss.detach().cpu().item():.5f}, lr:{scheduler.get_last_lr()[0]:.6f}")
 
-                ## adding images for FID evaluation
-
-                if config['dataset'] != "mnist":
-                    if real_images.size(0) < args.n_samples:
-                        with torch.no_grad():
-                            real_images = torch.cat((real_images, image), dim=0)
-
-                    if real_images.size(0) > args.n_samples:
-                        real_images = real_images[:args.n_samples]
-
                 global_steps+=1
 
-            ## Generate samples and calculate fid score for non-mnist dataset every 15 epochs
+            ## Generate samples and calculate fid score for non-mnist dataset every 20 epochs
             excluded_class = "full" if excluded_class is None else excluded_class
 
-            if  (epoch+1) % 15 == 0 or (epoch+1) % config['epochs'] == 0 or global_steps == config['epochs']*len(train_dataloader):
-                
+            if  (epoch+1) % 20 == 0 or global_steps == config['epochs']*len(train_dataloader):
                 model_ema.eval()
+
                 samples = model_ema.module.sampling(
                     args.n_samples, 
                     clipped_reverse_diffusion=not args.no_clip, 
@@ -153,12 +144,30 @@ def main(args):
                 )
 
                 if config["dataset"] != "mnist":
-                    fid_value = calculate_fid(samples, real_images, device)
+                                        
+                    block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
+
+                    inception = InceptionV3([block_idx]).to(device)
+
+                    real_features = get_features(
+                        train_dataloader,
+                        mean,
+                        std,
+                        inception,
+                        args.n_samples,
+                        device
+                    )
+                    samples = torch.stack([TF.resize(sample, (299, 299), antialias=True) for sample in samples])
+
+                    fake_feat = inception(samples)[0]
+                    fake_feat = fake_feat.squeeze(3).squeeze(2).cpu().numpy()
+
+                    fid_value = calculate_fid(real_features, fake_feat)
                     fid_scores.append(fid_value)
                     print(f"FID score after {global_steps} steps: {fid_value}")
                 
                 os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
-                save_image(samples, f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+                save_image(samples*std + mean, f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
 
 
             ## Checkpoints for training

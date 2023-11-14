@@ -57,17 +57,18 @@ def create_dataloaders(
     if dataset_name == 'cifar':
         preprocess = transforms.Compose([
             transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+            transforms.ToTensor(), # normalize to [0,1]
+            transforms.Normalize([0.5], [0.5]) # normalize to [-1,1]
+            # transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
         DatasetClass = CIFAR10
-        #root_dir = '/projects/leelab/mingyulu/data_att/cifar'
-        root_dir  = "gstratch/cse/mingyulu/data_attribtuion"
-        
+        root_dir = '/projects/leelab/mingyulu/data_att/cifar'
+        # root_dir  = "gstratch/cse/mingyulu/data_attribtuion"
+
     elif dataset_name == 'mnist':
         preprocess = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize([0.5], [0.5])
+            transforms.ToTensor(), # normalize to [0,1]
+            transforms.Normalize([0.5], [0.5]) # normalize to [-1,1]
         ])
         DatasetClass = MNIST
         root_dir = '/projects/leelab/mingyulu/data_att/mnist'
@@ -121,6 +122,8 @@ def find_max_step_file(path_pattern):
 
 def get_features(
         dataloader, 
+        mean,
+        std,
         model, 
         n_samples, 
         device
@@ -128,6 +131,17 @@ def get_features(
     
     """
     Feature extraction for Inception V3
+
+    Args:
+        dataloader: Dataloader that contains real images e.g. cifar-10
+        mean: mean for the preprocessing for a given dataset 
+        std: std for the preprocessing for a given dataset 
+        model: this should be an inception_v3 model with pretrained weights. 
+        n_samples: number of samples to be collected for real images from dataloader
+        device: 
+    
+    Return:
+        features converted by inception_v3, should be (n_samples, 2024)
     """
 
     model.eval()
@@ -140,9 +154,14 @@ def get_features(
             break
         
         with torch.no_grad():
-            # Apply preprocessing to each image in the batch
-
+            
             images = images.to(device)
+            
+            # Convert iamges to [ -1, 1] if use other normalization scales.
+
+            images = images*std/0.5 + (mean - 0.5)
+
+            # Passing through inception 
 
             batch_features = model(images)[0]
             batch_features = batch_features.squeeze(3).squeeze(2).cpu().numpy()
