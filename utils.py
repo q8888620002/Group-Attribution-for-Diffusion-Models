@@ -61,8 +61,9 @@ def create_dataloaders(
             transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
         DatasetClass = CIFAR10
-        root_dir = '/projects/leelab/mingyulu/data_att/cifar'
-    
+        #root_dir = '/projects/leelab/mingyulu/data_att/cifar'
+        root_dir  = "gstratch/cse/mingyulu/data_attribtuion"
+        
     elif dataset_name == 'mnist':
         preprocess = transforms.Compose([
             transforms.ToTensor(),
