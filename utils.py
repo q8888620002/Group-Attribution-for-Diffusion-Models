@@ -14,8 +14,8 @@ from scipy.linalg import sqrtm
 
 
 # Load CLIP model and transformation outside of the function for efficiency
-device = "cuda" if torch.cuda.is_available() else "cpu"
-clip_model, clip_transform = clip.load("ViT-B/32", device=device)
+# device = "cuda" if torch.cuda.is_available() else "cpu"
+# clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 
 
 class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
