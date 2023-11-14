@@ -79,7 +79,7 @@ def main(args):
         in_channels=config['in_channels'],
         out_channels=config['out_channels'],
         attn=config['attn'],
-        attn_layer=config['attn_layer'],        
+        attn_layer=config['attn_layer'],
         num_res_blocks=config['num_res_blocks'],
         dropout=config['dropout'],
     ).to(device)
@@ -106,13 +106,15 @@ def main(args):
     freezed_model_dict = ckpt["model"]
 
     ## Make sure parameters of frozen mdoel is freezed.
-    for params in model_frozen.parameters():
-        params.requires_grad=False
 
-    for excluded_class in range(10):
+    # for params in model_frozen.parameters():
+    #     params.requires_grad=False
+
+
+    for excluded_class in range(1, 10):
 
         path = f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/unlearning/"
-        params = f"/{excluded_class}/epochs={args.epochs}_datasets={args.keep_digits}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
+        params = f"/{excluded_class}/epochs={args.epochs}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
 
         train_dataloader, ablated_dataloader = create_dataloaders(
             dataset_name=args.dataset,
@@ -139,7 +141,6 @@ def main(args):
 
         model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
-
         ckpt=torch.load(config['trained_model'])
 
         # ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
@@ -155,8 +156,8 @@ def main(args):
             pct_start=0.25,
             anneal_strategy='cos'
         )
-        loss_fn=nn.MSELoss(reduction='mean')
 
+        loss_fn=nn.MSELoss(reduction='mean')
 
         global_steps=0
 
@@ -200,14 +201,14 @@ def main(args):
                 ## weight regularization lambda*(\hat_{\theta} - \theta)
                 ## TODO fisher information
 
-                if args.weight_reg:
-                    for n, p in model.named_parameters():
-                        _loss = (p - freezed_model_dict[n].to(device)) ** 2
-                        loss += 0.5 * _loss.sum()
+                # if args.weight_reg:
+                #     for n, p in model.named_parameters():
+                #         _loss = (p - freezed_model_dict[n].to(device)) ** 2
+                #         loss += 0.5 * _loss.sum()
 
-                optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                optimizer.zero_grad()
                 scheduler.step()
 
                 ## Update learning rate
@@ -233,15 +234,15 @@ def main(args):
                 os.makedirs(f"results/{args.dataset}/unlearning/samples" + params, exist_ok=True)
 
                 samples = model_ema.module.sampling(
-                    args.n_samples, 
-                    clipped_reverse_diffusion=not args.no_clip, 
+                    args.n_samples,
+                    clipped_reverse_diffusion=not args.no_clip,
                     device=device
                 )
                 save_image(samples,f"results/{args.dataset}/unlearning/samples" + params + f"/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
 
         os.makedirs(path + "models" + params, exist_ok=True)
         torch.save(ckpt, path + "models" + params +  f"/steps_{global_steps:0>8}.pt")
-   
+
 if __name__=="__main__":
     args=parse_args()
     main(args)

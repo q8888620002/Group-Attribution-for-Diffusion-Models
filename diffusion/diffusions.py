@@ -3,7 +3,7 @@ import torch
 import math
 
 from diffusion.models import UNet
-from diffusion.unet_old import Unet as Old_Unet
+from diffusion.unet_old import Unet as Unet_wo_attn
 from tqdm import tqdm
 
 
@@ -40,13 +40,13 @@ class DDPM(nn.Module):
         self.register_buffer("sqrt_one_minus_alphas_cumprod",torch.sqrt(1.-alphas_cumprod))
 
         if not attn:
-            self.model = Old_Unet(
-                timesteps=1000,
+            self.model = Unet_wo_attn(
+                timesteps=timesteps,
                 time_embedding_dim=256,
-                in_channels=1,
-                out_channels=1,
-                base_dim=64,
-                dim_mults=[2,4]
+                in_channels=in_channels,
+                out_channels=out_channels,
+                base_dim=base_dim,
+                dim_mults=channel_mult
             )
         else:
             self.model = UNet(
@@ -138,10 +138,15 @@ class DDPM(nn.Module):
             timesteps: int,
             epsilon: float= 0.008
         )-> float:
-
+        """
+        Cosine variance schedular from https://arxiv.org/pdf/2102.09672.pdf -
+            "In practice, we clip βt to be no larger than
+             0.999 to prevent singularities at the end of the diffusion
+             process t=T."
+        """
         steps=torch.linspace(0,timesteps,steps=timesteps+1,dtype=torch.float32)
         f_t=torch.cos(((steps/timesteps+epsilon)/(1.0+epsilon))*math.pi*0.5)**2
-        betas=torch.clip(1.0 - f_t[1:]/f_t[:timesteps], 0.0 , 0.9999)
+        betas=torch.clip(1.0 - f_t[1:]/f_t[:timesteps], 0.0 , 0.999)
 
         return betas
 

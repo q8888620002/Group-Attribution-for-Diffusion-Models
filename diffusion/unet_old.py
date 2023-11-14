@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import math
+
 
 class ChannelShuffle(nn.Module):
     def __init__(self,groups):
@@ -11,7 +10,7 @@ class ChannelShuffle(nn.Module):
         n,c,h,w=x.shape
         x=x.view(n,self.groups,c//self.groups,h,w) # group
         x=x.transpose(1,2).contiguous().view(n,-1,h,w) #shuffle
-        
+
         return x
 
 class ConvBnSiLu(nn.Module):
@@ -80,9 +79,9 @@ class TimeMLP(nn.Module):
     def forward(self,x,t):
         t_emb=self.mlp(t).unsqueeze(-1).unsqueeze(-1)
         x=x+t_emb
-  
+
         return self.act(x)
-    
+
 class EncoderBlock(nn.Module):
     def __init__(self,in_channels,out_channels,time_embedding_dim):
         super().__init__()
@@ -91,7 +90,7 @@ class EncoderBlock(nn.Module):
 
         self.time_mlp=TimeMLP(embedding_dim=time_embedding_dim,hidden_dim=out_channels,out_dim=out_channels//2)
         self.conv1=ResidualDownsample(out_channels//2,out_channels)
-    
+
     def forward(self,x,t=None):
         x_shortcut=self.conv0(x)
         if t is not None:
@@ -99,7 +98,7 @@ class EncoderBlock(nn.Module):
         x=self.conv1(x)
 
         return [x,x_shortcut]
-        
+
 class DecoderBlock(nn.Module):
     def __init__(self,in_channels,out_channels,time_embedding_dim):
         super().__init__()
@@ -111,18 +110,14 @@ class DecoderBlock(nn.Module):
         self.conv1=ResidualBottleneck(in_channels//2,out_channels//2)
 
     def forward(self,x,x_shortcut,t=None):
-        # import ipdb;ipdb.set_trace()
-
         x=self.upsample(x)
         x=torch.cat([x,x_shortcut],dim=1)
         x=self.conv0(x)
-
         if t is not None:
             x=self.time_mlp(x,t)
         x=self.conv1(x)
 
-        return x      
-    
+        return x
 
 class Unet(nn.Module):
     '''
@@ -131,7 +126,7 @@ class Unet(nn.Module):
     def __init__(self,timesteps,time_embedding_dim,in_channels=3,out_channels=2,base_dim=32,dim_mults=[2,4,8,16]):
         super().__init__()
         assert isinstance(dim_mults,(list,tuple))
-        assert base_dim%2==0 
+        assert base_dim%2==0
 
         channels=self._cal_channels(base_dim,dim_mults)
 
@@ -140,7 +135,7 @@ class Unet(nn.Module):
 
         self.encoder_blocks=nn.ModuleList([EncoderBlock(c[0],c[1],time_embedding_dim) for c in channels])
         self.decoder_blocks=nn.ModuleList([DecoderBlock(c[1],c[0],time_embedding_dim) for c in channels[::-1]])
-    
+
         self.mid_block=nn.Sequential(*[ResidualBottleneck(channels[-1][1],channels[-1][1]) for i in range(2)],
                                         ResidualBottleneck(channels[-1][1],channels[-1][1]//2))
 
@@ -171,13 +166,9 @@ class Unet(nn.Module):
 
         return channels
 
-
-
-
 if __name__=="__main__":
-    x = torch.randn(3, 3, 224, 224)  # A batch of 3 images with 3 channels and 224x224 pixels
-    t = torch.randint(0, 1000, (3,))  # Random time steps for each image in the batch
-    model = Unet(1000, 128, 3, 2, 32)  # Initialize your model with the correct parameters
-    output = model(x, t)  # Run the forward pass with the images and time steps
-
-    print(output.shape)
+    x=torch.randn(3,3,224,224)
+    t=torch.randint(0,1000,(3,))
+    model=Unet(1000,128)
+    y=model(x,t)
+    print(y.shape)

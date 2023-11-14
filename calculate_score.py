@@ -5,11 +5,12 @@ import torchvision
 
 from torch.utils.data import DataLoader
 from torchvision import transforms
+import torchvision.transforms.functional as TF
 
 from ddpm_config import DDPMConfig
 from diffusion.diffusions import DDPM
-from utils import *
 from eval.inception import InceptionV3
+from utils import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Training MNISTDiffusion")
@@ -56,7 +57,7 @@ def main(args):
             num_res_blocks=config['num_res_blocks'],
             dropout=config['dropout']
         ).to(device).to(device)
-    
+
     # model_ablated = DDPM(**config).to(device)
     # model_unlearn = DDPM(**config).to(device)
 
@@ -118,30 +119,30 @@ def main(args):
         trainset = torchvision.datasets.CIFAR10(
             root=f'/projects/leelab/mingyulu/data_att/{args.dataset}',
             train=True,
-            download=True, 
+            download=True,
             transform=transform,
         )
-        batch_size = 128  
+        batch_size = 128
 
-        trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True) 
-        
+        trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True)
+
         block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
 
         inception = InceptionV3([block_idx]).to(device)
 
         real_features = get_features(
-            trainloader, 
-            inception, 
+            trainloader,
+            inception,
             args.n_samples,
             device
         )
-        
+
         fake_features = []
         fake_features_norm = []
 
         n_batches = args.n_samples // batch_size
 
-        with torch.no_grad(): 
+        with torch.no_grad():
             for _ in range(n_batches):
 
                 samples = model_full.sampling(batch_size, clipped_reverse_diffusion=not args.no_clip, device=device)

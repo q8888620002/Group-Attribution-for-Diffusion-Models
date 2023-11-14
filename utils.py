@@ -10,7 +10,7 @@ from torchvision import transforms
 from torchvision.transforms import Compose, Resize, Lambda, Normalize, ToPILImage
 
 from scipy.linalg import sqrtm
-from CLIP.clip import clip
+# from CLIP.clip import clip
 
 
 # Load CLIP model and transformation outside of the function for efficiency
