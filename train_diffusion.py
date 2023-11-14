@@ -146,7 +146,6 @@ def main(args):
                 if config["dataset"] != "mnist":
                                         
                     block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
-
                     inception = InceptionV3([block_idx]).to(device)
 
                     real_features = get_features(
@@ -157,9 +156,9 @@ def main(args):
                         args.n_samples,
                         device
                     )
-                    samples = torch.stack([TF.resize(sample, (299, 299), antialias=True) for sample in samples])
+                    resized_samples = torch.stack([TF.resize(sample, (299, 299), antialias=True) for sample in samples])
 
-                    fake_feat = inception(samples)[0]
+                    fake_feat = inception(resized_samples)[0]
                     fake_feat = fake_feat.squeeze(3).squeeze(2).cpu().numpy()
 
                     fid_value = calculate_fid(real_features, fake_feat)
@@ -167,9 +166,11 @@ def main(args):
                     print(f"FID score after {global_steps} steps: {fid_value}")
                 
                 os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
-                save_image(samples*std + mean, f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
 
-
+                save_image(
+                    (samples*std + 1)*127.5,  ## rescale images from [-1, 1] to [0, 255]
+                     f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples))
+                )
             ## Checkpoints for training
 
             if  (epoch+1) % (config['epochs'] //2) == 0 or (epoch+1) % config['epochs'] == 0:

@@ -2,6 +2,15 @@ class DDPMConfig:
 
     # CIFAR specific configurations
 
+    # Channel_mult configs from https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/script_util.py
+    #     if image_size == 256:
+    #       channel_mult = (1, 1, 2, 2, 4, 4)
+    #     elif image_size == 64:
+    #       channel_mult = (1, 2, 3, 4)
+    #     elif image_size == 32:
+    #       channel_mult = (1, 2, 2, 2)
+
+
     cifar_config = {
         "dataset": "cifar",
         "image_size": 32,
@@ -26,8 +35,8 @@ class DDPMConfig:
         ### Training params
         
         ## old - trained with FID 541: results/cifar/retrain/models/full/steps_00078200.pt
-        # FID: 40
-        "trained_model": "/projects/leelab/mingyulu/data_att/results/cifar/retrain/models/full/steps_00125000.pt",
+
+        # "trained_model": "/projects/leelab/mingyulu/data_att/results/cifar/retrain/models/full/steps_00125000.pt",
 
         "lr": 1e-4,
         "batch_size": 80,
