@@ -34,7 +34,7 @@ class DDPMConfig:
 
         ### Training params
         
-        ## old - trained with FID 541: results/cifar/retrain/models/full/steps_00078200.pt
+        ## old -  results/cifar/retrain/models/full/steps_00078200.pt
 
         # "trained_model": "/projects/leelab/mingyulu/data_att/results/cifar/retrain/models/full/steps_00125000.pt",
 
@@ -51,8 +51,8 @@ class DDPMConfig:
 
         "dataset": "mnist",
         "image_size": 28,
-        "mean": [0.5],
-        "std": [0.5],
+        "mean": [0.5, 0.5, 0.5],
+        "std": [0.5, 0.5, 0.5],
 
         ## Unet params
 

@@ -28,7 +28,6 @@ class DDPM(nn.Module):
         self.timesteps=timesteps
         self.image_size=image_size
         self.in_channels = in_channels
-        self.in_channels = in_channels
 
         betas= self._cosine_variance_schedule(timesteps)
 
@@ -129,13 +128,12 @@ class DDPM(nn.Module):
         
         # depending on normalization of inputs,  x_0, to [-1,1] to [0,1] 
         
-        if self.in_channels == 1:
-            x_t=(x_t+1.)/2. 
+        # if self.in_channels == 1:
+        #     x_t=(x_t+1.)/2. 
 
-            return torch.clamp(x_t, 0, 1)
-
+        #     return torch.clamp(x_t, 0., 1.)
         
-        return torch.clamp(x_t, -1, 1)
+        return torch.clamp(x_t, -1., 1.)
 
 
     @torch.no_grad()
@@ -161,13 +159,13 @@ class DDPM(nn.Module):
 
         # depending on normalization of inputs,  x_0, to [-1,1] to [0,1] 
 
-        if self.in_channels == 1:
-            x_t=(x_t+1.)/2. 
+        # if self.in_channels == 1:
+        #     x_t=(x_t+1.)/2. 
 
-            return torch.clamp(x_t, 0, 1)
+        #     return torch.clamp(x_t, 0., 1.)
 
         
-        return torch.clamp(x_t, -1, 1)
+        return torch.clamp(x_t, -1., 1.)
 
     def _cosine_variance_schedule(
             self,

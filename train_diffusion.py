@@ -134,7 +134,7 @@ def main(args):
             ## Generate samples and calculate fid score for non-mnist dataset every 20 epochs
             excluded_class = "full" if excluded_class is None else excluded_class
 
-            if  (epoch+1) % 20 == 0 or global_steps == config['epochs']*len(train_dataloader):
+            if  (epoch+1) % 2 == 0 or global_steps == config['epochs']*len(train_dataloader):
                 model_ema.eval()
 
                 samples = model_ema.module.sampling(
@@ -144,9 +144,11 @@ def main(args):
                 )
 
                 if config["dataset"] != "mnist":
-                                        
+                    
+                    ## Feature ranges  should be [-1,1 ] according to https://github.com/mseitzer/pytorch-fid/issues/3
+
                     block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
-                    inception = InceptionV3([block_idx]).to(device)
+                    inception = InceptionV3([block_idx],normalize_input=False).to(device)
 
                     real_features = get_features(
                         train_dataloader,
@@ -163,12 +165,17 @@ def main(args):
 
                     fid_value = calculate_fid(real_features, fake_feat)
                     fid_scores.append(fid_value)
+
                     print(f"FID score after {global_steps} steps: {fid_value}")
                 
                 os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
+                
+                ## rescale images from [-1, 1] to [0, 1] and save
+                
+                samples= torch.clamp(((samples+1.)/2.), 0., 1.)
 
                 save_image(
-                    (samples*std + 1)*127.5,  ## rescale images from [-1, 1] to [0, 255]
+                    samples,
                      f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples))
                 )
             ## Checkpoints for training
@@ -189,7 +196,6 @@ def main(args):
             "model": model.state_dict(),
             "model_ema": model_ema.state_dict()
         }
-
 
         torch.save(ckpt, f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.pt")
 

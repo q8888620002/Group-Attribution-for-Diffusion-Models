@@ -107,8 +107,8 @@ def main(args):
 
     ## Make sure parameters of frozen mdoel is freezed.
 
-    # for params in model_frozen.parameters():
-    #     params.requires_grad=False
+    for params in model_frozen.parameters():
+        params.requires_grad=False
 
 
     for excluded_class in range(1, 10):
@@ -188,7 +188,6 @@ def main(args):
 
                 eps_r = model(image_r, noise, t)
 
-
                 # delta logP(D_r) - delta logP(D_e)
                 if args.loss_type == "type1":
 
@@ -238,7 +237,13 @@ def main(args):
                     clipped_reverse_diffusion=not args.no_clip,
                     device=device
                 )
-                save_image(samples,f"results/{args.dataset}/unlearning/samples" + params + f"/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples)))
+
+                samples= torch.clamp(((samples+1.)/2.), 0., 1.)
+
+                save_image(
+                    samples,
+                    f"results/{args.dataset}/unlearning/samples" + params + f"/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples))
+                )
 
         os.makedirs(path + "models" + params, exist_ok=True)
         torch.save(ckpt, path + "models" + params +  f"/steps_{global_steps:0>8}.pt")

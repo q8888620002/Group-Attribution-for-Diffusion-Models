@@ -130,17 +130,18 @@ def main(args):
 
         block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
 
-        inception = InceptionV3([block_idx]).to(device)
+        inception = InceptionV3([block_idx],normalize_input=False).to(device)
 
         real_features = get_features(
             trainloader,
             inception,
+            mean,
+            std,
             args.n_samples,
             device
         )
 
         fake_features = []
-        fake_features_norm = []
 
         n_batches = args.n_samples // batch_size
 
@@ -148,32 +149,20 @@ def main(args):
             for _ in range(n_batches):
 
                 samples = model_full.sampling(batch_size, clipped_reverse_diffusion=not args.no_clip, device=device)
-                import ipdb;ipdb.set_trace()
-                normalized_samples = torch.stack([TF.resize((sample - mean)/std, (299, 299), antialias=True) for sample in samples])
-
                 samples = torch.stack([TF.resize(sample, (299, 299), antialias=True) for sample in samples])
 
                 fake_feat = inception(samples)[0]
                 fake_feat = fake_feat.squeeze(3).squeeze(2).cpu().numpy()
                 fake_features.append(fake_feat)
 
-                fake_feat_norm = inception(normalized_samples)[0]
-                fake_feat_norm = fake_feat_norm.squeeze(3).squeeze(2).cpu().numpy()
-
-                fake_features_norm.append(fake_feat_norm)
-
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
         fake_features = np.concatenate(fake_features, axis=0)
-        fake_features_norm = np.concatenate(fake_features_norm, axis=0)
 
         # Calculate FID
         fid_value = calculate_fid(real_features, fake_features)
         print('FID:', fid_value)
-
-        fid_value = calculate_fid(real_features, fake_features_norm)
-        print('FID (norm):', fid_value)
 
 
 if __name__=="__main__":

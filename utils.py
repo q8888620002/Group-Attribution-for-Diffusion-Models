@@ -58,7 +58,7 @@ def create_dataloaders(
         preprocess = transforms.Compose([
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(), # normalize to [0,1]
-            transforms.Normalize([0.5], [0.5]) # normalize to [-1,1]
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)) # normalize to [-1,1]
             # transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
         ])
         DatasetClass = CIFAR10
@@ -159,7 +159,7 @@ def get_features(
             
             # Convert iamges to [ -1, 1] if use other normalization scales.
 
-            images = images*std/0.5 + (mean - 0.5)
+            images = (images*std + mean)*2. -1.
 
             # Passing through inception 
 
