@@ -138,7 +138,6 @@ def main(args):
             dropout=config['dropout'],
         ).to(device)
 
-
         model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
         ckpt=torch.load(config['trained_model'])
@@ -225,7 +224,7 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
 
-            if (epoch+1)%10 ==0 or (epoch+1)% args.epochs==0 or global_steps == config['epochs']*len(train_dataloader):
+            if (epoch+1)%20 == 0 or (epoch+1)% args.epochs==0 or global_steps == config['epochs']*len(train_dataloader):
 
                 model_ema.eval()
 

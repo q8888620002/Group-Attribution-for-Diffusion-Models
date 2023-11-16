@@ -132,9 +132,10 @@ def main(args):
                 global_steps+=1
 
             ## Generate samples and calculate fid score for non-mnist dataset every 20 epochs
+
             excluded_class = "full" if excluded_class is None else excluded_class
 
-            if  (epoch+1) % 2 == 0 or global_steps == config['epochs']*len(train_dataloader):
+            if  (epoch+1) % 20 == 0 or global_steps == config['epochs']*len(train_dataloader):
                 model_ema.eval()
 
                 samples = model_ema.module.sampling(
@@ -145,10 +146,15 @@ def main(args):
 
                 if config["dataset"] != "mnist":
                     
-                    ## Feature ranges  should be [-1,1 ] according to https://github.com/mseitzer/pytorch-fid/issues/3
+                    ## Feature ranges should be [-1,1] according to https://github.com/mseitzer/pytorch-fid/issues/3
+                    ## If input scale is within [ 0,1] set normalize_input=True
 
                     block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
-                    inception = InceptionV3([block_idx],normalize_input=False).to(device)
+                    
+                    inception = InceptionV3(
+                        [block_idx],
+                        normalize_input=False
+                    ).to(device)
 
                     real_features = get_features(
                         train_dataloader,

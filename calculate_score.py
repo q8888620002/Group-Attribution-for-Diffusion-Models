@@ -128,15 +128,18 @@ def main(args):
 
         trainloader = DataLoader(trainset, batch_size=batch_size, shuffle=True)
 
-        block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
+        
+        ## Feature ranges should be [-1,1 ] according to https://github.com/mseitzer/pytorch-fid/issues/3
+        ## If input scale is within [0,1] set normalize_input=True
 
+        block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
         inception = InceptionV3([block_idx],normalize_input=False).to(device)
 
         real_features = get_features(
             trainloader,
-            inception,
             mean,
             std,
+            inception,
             args.n_samples,
             device
         )
