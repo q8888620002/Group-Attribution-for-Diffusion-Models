@@ -39,7 +39,7 @@ def create_dataloaders(
     unlearning: bool = False
 ):
     """
-    Create dataloaders for CIFAR10 and MNIST datasets with options for excluding 
+    Create dataloaders for CIFAR10 and MNIST datasets with options for excluding
     specific classes and creating subsets for unlearning.
 
     Args:
@@ -90,7 +90,7 @@ def create_dataloaders(
     if unlearning and excluded_class is not None:
         ablated_indices = [i for i, (_, label) in enumerate(train_dataset) if label == excluded_class]
         remaining_indices = [i for i, (_, label) in enumerate(train_dataset) if label != excluded_class]
-        
+
         remaining_indices = random.sample(remaining_indices, len(ablated_indices))
 
         remaining_dataset = Subset(train_dataset, remaining_indices)
@@ -110,36 +110,35 @@ def create_dataloaders(
 
 
 
-def find_max_step_file(path_pattern):
-    """
-    Obtain max steps pt in a folder.
-
-    """
+def get_max_step_file(folder_path):
+    path_pattern = os.path.join(folder_path, 'steps_*.pt')
     files = glob.glob(path_pattern)
+    if not files:
+        return None
     max_step_file = max(files, key=lambda x: int(os.path.basename(x).split('_')[1].split('.')[0]))
     return max_step_file
 
 
 def get_features(
-        dataloader, 
+        dataloader,
         mean,
         std,
-        model, 
-        n_samples, 
+        model,
+        n_samples,
         device
     ) -> np.ndarray:
-    
+
     """
     Feature extraction for Inception V3
 
     Args:
         dataloader: Dataloader that contains real images e.g. cifar-10
-        mean: mean for the preprocessing for a given dataset 
-        std: std for the preprocessing for a given dataset 
-        model: this should be an inception_v3 model with pretrained weights. 
+        mean: mean for the preprocessing for a given dataset
+        std: std for the preprocessing for a given dataset
+        model: this should be an inception_v3 model with pretrained weights.
         n_samples: number of samples to be collected for real images from dataloader
-        device: 
-    
+        device:
+
     Return:
         features converted by inception_v3, should be (n_samples, 2024)
     """
@@ -148,20 +147,20 @@ def get_features(
     features = []
 
     processed_samples = 0
-    
+
     for images, _ in dataloader:
         if processed_samples >= n_samples:
             break
-        
+
         with torch.no_grad():
-            
+
             images = images.to(device)
-            
+
             # Convert iamges to [ -1, 1] if use other normalization scales.
 
             images = (images*std + mean)*2. -1.
 
-            # Passing through inception 
+            # Passing through inception
 
             batch_features = model(images)[0]
             batch_features = batch_features.squeeze(3).squeeze(2).cpu().numpy()
@@ -188,7 +187,7 @@ def calculate_fid(real_features, fake_features):
 
     mu1, sigma1 = real_features.mean(axis=0), np.cov(real_features, rowvar=False)
     mu2, sigma2 = fake_features.mean(axis=0), np.cov(fake_features, rowvar=False)
-    
+
     cov_mean = sqrtm(sigma1.dot(sigma2))
 
     # Check and correct imaginary numbers from sqrt
