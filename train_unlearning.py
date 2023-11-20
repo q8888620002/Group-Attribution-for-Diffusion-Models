@@ -138,6 +138,7 @@ def main(args):
             dropout=config['dropout'],
         ).to(device)
 
+
         model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
 
         ckpt=torch.load(config['trained_model'])
@@ -187,6 +188,7 @@ def main(args):
 
                 eps_r = model(image_r, noise, t)
 
+
                 # delta logP(D_r) - delta logP(D_e)
                 if args.loss_type == "type1":
 
@@ -219,12 +221,13 @@ def main(args):
                 if j % args.log_freq == 0:
                     print(f"Epoch[{epoch+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}],loss:{loss.detach().cpu().item():.5f},lr:{scheduler.get_last_lr()[0]:.6f}")
 
+
             ckpt = {
                 "model": model.state_dict(),
                 "model_ema": model_ema.state_dict()
             }
 
-            if (epoch+1)%20 == 0 or (epoch+1)% args.epochs==0 or global_steps == config['epochs']*len(train_dataloader):
+            if (epoch+1)% 10 ==0 or (epoch+1)% args.epochs==0 or (global_steps+1) == config['epochs']*len(train_dataloader):
 
                 model_ema.eval()
 
@@ -241,7 +244,8 @@ def main(args):
 
                 save_image(
                     samples,
-                    f"results/{args.dataset}/unlearning/samples" + params + f"/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples))
+                    f"results/{args.dataset}/unlearning/samples" + params + f"/steps_{global_steps:0>8}.png",
+                    nrow=int(math.sqrt(args.n_samples))
                 )
 
         os.makedirs(path + "models" + params, exist_ok=True)

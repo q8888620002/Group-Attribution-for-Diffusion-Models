@@ -10,12 +10,12 @@ from torchvision import transforms
 from torchvision.transforms import Compose, Resize, Lambda, Normalize, ToPILImage
 
 from scipy.linalg import sqrtm
-# from CLIP.clip import clip
+from CLIP.clip import clip
 
 
 # Load CLIP model and transformation outside of the function for efficiency
-# device = "cuda" if torch.cuda.is_available() else "cpu"
-# clip_model, clip_transform = clip.load("ViT-B/32", device=device)
+# device = "cuda:2" if torch.cuda.is_available() else "cpu"
+clip_model, clip_transform = clip.load("ViT-B/32", device="cpu")
 
 
 class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
@@ -224,8 +224,8 @@ def clip_score(images1, images2):
 
     """
 
-    images1 = preprocess_clip_mnist(images1).to(device)
-    images2 = preprocess_clip_mnist(images2).to(device)
+    images1 = preprocess_clip_mnist(images1)
+    images2 = preprocess_clip_mnist(images2)
 
     # Get the model's visual features (without text features)
 
@@ -235,6 +235,6 @@ def clip_score(images1, images2):
 
     features1 = features1 / features1.norm(dim=-1, keepdim=True)
     features2 = features2 / features2.norm(dim=-1, keepdim=True)
-    similarity = (features1 @ features2.T).cpu().numpy()
+    similarity = (features1@features2.T).cpu().numpy()
 
     return similarity.mean()
