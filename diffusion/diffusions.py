@@ -2,9 +2,10 @@ import torch.nn as nn
 import torch
 import math
 
-from diffusion.models import UNet
+# from diffusion.models import UNet
+# from diffusion.unet_old import Unet as Unet_wo_attn
+
 from diffusion.unetmodel import UNetModel
-from diffusion.unet_old import Unet as Unet_wo_attn
 from tqdm import tqdm
 
 
@@ -94,6 +95,7 @@ class DDPM(nn.Module):
 
         if t is None:
             ## random t
+            print("random")
             t=torch.randint(0,self.timesteps,(x.shape[0],)).to(x.device)
 
         x_t=self._forward_diffusion(x,t,noise)

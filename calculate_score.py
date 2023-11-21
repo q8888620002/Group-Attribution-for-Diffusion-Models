@@ -184,7 +184,7 @@ def main(args):
             results['clip_score_unlearn'].append(result_score)
             results['pred_probs'].append((mean_pred_unlearn, mean_retrain))
 
-        print(np.mean(results['pred_probs'][0]), np.mean(results['pred_probs'][1]))
+        print(np.mean(results['pred_probs'], axis=0)[0], np.mean(results['pred_probs'], axis=0)[1])
         print(np.mean(results['clip_score_unlearn']))
 
         with open('results.pkl', 'wb') as fp:

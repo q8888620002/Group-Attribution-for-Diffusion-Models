@@ -71,7 +71,7 @@ class DDPMConfig:
 
         "lr": 1e-3,
         "batch_size": 64,
-        "epochs": 70,
+        "epochs": 100,
         "model_ema_steps": 10,
         "model_ema_decay" : 0.995
     }

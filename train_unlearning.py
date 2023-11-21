@@ -19,7 +19,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training MNISTDiffusion")
 
     # Training params
-    parser.add_argument('--lr',type = float ,default=5e-4)
+    parser.add_argument('--lr',type = float ,default=1e-4)
     parser.add_argument('--batch_size',type = int ,default=128)
     parser.add_argument('--epochs',type = int,default=100)
     parser.add_argument('--ckpt',type = str,help = 'define checkpoint path',default='')
@@ -167,10 +167,10 @@ def main(args):
 
             ## iterating thorugh the size of unlearn dataset.
 
-            for j, ((image_r, _), (image_e, _)) in enumerate(zip(train_dataloader, ablated_dataloader)):
+            for j, ((image_r, _), (image_f, _)) in enumerate(zip(train_dataloader, ablated_dataloader)):
 
                 image_r=image_r.to(device)
-                image_e=image_e.to(device)
+                image_f=image_f.to(device)
 
                 ## Sample random noise e_t
 
@@ -182,7 +182,7 @@ def main(args):
 
                 with torch.no_grad():
                     eps_r_frozen = model_frozen(image_r, noise, t)
-                    eps_e_frozen = model_frozen(image_e, noise, t)
+                    eps_f_frozen = model_frozen(image_f, noise, t)
 
                 # Scores from the fine-tunning model
 
@@ -191,12 +191,11 @@ def main(args):
 
                 # delta logP(D_r) - delta logP(D_e)
                 if args.loss_type == "type1":
-
-                    loss = loss_fn(eps_r, alpha1*eps_r_frozen - alpha2*eps_e_frozen)
+                    loss = loss_fn(eps_r, alpha1*eps_r_frozen - alpha2*eps_f_frozen)
 
                 elif args.loss_type  == "type2":
 
-                    loss = alpha1*loss_fn(eps_r, eps_r_frozen) - alpha2*loss_fn(eps_r, eps_e_frozen)
+                    loss = alpha1*loss_fn(eps_r, eps_r_frozen) - alpha2*loss_fn(eps_r, eps_f_frozen)
 
                 ## weight regularization lambda*(\hat_{\theta} - \theta)
                 ## TODO fisher information
@@ -227,7 +226,7 @@ def main(args):
                 "model_ema": model_ema.state_dict()
             }
 
-            if (epoch+1)% 10 ==0 or (epoch+1)% args.epochs==0 or (global_steps+1) == config['epochs']*len(train_dataloader):
+            if (epoch+1)% (config['epochs'] // 10) ==0 or (epoch+1)% args.epochs==0 or (global_steps+1) == config['epochs']*len(train_dataloader):
 
                 model_ema.eval()
 
