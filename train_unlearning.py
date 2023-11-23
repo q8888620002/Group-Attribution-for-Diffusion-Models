@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
-from lora_diffusion import inject_trainable_lora, extract_lora_ups_down
+from lora_diffusion import inject_trainable_lora, extract_lora_ups_down, save_lora_weight
 
 from diffusion.diffusions import DDPM
 from utils import *
@@ -162,6 +162,7 @@ def main(args):
                     parameter.requires_grad = True
 
         elif args.fine_tune_lora:
+
             for parameter in model.parameters():
                 parameter.requires_grad = False
 
@@ -321,6 +322,7 @@ def main(args):
                 save_image(
                     samples,
                     f"results/{args.dataset}/unlearning/samples" + exp_settings + f"/steps_{global_steps:0>8}.png",
+
                     nrow=int(math.sqrt(args.n_samples))
                 )
 
@@ -329,6 +331,10 @@ def main(args):
             "model": model.state_dict(),
             "model_ema": model_ema.state_dict()
         }
+
+        if args.fine_tune_lora:
+            save_lora_weight(model,  path + "models" + exp_settings +  f"/steps_{global_steps:0>8}_lora_weight.pt")
+            save_lora_weight(model_ema,  path + "models" + exp_settings +  f"/steps_{global_steps:0>8}_ema_lora_weight.pt")
 
         os.makedirs(path + "models" + exp_settings, exist_ok=True)
         torch.save(ckpt, path + "models" + exp_settings +  f"/steps_{global_steps:0>8}.pt")
