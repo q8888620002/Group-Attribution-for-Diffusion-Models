@@ -7,6 +7,7 @@ import math
 
 from diffusion.unetmodel import UNetModel
 from tqdm import tqdm
+from lora_diffusion import inject_trainable_lora, extract_lora_ups_down
 
 
 class DDPM(nn.Module):

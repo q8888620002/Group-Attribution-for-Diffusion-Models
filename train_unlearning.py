@@ -3,11 +3,14 @@ import math
 import argparse
 import torch
 import torch.nn as nn
+import itertools
 
 from torchvision.utils import save_image
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
+
+from lora_diffusion import inject_trainable_lora, extract_lora_ups_down
 
 from diffusion.diffusions import DDPM
 from utils import *
@@ -44,6 +47,8 @@ def parse_args():
     parser.add_argument('--alpha2',type = float,help = 'loss params: alpha2',default=1e-1)
     parser.add_argument('--keep_digits', action='store_true', help = 'whether to keep other digits in the remaining dataset')
     parser.add_argument('--weight_reg', action='store_true', help = 'whether to use weight as regularization.')
+    parser.add_argument('--fine_tune_att', action='store_true', help = 'whether to fine tune only attentiona layers.')
+    parser.add_argument('--fine_tune_lora', action='store_true', help = 'whether to fine tune with LORA.')
 
     args = parser.parse_args()
 
@@ -111,10 +116,10 @@ def main(args):
         params.requires_grad=False
 
 
-    for excluded_class in range(1, 10):
+    for excluded_class in range(2, 10):
 
         path = f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/unlearning/"
-        params = f"/{excluded_class}/epochs={args.epochs}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}"
+        exp_settings = f"/{excluded_class}/epochs={args.epochs}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}_fine_tune_lora={args.fine_tune_lora}"
 
         train_dataloader, ablated_dataloader = create_dataloaders(
             dataset_name=args.dataset,
@@ -138,17 +143,76 @@ def main(args):
             dropout=config['dropout'],
         ).to(device)
 
+        ckpt=torch.load(config['trained_model'])
+        model.load_state_dict(ckpt["model"])
 
         model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
-
-        ckpt=torch.load(config['trained_model'])
-
-        # ckpt = load_checkpoint(f"results/{args.dataset}/retrain/models/full/")
-
-        model.load_state_dict(ckpt["model"])
         model_ema.load_state_dict(ckpt["model_ema"])
 
-        optimizer=AdamW(model.parameters(),lr=args.lr)
+        if args.fine_tune_att:
+
+            ## Fine tune only attention or resblock.
+            att_blocks = {'input_blocks.1.1', 'input_blocks.2.1', 'output_blocks.3.1', 'output_blocks.4.1', 'output_blocks.5.1'}
+
+            for name, parameter in model.named_parameters():
+                if any(block in name for block in att_blocks):
+                    print(f"parameter '{name}' will be freezed")
+                    parameter.requires_grad = False
+                else:
+                    parameter.requires_grad = True
+
+        elif args.fine_tune_lora:
+            for parameter in model.parameters():
+                parameter.requires_grad = False
+
+            ## fine tune with LORA.
+            ## turn off all of the gradients of unet, except for the trainable LoRA params.
+
+            UNET_DEFAULT_TARGET_REPLACE =  {"ResBlock", "SiLU"}  #{"AttentionBlock", "ResBlock", "SiLU"}
+            rank = 4
+
+            unet_lora_params, _ = inject_trainable_lora(
+                model,
+                target_replace_module= UNET_DEFAULT_TARGET_REPLACE,
+                r=rank,
+                verbose=True
+            )
+            unet_lora_params_ema, _ = inject_trainable_lora(
+                model_ema.module,
+                target_replace_module= UNET_DEFAULT_TARGET_REPLACE,
+                r=rank,
+                verbose=True
+            )
+
+        model_oracle = DDPM(
+            timesteps=config['timesteps'],
+            base_dim=config['base_dim'],
+            channel_mult=config['channel_mult'],
+            image_size=config['image_size'],
+            in_channels=config['in_channels'],
+            out_channels=config['out_channels'],
+            attn=config['attn'],
+            attn_layer=config['attn_layer'],
+            num_res_blocks=config['num_res_blocks'],
+            dropout=config['dropout'],
+        ).to(device)
+
+        for params in model_oracle.parameters():
+            params.requires_grad=False
+
+        max_steps_orcale_file = get_max_step_file(f"/projects/leelab/mingyulu/data_att/results/mnist/retrain/models/{excluded_class}/")
+
+        model_oracle.load_state_dict(torch.load(max_steps_orcale_file)["model"])
+        model_oracle.eval()
+
+        optimizer=AdamW(
+            itertools.chain(*unet_lora_params) if args.fine_tune_lora else model.parameters(),
+            lr=args.lr,
+            betas=(0.9, 0.999),
+            weight_decay=1e-2,
+            eps=1e-08
+        )
+
         scheduler=OneCycleLR(
             optimizer,
             args.lr,
@@ -166,6 +230,8 @@ def main(args):
             model.train()
 
             ## iterating thorugh the size of unlearn dataset.
+            epoch_loss = 0
+            oracle_total_loss = 0
 
             for j, ((image_r, _), (image_f, _)) in enumerate(zip(train_dataloader, ablated_dataloader)):
 
@@ -183,19 +249,27 @@ def main(args):
                 with torch.no_grad():
                     eps_r_frozen = model_frozen(image_r, noise, t)
                     eps_f_frozen = model_frozen(image_f, noise, t)
+                    eps_r_oracle = model_oracle(image_r, noise, t)
 
                 # Scores from the fine-tunning model
 
                 eps_r = model(image_r, noise, t)
-
+                # import ipdb;ipdb.set_trace()
 
                 # delta logP(D_r) - delta logP(D_e)
+
                 if args.loss_type == "type1":
                     loss = loss_fn(eps_r, alpha1*eps_r_frozen - alpha2*eps_f_frozen)
 
                 elif args.loss_type  == "type2":
+                    loss = 100.*(alpha1*loss_fn(eps_r, eps_r_frozen) - alpha2*loss_fn(eps_r, eps_f_frozen))
 
-                    loss = alpha1*loss_fn(eps_r, eps_r_frozen) - alpha2*loss_fn(eps_r, eps_f_frozen)
+                elif args.loss_type  == "type3":
+                    ## Training with oracle loss - for debugging purpose
+
+                    loss = 100.*loss_fn(eps_r, eps_r_oracle)
+
+                # import ipdb;ipdb.set_trace()
 
                 ## weight regularization lambda*(\hat_{\theta} - \theta)
                 ## TODO fisher information
@@ -210,6 +284,8 @@ def main(args):
                 optimizer.zero_grad()
                 scheduler.step()
 
+                with torch.no_grad():
+                    oracle_loss = loss_fn(eps_r, eps_r_oracle).detach().cpu().item()
                 ## Update learning rate
 
                 if global_steps%args.model_ema_steps==0:
@@ -217,21 +293,22 @@ def main(args):
 
                 global_steps+=1
 
+                epoch_loss += loss.detach().cpu().item()
+                oracle_total_loss += oracle_loss
+
                 if j % args.log_freq == 0:
-                    print(f"Epoch[{epoch+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}],loss:{loss.detach().cpu().item():.5f},lr:{scheduler.get_last_lr()[0]:.6f}")
+                    print(f"Epoch[{epoch+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}],loss:{loss.detach().cpu().item():.6f},lr:{scheduler.get_last_lr()[0]:.6f}")
+                    print(f"Oracle loss {100*oracle_loss:.6f}")
 
+            print(f"Epoch total loss: {epoch_loss/(j+1)} ")
+            print(f"Epoch total loss: {100*oracle_total_loss/(j+1)} ")
 
-            ckpt = {
-                "model": model.state_dict(),
-                "model_ema": model_ema.state_dict()
-            }
-
-            if (epoch+1)% (config['epochs'] // 10) ==0 or (epoch+1)% args.epochs==0 or (global_steps+1) == config['epochs']*len(train_dataloader):
+            if (epoch+1)% (config['epochs'] // 10) == 0 or (epoch+1)% args.epochs==0 or (global_steps+1) == config['epochs']*len(train_dataloader):
 
                 model_ema.eval()
 
                 os.makedirs(f"results/{args.dataset}/unlearning/samples", exist_ok=True)
-                os.makedirs(f"results/{args.dataset}/unlearning/samples" + params, exist_ok=True)
+                os.makedirs(f"results/{args.dataset}/unlearning/samples" + exp_settings, exist_ok=True)
 
                 samples = model_ema.module.sampling(
                     args.n_samples,
@@ -243,12 +320,18 @@ def main(args):
 
                 save_image(
                     samples,
-                    f"results/{args.dataset}/unlearning/samples" + params + f"/steps_{global_steps:0>8}.png",
+                    f"results/{args.dataset}/unlearning/samples" + exp_settings + f"/steps_{global_steps:0>8}.png",
                     nrow=int(math.sqrt(args.n_samples))
                 )
 
-        os.makedirs(path + "models" + params, exist_ok=True)
-        torch.save(ckpt, path + "models" + params +  f"/steps_{global_steps:0>8}.pt")
+
+        ckpt = {
+            "model": model.state_dict(),
+            "model_ema": model_ema.state_dict()
+        }
+
+        os.makedirs(path + "models" + exp_settings, exist_ok=True)
+        torch.save(ckpt, path + "models" + exp_settings +  f"/steps_{global_steps:0>8}.pt")
 
 if __name__=="__main__":
     args=parse_args()
