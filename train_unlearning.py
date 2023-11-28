@@ -10,9 +10,8 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
 # from lora_diffusion import  inject_trainable_lora_extended, save_lora_weight
-from diffusion.models import CNN
+from diffusion.model_util import create_ddpm_model
 
-from diffusion.diffusions import DDPM
 from utils import *
 from ddpm_config import DDPMConfig
 
@@ -76,18 +75,7 @@ def main(args):
     else:
         raise ValueError(f"Unknown dataset {config['dataset']}, choose 'cifar' or 'mnist'.")
 
-    model_frozen = DDPM(
-        timesteps=config['timesteps'],
-        base_dim=config['base_dim'],
-        channel_mult=config['channel_mult'],
-        image_size=config['image_size'],
-        in_channels=config['in_channels'],
-        out_channels=config['out_channels'],
-        attn=config['attn'],
-        attn_layer=config['attn_layer'],
-        num_res_blocks=config['num_res_blocks'],
-        dropout=config['dropout'],
-    ).to(device)
+    model_frozen = create_ddpm_model(config).to(device)
 
     ## loss params
 
@@ -121,7 +109,7 @@ def main(args):
         path = f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/unlearning/"
         exp_settings = f"/{excluded_class}/epochs={args.epochs}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}_fine_tune_att={args.fine_tune_att}"
 
-        train_dataloader, ablated_dataloader = create_dataloaders(
+        train_r1_dataloader, train_r2_dataloader, forget_dataloader = create_dataloaders(
             dataset_name=args.dataset,
             batch_size=config['batch_size'],
             excluded_class=excluded_class,
@@ -130,18 +118,7 @@ def main(args):
 
         ## Init new model for unlearning.
 
-        model = DDPM(
-            timesteps=config['timesteps'],
-            base_dim=config['base_dim'],
-            channel_mult=config['channel_mult'],
-            image_size=config['image_size'],
-            in_channels=config['in_channels'],
-            out_channels=config['out_channels'],
-            attn=config['attn'],
-            attn_layer=config['attn_layer'],
-            num_res_blocks=config['num_res_blocks'],
-            dropout=config['dropout'],
-        ).to(device)
+        model = create_ddpm_model(config).to(device)
 
         ckpt=torch.load(config['trained_model'])
         model.load_state_dict(ckpt["model"])
@@ -149,7 +126,6 @@ def main(args):
 
         model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
         model_ema.load_state_dict(ckpt["model_ema"])
-
 
         if args.fine_tune_att:
 
@@ -189,26 +165,15 @@ def main(args):
         #         # verbose=True
         #     )
 
-        # model_oracle = DDPM(
-        #     timesteps=config['timesteps'],
-        #     base_dim=config['base_dim'],
-        #     channel_mult=config['channel_mult'],
-        #     image_size=config['image_size'],
-        #     in_channels=config['in_channels'],
-        #     out_channels=config['out_channels'],
-        #     attn=config['attn'],
-        #     attn_layer=config['attn_layer'],
-        #     num_res_blocks=config['num_res_blocks'],
-        #     dropout=config['dropout'],
-        # ).to(device)
+        model_oracle = create_ddpm_model(config).to(device)
 
-        # for params in model_oracle.parameters():
-        #     params.requires_grad=False
+        for params in model_oracle.parameters():
+            params.requires_grad=False
 
-        # max_steps_orcale_file = get_max_step_file(f"/projects/leelab/mingyulu/data_att/results/mnist/retrain/models/{excluded_class}/")
+        max_steps_orcale_file = get_max_step_file(f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/")
 
-        # model_oracle.load_state_dict(torch.load(max_steps_orcale_file)["model"])
-        # model_oracle.eval()
+        model_oracle.load_state_dict(torch.load(max_steps_orcale_file)["model"])
+        model_oracle.eval()
 
         optimizer=AdamW(
             itertools.chain(*unet_lora_params) if args.fine_tune_lora else model.parameters(),
@@ -218,7 +183,7 @@ def main(args):
         scheduler=OneCycleLR(
             optimizer,
             args.lr,
-            total_steps=args.epochs*len(train_dataloader),
+            total_steps=args.epochs*len(train_r1_dataloader),
             pct_start=0.25,
             anneal_strategy='cos'
         )
@@ -235,28 +200,28 @@ def main(args):
             epoch_loss = 0
             oracle_total_loss = 0
 
-            for j, ((image_r, target_r), (image_f, _)) in enumerate(zip(train_dataloader, ablated_dataloader)):
+            for j, ((image_r1, _), (image_r2, _), (image_f, _)) in enumerate(zip(train_r1_dataloader, train_r2_dataloader, forget_dataloader)):
 
-                image_r=image_r.to(device)
+                image_r1=image_r1.to(device)
+                image_r2=image_r2.to(device)
                 image_f=image_f.to(device)
 
                 ## Sample random noise e_t
 
-                noise=torch.randn_like(image_r).to(device)
+                noise=torch.randn_like(image_r1).to(device)
 
                 t=torch.randint(0, args.timesteps,(noise.shape[0],)).to(device)
 
                 # get scores for D_r and D_e from the frozen model
 
                 with torch.no_grad():
-                    eps_r_frozen = model_frozen(image_r, noise, t)
+                    eps_r_frozen = model_frozen(image_r1, noise, t)
                     eps_f_frozen = model_frozen(image_f, noise, t)
-
-                    # eps_r_oracle = model_oracle(image_r, noise, t)
+                    eps_r_oracle = model_oracle(image_r1, noise, t)
 
                 # Scores from the fine-tunning model
 
-                eps_r = model(image_r, noise, t)
+                eps_r = model(image_r1, noise, t)
 
                 # delta logP(D_r) - delta logP(D_e)
 
@@ -287,8 +252,8 @@ def main(args):
                 optimizer.zero_grad()
                 scheduler.step()
 
-                # with torch.no_grad():
-                #     oracle_loss = loss_fn(eps_r, eps_r_oracle).detach().cpu().item()
+                with torch.no_grad():
+                    oracle_loss = loss_fn(eps_r, eps_r_oracle).detach().cpu().item()
                 ## Update learning rate
 
                 if global_steps % args.model_ema_steps==0:
@@ -297,16 +262,16 @@ def main(args):
                 global_steps+=1
 
                 epoch_loss += loss.detach().cpu().item()
-                # oracle_total_loss += oracle_loss
+                oracle_total_loss += oracle_loss
 
                 if j % args.log_freq == 0:
-                    print(f"Epoch[{epoch+1}/{args.epochs}],Step[{j}/{len(train_dataloader)}],loss:{loss.detach().cpu().item():.6f},lr:{scheduler.get_last_lr()[0]:.6f}")
-                    # print(f"Oracle loss {100*oracle_loss:.6f}")
+                    print(f"Epoch[{epoch+1}/{args.epochs}],Step[{j}/{len(train_r1_dataloader)}],loss:{loss.detach().cpu().item():.6f},lr:{scheduler.get_last_lr()[0]:.6f}")
+                    print(f"Oracle loss {oracle_loss:.6f}")
 
-            print(f"Epoch total loss: {100*epoch_loss/(j+1)} ")
-            # print(f"Epoch total loss: {100*oracle_total_loss/(j+1)} ")
+            print(f"Epoch total loss: {epoch_loss/(j+1)} ")
+            print(f"Epoch total loss: {oracle_total_loss/(j+1)} ")
 
-            if (epoch+1)% (config['epochs'] // 10) == 0 or (epoch+1)% args.epochs==0 or (global_steps+1) == config['epochs']*len(train_dataloader):
+            if (epoch+1)% (config['epochs'] // 10) == 0 or (epoch+1)% args.epochs==0 or (global_steps+1) == config['epochs']*len(train_r1_dataloader):
 
                 model_ema.eval()
 

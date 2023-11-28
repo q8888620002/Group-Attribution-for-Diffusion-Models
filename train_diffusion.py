@@ -11,8 +11,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
 from ddpm_config import DDPMConfig
-from diffusion.diffusions import DDPM
-from diffusion.models import CNN
+from diffusion.model_util import create_ddpm_model
 
 from utils import *
 from eval.inception import InceptionV3
@@ -40,7 +39,7 @@ def main(args):
 
     device = args.device
 
-    for excluded_class in range(9, -1 ,-1):
+    for excluded_class in range(0, 10):
 
         if args.dataset == "cifar":
             config = {**DDPMConfig.cifar_config}
@@ -49,18 +48,7 @@ def main(args):
         else:
             raise ValueError(f"Unknown dataset {config['dataset']}, choose 'cifar' or 'mnist'.")
 
-        model = DDPM(
-            timesteps=config['timesteps'],
-            base_dim=config['base_dim'],
-            channel_mult=config['channel_mult'],
-            image_size=config['image_size'],
-            in_channels=config['in_channels'],
-            out_channels=config['out_channels'],
-            attn=config['attn'],
-            attn_layer=config['attn_layer'],
-            num_res_blocks=config['num_res_blocks'],
-            dropout=config['dropout']
-        ).to(device)
+        model = create_ddpm_model(config).to(device)
 
         mean = torch.tensor(config['mean']).view(1, -1, 1, 1).to(device)
         std = torch.tensor(config['std']).view(1, -1, 1, 1).to(device)
@@ -141,18 +129,18 @@ def main(args):
                 model_ema.eval()
 
                 samples = model_ema.module.sampling(
-                    args.n_samples,
-                    clipped_reverse_diffusion=not args.no_clip,
+                    args.n_samples, 
+                    clipped_reverse_diffusion=not args.no_clip, 
                     device=device
                 )
 
                 if config["dataset"] != "mnist":
-
+                    
                     ## Feature ranges should be [-1,1] according to https://github.com/mseitzer/pytorch-fid/issues/3
                     ## If input scale is within [ 0,1] set normalize_input=True
 
                     block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[2048]
-
+                    
                     inception = InceptionV3(
                         [block_idx],
                         normalize_input=False
@@ -175,11 +163,11 @@ def main(args):
                     fid_scores.append(fid_value)
 
                     print(f"FID score after {global_steps} steps: {fid_value}")
-
+                
                 os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
-
+                
                 ## rescale images from [-1, 1] to [0, 1] and save
-
+                
                 samples= torch.clamp(((samples+1.)/2.), 0., 1.)
 
                 save_image(

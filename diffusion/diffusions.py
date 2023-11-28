@@ -4,9 +4,6 @@ import torch.nn.functional as F
 
 import math
 
-# from diffusion.models import UNet
-# from diffusion.unet_old import Unet as Unet_wo_attn
-
 from diffusion.unetmodel import UNetModel
 from tqdm import tqdm
 
@@ -20,8 +17,6 @@ class DDPM(nn.Module):
             image_size:int=32,
             in_channels:int=3,
             out_channels:int=3,
-            attn: bool=True,
-            attn_layer=[2],
             num_res_blocks:int=2,
             dropout: int= 0.15,
         ):
@@ -61,30 +56,6 @@ class DDPM(nn.Module):
             num_heads=4,
             use_scale_shift_norm=True
         )
-
-        # if self.in_channels==1:
-
-            # self.model = Unet_wo_attn(
-            #     timesteps=timesteps,
-            #     time_embedding_dim=256,
-            #     in_channels=1,
-            #     out_channels=1,
-            #     base_dim=base_dim,
-            #     dim_mults=channel_mult,
-            # )
-
-        # else:
-
-            # self.model = UNet(
-            #     T=timesteps,
-            #     ch=base_dim,
-            #     ch_mult=channel_mult,
-            #     attn=attn_layer,
-            #     num_res_blocks=num_res_blocks,
-            #     dropout=dropout,
-            #     input_ch_dim = in_channels,
-            #     output_ch_dim = out_channels
-            # )
 
 
     def forward(
