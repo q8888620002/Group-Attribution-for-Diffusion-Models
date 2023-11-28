@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument('--no_clip',action='store_true',help = 'set to normal sampling method without clip x_0 which could yield unstable samples')
     parser.add_argument('--device', type= str , help = 'device to train')
     parser.add_argument('--weight_reg', action='store_true', help = 'whether to use weight as regularization.')
+    parser.add_argument('--fine_tune_att', action='store_true', help = 'whether to fine tune only attentiona layers.')
 
     args = parser.parse_args()
 
@@ -71,12 +72,12 @@ def main(args):
             'pred_probs' : []
         }
 
-        for target_digit in range(1, 10):
+        for target_digit in range(2, 10):
 
-            path = f"/projects/leelab/mingyulu/data_att/results/mnist/unlearning/"
             path_retrain = f"/projects/leelab/mingyulu/data_att/results/mnist/retrain/models/{target_digit}/"
 
-            params = f"models/{target_digit}/epochs={args.epochs}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}/"
+            path = f"/projects/leelab/mingyulu/data_att/results/mnist/unlearning/"
+            params = f"models/{target_digit}/epochs={args.epochs}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}_fine_tune_att={args.fine_tune_att}/"
 
             cnn = CNN().to(device)
             cnn.load_state_dict(torch.load('eval/models/epochs=10_cnn_weights.pt'))

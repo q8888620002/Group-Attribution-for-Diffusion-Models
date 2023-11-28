@@ -36,7 +36,7 @@ class DDPMConfig:
 
         ## old -  results/cifar/retrain/models/full/steps_00078200.pt
 
-        # "trained_model": "/projects/leelab/mingyulu/data_att/results/cifar/retrain/models/full/steps_00125000.pt",
+        "trained_model": "/projects/leelab/mingyulu/data_att/results/cifar/retrain/models/full/steps_00125000.pt",
 
         "lr": 1e-4,
         "batch_size": 80,

@@ -276,7 +276,7 @@ class CNN(nn.Module):
     CNN for prediction MNIST.
 
     """
-    def __init__(self):
+    def __init__(self, num_class=10):
         super(CNN, self).__init__()
         self.conv1 = nn.Sequential(
             nn.Conv2d(
@@ -295,7 +295,7 @@ class CNN(nn.Module):
             nn.MaxPool2d(2),
         )
         # fully connected layer, output 10 classes
-        self.out = nn.Linear(32 * 7 * 7, 10)
+        self.out = nn.Linear(32 * 7 * 7, num_class)
 
     def forward(self, x):
         x = self.conv1(x)

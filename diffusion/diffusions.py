@@ -1,5 +1,7 @@
 import torch.nn as nn
 import torch
+import torch.nn.functional as F
+
 import math
 
 # from diffusion.models import UNet
@@ -95,7 +97,6 @@ class DDPM(nn.Module):
 
         if t is None:
             ## random t
-            print("random")
             t=torch.randint(0,self.timesteps,(x.shape[0],)).to(x.device)
 
         x_t=self._forward_diffusion(x,t,noise)
@@ -139,6 +140,45 @@ class DDPM(nn.Module):
 
         return torch.clamp(x_t, -1., 1.)
 
+
+    def sampling_guided(
+            self,
+            n_samples: int,
+            clipped_reverse_diffusion: bool=True,
+            device: str="cuda",
+            classifier: nn.modules=None,
+            target_class: int= None
+    ) ->  torch.tensor:
+        """
+        Sampling process for the model x_T -> x_0
+        """
+
+        x_t=torch.randn((n_samples,self.in_channels,self.image_size,self.image_size)).to(device)
+
+        for i in tqdm(range(self.timesteps-1,-1,-1),desc="Sampling"):
+
+            noise=torch.randn_like(x_t).to(device)
+            t=torch.tensor([i for _ in range(n_samples)]).to(device)
+
+            if target_class:
+                x_t=self._reverse_diffusion_with_guidance(
+                    x_t,
+                    t,
+                    noise,
+                    classifier,
+                    target_class,
+                    guidance_scale=1.0
+                )
+
+
+        # depending on normalization of inputs,  x_0, to [-1,1] to [0,1]
+
+        # if self.in_channels == 1:
+        #     x_t=(x_t+1.)/2.
+
+        #     return torch.clamp(x_t, 0., 1.)
+
+        return torch.clamp(x_t, -1., 1.)
 
     @torch.no_grad()
     def _sampling(
@@ -266,3 +306,81 @@ class DDPM(nn.Module):
             std=0.0
 
         return mean+std*noise
+    
+
+    def _reverse_diffusion_with_guidance(
+            self,
+            x_t: torch.tensor,
+            t: torch.tensor,
+            noise: torch.tensor,
+            classifier: nn.modules,
+            target_class: int,
+            guidance_scale: float
+        ) -> torch.tensor:
+        '''
+        Reverse diffusion with classifier guidance: p(x_{t-1}|x_{t})
+        Integrate guidance from a classifier to steer the generation towards a specific class.
+        '''
+
+        # Predict noise using the DDPM model
+        pred_noise = self.model(x_t, t)
+
+        # Calculate classifier guidance
+        # This requires a separate function to compute the gradient of the classifier's log probability 
+        # with respect to the input image. This function should return the gradient tensor.
+
+        classifier_grad = self.compute_classifier_gradient(classifier, x_t, target_class)
+        
+        # Adjust prediction based on guidance
+
+        with torch.no_grad():
+
+            guided_pred_noise = pred_noise + guidance_scale * classifier_grad
+
+            alpha_t=self.alphas.gather(-1,t).reshape(x_t.shape[0],1,1,1)
+            alpha_t_cumprod=self.alphas_cumprod.gather(-1,t).reshape(x_t.shape[0],1,1,1)
+            beta_t=self.betas.gather(-1,t).reshape(x_t.shape[0],1,1,1)
+
+            x_0_pred=torch.sqrt(1. / alpha_t_cumprod)*x_t-torch.sqrt(1. / alpha_t_cumprod - 1.)*guided_pred_noise
+            x_0_pred.clamp_(-1., 1.)
+
+            if t.min()>0:
+                alpha_t_cumprod_prev=self.alphas_cumprod.gather(-1,t-1).reshape(x_t.shape[0],1,1,1)
+                mean= (beta_t * torch.sqrt(alpha_t_cumprod_prev) / (1. - alpha_t_cumprod))*x_0_pred +\
+                    ((1. - alpha_t_cumprod_prev) * torch.sqrt(alpha_t) / (1. - alpha_t_cumprod))*x_t
+
+                std=torch.sqrt(beta_t*(1.-alpha_t_cumprod_prev)/(1.-alpha_t_cumprod))
+            else:
+                mean=(beta_t / (1. - alpha_t_cumprod))*x_0_pred #alpha_t_cumprod_prev=1 since 0!=1
+                std=0.0
+
+            return mean+std*noise
+    
+    def compute_classifier_gradient(
+            self,
+            classifier: nn.modules, 
+            x_t: torch.tensor, 
+            target_class: int = None, 
+        ):
+
+        x_t.requires_grad_(True)
+        
+        logits = classifier(x_t)[0]
+        
+        probabilities = F.log_softmax(logits, dim=1)
+        target_prob = 1. - probabilities[:, target_class]
+
+        # target_prob = 1. - logits
+        # target_prob = logits
+        # target_prob = 1. - torch.div(logits, 1. - logits)
+
+        # if target_class is not None:
+            ## multi-class 
+
+        # else:
+
+        gradients = torch.autograd.grad(target_prob.sum() , x_t, create_graph=True)[0]
+
+        classifier.zero_grad()
+
+        return gradients

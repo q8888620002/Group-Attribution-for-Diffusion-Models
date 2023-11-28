@@ -89,7 +89,7 @@ def create_dataloaders(
     # Handle unlearning subsets if needed
     if unlearning and excluded_class is not None:
         ablated_indices = [i for i, (_, label) in enumerate(train_dataset) if label == excluded_class]
-        remaining_indices = [i for i, (_, label) in enumerate(train_dataset) if label != excluded_class]
+        remaining_indices = [i for i, (_, label) in enumerate(train_dataset) if label != excluded_class] 
 
         remaining_indices = random.sample(remaining_indices, len(ablated_indices))
 
