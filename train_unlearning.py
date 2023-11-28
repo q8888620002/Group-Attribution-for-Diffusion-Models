@@ -217,11 +217,11 @@ def main(args):
                 with torch.no_grad():
                     eps_r_frozen = model_frozen(image_r1, noise, t)
                     eps_f_frozen = model_frozen(image_f, noise, t)
-                    eps_r_oracle = model_oracle(image_r1, noise, t)
+                    eps_r_oracle = model_oracle(image_r2, noise, t)
 
                 # Scores from the fine-tunning model
 
-                eps_r = model(image_r1, noise, t)
+                eps_r = model(image_r2, noise, t)
 
                 # delta logP(D_r) - delta logP(D_e)
 
@@ -292,7 +292,6 @@ def main(args):
 
                     nrow=int(math.sqrt(args.n_samples))
                 )
-
 
         ckpt = {
             "model": model.state_dict(),
