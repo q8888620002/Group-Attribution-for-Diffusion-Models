@@ -3,6 +3,7 @@ import os
 import torch
 import numpy as np
 import random
+import clip
 
 from torch.utils.data import DataLoader, Subset
 from torchvision.datasets import MNIST , CIFAR10
@@ -10,7 +11,6 @@ from torchvision import transforms
 from torchvision.transforms import Compose, Resize, Lambda, Normalize, ToPILImage
 
 from scipy.linalg import sqrtm
-from CLIP.clip import clip
 
 
 # Load CLIP model and transformation outside of the function for efficiency

@@ -11,7 +11,7 @@ from torch.optim.lr_scheduler import OneCycleLR
 
 # from lora_diffusion import  inject_trainable_lora_extended, save_lora_weight
 from diffusion.model_util import create_ddpm_model
-
+from pruner.utils import *
 from utils import *
 from ddpm_config import DDPMConfig
 
@@ -104,6 +104,80 @@ def main(args):
         params.requires_grad=False
 
 
+    ## Init new model for unlearning.
+
+    model = create_ddpm_model(config).to(device)
+
+    ckpt=torch.load(config['trained_model'])
+    model.load_state_dict(ckpt["model"])
+
+    model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
+    model_ema.load_state_dict(ckpt["model_ema"])
+
+    # Pruning
+
+    if args.pruning:
+
+        train_dataloader, _ = create_dataloaders(
+            dataset_name=config["dataset"],
+            batch_size=config["batch_size"],
+            excluded_class=None,
+            unlearning=False
+        )
+        global_steps = 0
+
+        for state in range(2):
+            optimizer=AdamW(
+                model.parameters(),
+                lr=args.lr
+            )
+
+            scheduler=OneCycleLR(
+                optimizer,
+                args.lr,
+                total_steps=args.epochs*len(train_dataloader),
+                pct_start=0.25,
+                anneal_strategy='cos'
+            )
+
+            loss_fn=nn.MSELoss(reduction='mean')
+
+            pruning_model(model, 0.2)
+            current_mask = extract_mask(model.state_dict())
+            prune_model_custom(model, current_mask)
+
+            pruning_model(model_ema.module, 0.2)
+            current_mask = extract_mask(model_ema.module.state_dict())
+            prune_model_custom(model_ema.module, current_mask)
+            
+            for epoch in range(config['epochs']):
+                # start_time = time.time()
+
+                model.train()
+
+                for j, (image, _) in enumerate(train_dataloader):
+
+                    noise=torch.randn_like(image).to(device)
+                    image=image.to(device)
+                    pred=model(image,noise)
+
+                    loss=loss_fn(pred,noise)
+                    loss.backward()
+
+                    optimizer.step()
+                    optimizer.zero_grad()
+                    scheduler.step()
+
+                    if global_steps%config['model_ema_steps']==0:
+                        model_ema.update_parameters(model)
+
+                    if j % args.log_freq == 0:
+                        print(f"Epoch[{epoch+1}/{config['epochs']}],Step[{j}/{len(train_dataloader)}], loss:{loss.detach().cpu().item():.5f}, lr:{scheduler.get_last_lr()[0]:.6f}")
+
+                    global_steps+=1
+
+    ## Unlearning (Fine-tuning)
+
     for excluded_class in range(0, 10):
 
         path = f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/unlearning/"
@@ -116,16 +190,17 @@ def main(args):
             unlearning=True
         )
 
-        ## Init new model for unlearning.
+        # ## Init new model for unlearning.
 
-        model = create_ddpm_model(config).to(device)
+        # model = create_ddpm_model(config).to(device)
 
-        ckpt=torch.load(config['trained_model'])
-        model.load_state_dict(ckpt["model"])
+        # ckpt=torch.load(config['trained_model'])
+        # model.load_state_dict(ckpt["model"])
+
+        # model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
+        # model_ema.load_state_dict(ckpt["model_ema"])
 
 
-        model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
-        model_ema.load_state_dict(ckpt["model_ema"])
 
         if args.fine_tune_att:
 
