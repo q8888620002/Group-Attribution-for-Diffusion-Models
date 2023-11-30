@@ -68,6 +68,13 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
+        "--method",
+        type=str,
+        help="unlearning method",
+        choices=["retrain", "gd", "ga"],
+        default="retrain",
+    )
+    parser.add_argument(
         "--opt_seed",
         type=int,
         help="random seed for model training or unlearning",
@@ -106,12 +113,13 @@ def main(args):
         raise ValueError(
             f"Unknown dataset {config['dataset']}, choose 'cifar' or 'mnist'."
         )
+    epochs = config["epochs"][args.method]
 
     excluded_class = "full" if args.excluded_class is None else args.excluded_class
     model_outdir = os.path.join(
         args.outdir,
         args.dataset,
-        "retrain",
+        args.method,
         "models",
         f"{excluded_class}",
     )
@@ -128,12 +136,13 @@ def main(args):
         batch_size=config["batch_size"],
         excluded_class=args.excluded_class,
         unlearning=False,
+        return_excluded=args.method == "ga",
     )
 
     # torchvision ema setting
     # https://github.com/pytorch/vision/blob/main/references/classification/train.py
 
-    adjust = 1 * config["batch_size"] * config["model_ema_steps"] / config["epochs"]
+    adjust = 1 * config["batch_size"] * config["model_ema_steps"] / epochs
     alpha = 1.0 - config["model_ema_decay"]
     alpha = min(1.0, alpha * adjust)
     model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
@@ -141,38 +150,37 @@ def main(args):
     scheduler = OneCycleLR(
         optimizer,
         config["lr"],
-        total_steps=config["epochs"] * len(train_dataloader),
+        total_steps=epochs * len(train_dataloader),
         pct_start=0.25,
         anneal_strategy="cos",
     )
     loss_fn = nn.MSELoss(reduction="mean")
 
     # Load or resume model if available.
+    start_epoch = 0
     if args.resume:
         ckpt_file = get_max_step_file(model_outdir)
         if ckpt_file:
-            ckpt = torch.load(ckpt_file)
+            ckpt = torch.load(ckpt_file, map_location=device)
             model.load_state_dict(ckpt["model"])
             model_ema.load_state_dict(ckpt["model_ema"])
             start_epoch = ckpt["epoch"]
             print(f"Model resumed from {ckpt_file}")
         elif args.load:
-            ckpt = torch.load(args.load)
+            ckpt = torch.load(args.load, map_location=device)
             model.load_state_dict(ckpt["model"])
             model_ema.load_state_dict(ckpt["model_ema"])
-            start_epoch = 0
             print(f"No resuming checkpoints found. Model loaded from {args.load}")
 
     if args.load and not args.resume:
-        ckpt = torch.load(args.load)
+        ckpt = torch.load(args.load, map_location=device)
         model.load_state_dict(ckpt["model"])
         model_ema.load_state_dict(ckpt["model_ema"])
-        start_epoch = 0
         print(f"Model loaded from {args.load}")
 
     global_steps = start_epoch * len(train_dataloader)
     fid_scores = []
-    for epoch in range(start_epoch, config["epochs"]):
+    for epoch in range(start_epoch, epochs):
 
         model.train()
 
@@ -184,6 +192,8 @@ def main(args):
             pred = model(image, noise)
 
             loss = loss_fn(pred, noise)
+            if args.method == "ga":
+                loss *= -1.0
             loss.backward()
 
             optimizer.step()
@@ -195,7 +205,7 @@ def main(args):
 
             if (j + 1) % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
-                info = f"Epoch[{epoch + 1}/{config['epochs']}]"
+                info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{len(train_dataloader)}]"
                 info += f", time: {steps_time:3f}"
                 info += f", loss:{loss.detach().cpu().item():.5f}"
@@ -207,7 +217,7 @@ def main(args):
 
         # Generate samples to calculate fid score for non-mnist dataset every 20
         # epochs
-        if (epoch + 1) % 20 == 0 or (epoch + 1) == config["epochs"]:
+        if (epoch + 1) % 20 == 0 or (epoch + 1) == epochs:
             model_ema.eval()
 
             samples = model_ema.module.sampling(
@@ -247,7 +257,7 @@ def main(args):
             sample_outdir = os.path.join(
                 args.outdir,
                 args.dataset,
-                "retrain",
+                args.method,
                 "samples",
                 f"{excluded_class}",
             )
@@ -264,7 +274,7 @@ def main(args):
             )
 
         # Checkpoints for training.
-        if (epoch + 1) % 2 == 0 or (epoch + 1) == config["epochs"]:
+        if (epoch + 1) % 2 == 0 or (epoch + 1) == epochs:
             ckpt = {
                 "model": model.state_dict(),
                 "model_ema": model_ema.state_dict(),

@@ -41,6 +41,7 @@ def create_dataloaders(
     num_workers: int = 4,
     excluded_class: int = None,
     unlearning: bool = False,
+    return_excluded: bool = False,
 ):
     """
     Create dataloaders for CIFAR10 and MNIST datasets with options for excluding
@@ -54,11 +55,16 @@ def create_dataloaders(
         num_workers (int): Number of workers for dataloaders.
         excluded_class (int, optional): Class to be excluded (for ablation).
         unlearning (bool, optional): Flag to create subsets for unlearning.
+        return_excluded (bool, optional): Flag to return the exlcuded dataset instead of
+            the remaining dataset when unlearning is set to False.
 
     Return:
     ------
         Tuple[DataLoader, DataLoader]: Train and test dataloaders.
     """
+    assert (not unlearning) or (
+        not return_excluded
+    ), "only one of [unlearning, return_exlcuded] can be set to True!"
 
     if dataset_name == "cifar":
         preprocess = transforms.Compose(
@@ -96,12 +102,28 @@ def create_dataloaders(
 
     # Exclude specified class if needed
     if not unlearning and excluded_class is not None:
-        train_indices = [
-            i for i, (_, label) in enumerate(train_dataset) if label != excluded_class
-        ]
-        test_indices = [
-            i for i, (_, label) in enumerate(test_dataset) if label != excluded_class
-        ]
+        if return_excluded:
+            train_indices = [
+                i
+                for i, (_, label) in enumerate(train_dataset)
+                if label == excluded_class
+            ]
+            test_indices = [
+                i
+                for i, (_, label) in enumerate(test_dataset)
+                if label == excluded_class
+            ]
+        else:
+            train_indices = [
+                i
+                for i, (_, label) in enumerate(train_dataset)
+                if label != excluded_class
+            ]
+            test_indices = [
+                i
+                for i, (_, label) in enumerate(test_dataset)
+                if label != excluded_class
+            ]
 
         train_dataset = Subset(train_dataset, train_indices)
         test_dataset = Subset(test_dataset, test_indices)
