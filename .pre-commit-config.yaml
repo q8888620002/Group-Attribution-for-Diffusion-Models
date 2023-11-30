@@ -33,3 +33,5 @@ repos:
           - id: isort
             name: isort (python)
             additional_dependencies: [toml]
+            args:
+              - --profile=black
