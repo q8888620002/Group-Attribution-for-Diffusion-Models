@@ -17,6 +17,7 @@ from torchvision.utils import save_image
 
 from ddpm_config import DDPMConfig
 from diffusion.model_util import create_ddpm_model
+from diffusion.models import CNN
 from eval.inception import InceptionV3
 from utils import (
     ExponentialMovingAverage,
@@ -109,11 +110,17 @@ def main(args):
         config = {**DDPMConfig.cifar_config}
     elif args.dataset == "mnist":
         config = {**DDPMConfig.mnist_config}
+        classifier = CNN().to(device)
+        classifier.load_state_dict(
+            torch.load("eval/models/epochs=10_cnn_weights.pt", map_location=device)
+        )
+        classifier.eval()
     else:
         raise ValueError(
             f"Unknown dataset {config['dataset']}, choose 'cifar' or 'mnist'."
         )
     epochs = config["epochs"][args.method]
+    full_epochs = config["epochs"]["retrain"]
 
     excluded_class = "full" if args.excluded_class is None else args.excluded_class
     model_outdir = os.path.join(
@@ -141,20 +148,11 @@ def main(args):
 
     # torchvision ema setting
     # https://github.com/pytorch/vision/blob/main/references/classification/train.py
-
-    adjust = 1 * config["batch_size"] * config["model_ema_steps"] / epochs
+    # Use the same EMA setting as the fully trained model.
+    adjust = 1 * config["batch_size"] * config["model_ema_steps"] / full_epochs
     alpha = 1.0 - config["model_ema_decay"]
     alpha = min(1.0, alpha * adjust)
     model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
-    optimizer = AdamW(model.parameters(), lr=config["lr"], weight_decay=1e-4)
-    scheduler = OneCycleLR(
-        optimizer,
-        config["lr"],
-        total_steps=epochs * len(train_dataloader),
-        pct_start=0.25,
-        anneal_strategy="cos",
-    )
-    loss_fn = nn.MSELoss(reduction="mean")
 
     # Load or resume model if available.
     start_epoch = 0
@@ -165,18 +163,30 @@ def main(args):
             model.load_state_dict(ckpt["model"])
             model_ema.load_state_dict(ckpt["model_ema"])
             start_epoch = ckpt["epoch"]
-            print(f"Model resumed from {ckpt_file}")
+            print(f"Model and EMA resumed from {ckpt_file}")
         elif args.load:
             ckpt = torch.load(args.load, map_location=device)
             model.load_state_dict(ckpt["model"])
-            model_ema.load_state_dict(ckpt["model_ema"])
-            print(f"No resuming checkpoints found. Model loaded from {args.load}")
+            model_ema = ExponentialMovingAverage(
+                model, device=device, decay=1.0 - alpha
+            )
+            print(f"No resuming ckpt. Model loaded from {args.load}. EMA started fresh")
 
     if args.load and not args.resume:
         ckpt = torch.load(args.load, map_location=device)
         model.load_state_dict(ckpt["model"])
-        model_ema.load_state_dict(ckpt["model_ema"])
-        print(f"Model loaded from {args.load}")
+        model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
+        print(f"Model loaded from {args.load}. EMA started fresh")
+
+    optimizer = AdamW(model.parameters(), lr=config["lr"], weight_decay=1e-4)
+    scheduler = OneCycleLR(
+        optimizer,
+        config["lr"],
+        total_steps=full_epochs * len(train_dataloader),  # Use the full model setting.
+        pct_start=0.25,
+        anneal_strategy="cos",
+    )
+    loss_fn = nn.MSELoss(reduction="mean")
 
     global_steps = start_epoch * len(train_dataloader)
     fid_scores = []
@@ -208,25 +218,42 @@ def main(args):
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{len(train_dataloader)}]"
                 info += f", time: {steps_time:3f}"
-                info += f", loss:{loss.detach().cpu().item():.5f}"
-                info += f", lr:{scheduler.get_last_lr()[0]:.6f}"
+                info += f", loss: {loss.detach().cpu().item():.5f}"
+                info += f", lr: {scheduler.get_last_lr()[0]:.6f}"
                 print(info, flush=True)
                 steps_start_time = time.time()
 
             global_steps += 1
 
-        # Generate samples to calculate fid score for non-mnist dataset every 20
-        # epochs
-        if (epoch + 1) % 20 == 0 or (epoch + 1) == epochs:
+        # Generate samples for evaluation.
+        if (epoch + 1) % config["sample_freq"][args.method] == 0 or (
+            epoch + 1
+        ) == epochs:
             model_ema.eval()
 
-            samples = model_ema.module.sampling(
-                args.n_samples,
-                clipped_reverse_diffusion=not args.no_clip,
-                device=device,
-            )
+            sampling_start_time = time.time()
+            with torch.no_grad():
+                samples = model_ema.module.sampling(
+                    args.n_samples,
+                    clipped_reverse_diffusion=not args.no_clip,
+                    device=device,
+                )
+            sampling_time = time.time() - sampling_start_time
 
-            if config["dataset"] != "mnist":
+            if args.dataset == "mnist" and args.excluded_class is not None:
+                with torch.no_grad():
+                    outs = classifier(samples)[0]
+                    preds = outs.argmax(dim=1)
+                    mean_excluded_prob = outs.softmax(dim=1)[
+                        :, args.excluded_class
+                    ].mean()
+                    excluded_prop = ((preds == args.excluded_class) * 1.0).mean()
+                info += f", mean_excluded_prob: {mean_excluded_prob:.5f}"
+                info += f", excluded_prop: {excluded_prop:.5f}"
+                info += f", sampling_time: {sampling_time:3f}"
+                print(info, flush=True)
+
+            if args.dataset != "mnist":
 
                 # Feature ranges should be [-1,1] according to
                 # https://github.com/mseitzer/pytorch-fid/issues/3
@@ -274,7 +301,7 @@ def main(args):
             )
 
         # Checkpoints for training.
-        if (epoch + 1) % 2 == 0 or (epoch + 1) == epochs:
+        if (epoch + 1) % config["ckpt_freq"][args.method] == 0 or (epoch + 1) == epochs:
             ckpt = {
                 "model": model.state_dict(),
                 "model_ema": model_ema.state_dict(),

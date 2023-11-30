@@ -72,4 +72,6 @@ class DDPMConfig:
         "epochs": {"retrain": 100, "ga": 5, "gd": 10},
         "model_ema_steps": 10,
         "model_ema_decay": 0.995,
+        "ckpt_freq": {"retrain": 2, "ga": 1, "gd": 1},
+        "sample_freq": {"retrain": 20, "ga": 1, "gd": 1},
     }
