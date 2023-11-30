@@ -1,6 +1,7 @@
 """Train or perform unlearning on a diffusion model."""
 
 import argparse
+import json
 import math
 import os
 import sys
@@ -86,6 +87,12 @@ def parse_args():
     )
     parser.add_argument(
         "--outdir", type=str, help="output parent directory", default="~/"
+    )
+    parser.add_argument(
+        "--db", type=str, help="database file for storing results", default=None
+    )
+    parser.add_argument(
+        "--exp_name", type=str, help="experiment name in the database", default=None
     )
     parser.add_argument(
         "--resume",
@@ -217,7 +224,7 @@ def main(args):
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{len(train_dataloader)}]"
-                info += f", time: {steps_time:3f}"
+                info += f", steps_time: {steps_time:.3f}"
                 info += f", loss: {loss.detach().cpu().item():.5f}"
                 info += f", lr: {scheduler.get_last_lr()[0]:.6f}"
                 print(info, flush=True)
@@ -250,8 +257,23 @@ def main(args):
                     excluded_prop = ((preds == args.excluded_class) * 1.0).mean()
                 info += f", mean_excluded_prob: {mean_excluded_prob:.5f}"
                 info += f", excluded_prop: {excluded_prop:.5f}"
-                info += f", sampling_time: {sampling_time:3f}"
+                info += f", sampling_time: {sampling_time:.3f}"
                 print(info, flush=True)
+
+                info_dict = vars(args)
+                info_dict["start_epoch"] = start_epoch
+                info_dict["epoch"] = f"{epoch + 1}"
+                info_dict["global_steps"] = f"{global_steps}"
+                info_dict["loss"] = f"{loss.detach().cpu().item():.5f}"
+                info_dict["lr"] = f"{scheduler.get_last_lr()[0]:.6f}"
+                info_dict["mean_excluded_prob"] = f"{mean_excluded_prob:.5f}"
+                info_dict["exlcuded_prop"] = f"{excluded_prop:.5f}"
+                info_dict["steps_time"] = f"{steps_time:.3f}"
+                info_dict["sampling_time"] = f"{sampling_time:.3f}"
+                if args.db is not None:
+                    with open(args.db, "a+") as f:
+                        f.write(json.dumps(info_dict) + "\n")
+                print(f"Results saved to the database at {args.db}")
 
             if args.dataset != "mnist":
 
