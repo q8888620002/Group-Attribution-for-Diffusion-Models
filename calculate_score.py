@@ -4,9 +4,12 @@ import numpy as np
 import torchvision
 import pickle
 import torchvision.transforms.functional as TF
+import os
+
 
 from torch.utils.data import DataLoader
 from torchvision import transforms
+from torchvision.utils import save_image
 
 from ddpm_config import DDPMConfig
 from diffusion.model_util import create_ddpm_model
@@ -40,6 +43,18 @@ def parse_args():
 
     return args
 
+def save_images(samples, directory, name_prefix):
+    """
+
+    Helpler function to save images
+
+    """
+    for i, img in enumerate(samples):
+
+        save_image(
+            img,
+            os.path.join(directory, f"{name_prefix+i}.png")
+        )
 
 def main(args):
 
@@ -64,6 +79,13 @@ def main(args):
         raise ValueError(f"Invalid dataset: {args.dataset}")
 
 
+    results = {
+        "FID": [],
+        'clip_score_unlearn':[],
+        'pred_probs' : []
+    }
+
+
     for target_digit in range(0, 10):
 
         model_unlearn =  create_ddpm_model(config).to(device)
@@ -73,10 +95,10 @@ def main(args):
 
         path = f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/unlearning/"
         params = f"models/{target_digit}/epochs={args.epochs}_lr={args.lr}_loss={args.loss_type}:alpha1={alpha1}_alpha2={alpha2}_weight_reg={args.weight_reg}_fine_tune_att={args.fine_tune_att}/"
-        
+
         max_steps_unlearn_file = get_max_step_file(path+params)
         ckpt_unlearn = torch.load(max_steps_unlearn_file)
-        
+
         model_unlearn_ema = ExponentialMovingAverage(model_unlearn, device=device, decay=1.0 - alpha)
         model_unlearn_ema.load_state_dict(ckpt_unlearn["model_ema"])
         model_unlearn_ema.eval()
@@ -95,11 +117,6 @@ def main(args):
         if args.dataset == "mnist":
 
             ## TODO mnist evaluation
-
-            results = {
-                'clip_score_unlearn':[],
-                'pred_probs' : []
-            }
 
             cnn = CNN().to(device)
             cnn.load_state_dict(torch.load('eval/models/epochs=10_cnn_weights.pt'))
@@ -155,6 +172,7 @@ def main(args):
             samples_unlearns = np.concatenate(samples_unlearns, axis=0)
             samples_retrains = np.concatenate(samples_retrains, axis=0)
 
+
             result_score  = clip_score(samples_unlearns, samples_retrains)
             mean_pred_unlearn = np.mean(pred_probs_unlearn)
             mean_retrain = np.mean(pred_probs_retrain)
@@ -166,6 +184,13 @@ def main(args):
             results['pred_probs'].append((mean_pred_unlearn, mean_retrain))
 
         elif args.dataset == "cifar":
+
+            # Define the base directories for saving the files
+            unlearn_dir = os.path.join("/projects/leelab/mingyulu/data_att/results", args.dataset, "unlearning", "eval", str(target_digit))
+            retrain_dir = os.path.join("/projects/leelab/mingyulu/data_att/results", args.dataset, "retrain", "eval", str(target_digit))
+
+            os.makedirs(unlearn_dir, exist_ok=True)
+            os.makedirs(retrain_dir, exist_ok=True)
 
             transform = transforms.Compose(
                 [
@@ -208,27 +233,32 @@ def main(args):
             retrain_features = []
 
             n_batches = args.n_samples // batch_size
+            count = 0
 
             with torch.no_grad():
                 for _ in range(n_batches):
 
                     samples = model_unlearn_ema.module.sampling(
-                        batch_size, 
-                        clipped_reverse_diffusion=not args.no_clip, 
+                        batch_size,
+                        clipped_reverse_diffusion=not args.no_clip,
                         device=device
                     )
                     samples = torch.stack([TF.resize(sample, (299, 299), antialias=True) for sample in samples])
+
+                    save_images(torch.clamp((samples+1.)/2, 0., 1.), unlearn_dir, count*batch_size)
 
                     unlearn_feat = inception(samples)[0]
                     unlearn_feat = unlearn_feat.squeeze(3).squeeze(2).cpu().numpy()
                     unlearn_features.append(unlearn_feat)
 
                     samples = model_retrain_ema.module.sampling(
-                        batch_size, 
-                        clipped_reverse_diffusion=not args.no_clip, 
+                        batch_size,
+                        clipped_reverse_diffusion=not args.no_clip,
                         device=device
                     )
                     samples = torch.stack([TF.resize(sample, (299, 299), antialias=True) for sample in samples])
+
+                    save_images(torch.clamp((samples+1.)/2, 0., 1.), retrain_dir, count*batch_size)
 
                     retrain_feat = inception(samples)[0]
                     retrain_feat = retrain_feat.squeeze(3).squeeze(2).cpu().numpy()
@@ -236,27 +266,31 @@ def main(args):
 
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
+                    count += 1
 
             unlearn_features = np.concatenate(unlearn_features, axis=0)
             retrain_features = np.concatenate(retrain_features, axis=0)
 
             # Calculate FID
-            fid_value = calculate_fid(real_features, unlearn_features)
-            print('real vs unlearn: FID:', fid_value)
-            
-            fid_value = calculate_fid(real_features, retrain_features)
-            print('real vs retrain FID:', fid_value)
 
-            fid_value = calculate_fid(retrain_features, unlearn_features)
-            print('retrain vs unlearn: FID:', fid_value)
+            fid_value1 = calculate_fid(real_features, unlearn_features)
+            print('real vs unlearn: FID:', fid_value1)
 
+            fid_value2 = calculate_fid(real_features, retrain_features)
+            print('real vs retrain FID:', fid_value2)
 
-        print(np.mean(results['pred_probs'], axis=0)[0], np.mean(results['pred_probs'], axis=0)[1])
-        print(np.mean(results['clip_score_unlearn']))
+            fid_value3 = calculate_fid(retrain_features, unlearn_features)
 
-        with open('results.pkl', 'wb') as fp:
-            pickle.dump(results, fp)
-            
+            print('retrain vs unlearn: FID:', fid_value3)
+
+            results["FID"].append((fid_value1, fid_value2, fid_value3))
+
+    # print(np.mean(results['pred_probs'], axis=0)[0], np.mean(results['pred_probs'], axis=0)[1])
+    # print(np.mean(results['clip_score_unlearn']))
+
+    with open('results.pkl', 'wb') as fp:
+        pickle.dump(results, fp)
+
 if __name__=="__main__":
     args=parse_args()
     main(args)
