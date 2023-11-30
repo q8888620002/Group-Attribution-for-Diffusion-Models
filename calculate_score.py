@@ -172,7 +172,6 @@ def main(args):
             samples_unlearns = np.concatenate(samples_unlearns, axis=0)
             samples_retrains = np.concatenate(samples_retrains, axis=0)
 
-
             result_score  = clip_score(samples_unlearns, samples_retrains)
             mean_pred_unlearn = np.mean(pred_probs_unlearn)
             mean_retrain = np.mean(pred_probs_retrain)
