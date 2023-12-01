@@ -1,0 +1,21 @@
+#!/bin/bash
+
+#SBATCH --job-name=unlearn
+#SBATCH --account=aims
+#SBATCH --partition=ckpt
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --gpus=1
+#SBATCH --constraint=[rtx6k]
+#SBATCH --time=12:00:00
+#SBATCH --mem=24G
+#SBATCH --export=all
+#SBATCH --output=/gscratch/scrubbed/clin25/slurm-out/diffusion-attr/unlearn/run-%A-%a.out
+#SBATCH --requeue
+#SBATCH --array=1-20
+
+PARAMS_FILE="/gscratch/aims/clin25/data_attribution/slurms/mnist_experiments.txt"
+PARAMS="$(tail -n +${SLURM_ARRAY_TASK_ID} ${PARAMS_FILE} | head -n 1)"
+echo $PARAMS
+~/launch-container-ro.sh ./unlearn.sh $PARAMS
