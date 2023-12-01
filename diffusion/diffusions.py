@@ -277,7 +277,7 @@ class DDPM(nn.Module):
             std=0.0
 
         return mean+std*noise
-    
+
 
     def _reverse_diffusion_with_guidance(
             self,
@@ -297,11 +297,11 @@ class DDPM(nn.Module):
         pred_noise = self.model(x_t, t)
 
         # Calculate classifier guidance
-        # This requires a separate function to compute the gradient of the classifier's log probability 
+        # This requires a separate function to compute the gradient of the classifier's log probability
         # with respect to the input image. This function should return the gradient tensor.
 
         classifier_grad = self.compute_classifier_gradient(classifier, x_t, target_class)
-        
+
         # Adjust prediction based on guidance
 
         with torch.no_grad():
@@ -326,18 +326,18 @@ class DDPM(nn.Module):
                 std=0.0
 
             return mean+std*noise
-    
+
     def compute_classifier_gradient(
             self,
-            classifier: nn.modules, 
-            x_t: torch.tensor, 
-            target_class: int = None, 
+            classifier: nn.modules,
+            x_t: torch.tensor,
+            target_class: int = None,
         ):
 
         x_t.requires_grad_(True)
-        
+
         logits = classifier(x_t)[0]
-        
+
         probabilities = F.log_softmax(logits, dim=1)
         target_prob = 1. - probabilities[:, target_class]
 
@@ -346,7 +346,7 @@ class DDPM(nn.Module):
         # target_prob = 1. - torch.div(logits, 1. - logits)
 
         # if target_class is not None:
-            ## multi-class 
+            ## multi-class
 
         # else:
 

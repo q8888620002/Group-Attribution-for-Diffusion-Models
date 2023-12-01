@@ -39,8 +39,8 @@ class DDPMConfig:
         "trained_model": "/projects/leelab/mingyulu/data_att/results/cifar/retrain/models/full/steps_00125000.pt",
 
         "lr": 1e-4,
-        "batch_size": 80,
-        "epochs": 200,
+        "batch_size": 32,
+        "epochs": 100,
         "model_ema_steps": 10,
         "model_ema_decay" : 0.995
     }
