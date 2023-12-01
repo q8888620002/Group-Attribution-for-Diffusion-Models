@@ -55,6 +55,20 @@ unet_config = {
     ]
   }
 
+scheduler_config = {
+  "_class_name": "DDPMScheduler",
+  "_diffusers_version": "0.1.1",
+  "beta_end": 0.02,
+  "beta_schedule": "linear",
+  "beta_start": 0.0001,
+  "clip_sample": True,
+  "num_train_timesteps": 1000,
+  "trained_betas": None,
+  "variance_type": "fixed_large"
+}
+
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Training DDPM")
 
@@ -86,7 +100,7 @@ def main(args):
 
     for excluded_class in range(10, -1, -1):
 
-        excluded_class = None if excluded_class== 10 else excluded_class
+        excluded_class = None if excluded_class == 10 else excluded_class
 
         train_dataloader, _ = create_dataloaders(
             dataset_name=config["dataset"],
@@ -99,7 +113,7 @@ def main(args):
             unet=UNet2DModel(
                 **unet_config
             ).to(device),
-            scheduler=DDPMScheduler(num_train_timesteps=config["timesteps"])
+            scheduler=DDPMScheduler(**scheduler_config)
         )
 
         model = pipeline.unet
@@ -132,8 +146,8 @@ def main(args):
 
             model.train()
 
-            pipeline = DDPMPipeline(
-                unet= model_ema.module ,
+            pipeline = DDIMPipeline(
+                unet= model ,
                 scheduler=DDIMScheduler(num_train_timesteps=config["timesteps"])
             )
 
