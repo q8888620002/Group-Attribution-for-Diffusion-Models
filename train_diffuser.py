@@ -2,70 +2,23 @@ import os
 import math
 import argparse
 
+import diffusers
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as TF
 
-from utils import *
-from ddpm_config import DDPMConfig
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
-from torchvision.utils import save_image
 
-import diffusers
 from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel, DDIMPipeline, DDIMScheduler
-from diffusers.optimization import get_scheduler
-from diffusers.training_utils import EMAModel
-from diffusers.utils import is_accelerate_version, is_tensorboard_available, is_wandb_available
 from diffusers.utils import make_image_grid
 
-unet_config = {
-    "_class_name": "UNet2DModel",
-    "_diffusers_version": "0.0.4",
-    "act_fn": "silu",
-    "block_out_channels": [
-      128,
-      256,
-      256,
-      256
-    ],
-    "center_input_sample": False,
-    "down_block_types": [
-      "DownBlock2D",
-      "AttnDownBlock2D",
-      "DownBlock2D",
-      "DownBlock2D"
-    ],
-    "downsample_padding": 0,
-    "flip_sin_to_cos": False,
-    "freq_shift": 1,
-    "in_channels": 3,
-    "layers_per_block": 2,
-    "mid_block_scale_factor": 1,
-    "norm_eps": 1e-06,
-    "norm_num_groups": 32,
-    "out_channels": 3,
-    "sample_size": 32,
-    "time_embedding_type": "positional",
-    "up_block_types": [
-      "UpBlock2D",
-      "UpBlock2D",
-      "AttnUpBlock2D",
-      "UpBlock2D"
-    ]
-  }
+from utils import *
+from ddpm_config import DDPMConfig
 
-scheduler_config = {
-  "_class_name": "DDPMScheduler",
-  "_diffusers_version": "0.1.1",
-  "beta_end": 0.02,
-  "beta_schedule": "linear",
-  "beta_start": 0.0001,
-  "clip_sample": True,
-  "num_train_timesteps": 1000,
-  "trained_betas": None,
-  "variance_type": "fixed_large"
-}
+# from diffusers.optimization import get_scheduler
+# from diffusers.training_utils import EMAModel
+# from diffusers.utils import is_accelerate_version, is_tensorboard_available, is_wandb_available
 
 
 
@@ -93,8 +46,11 @@ def main(args):
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
+
     elif args.dataset  == "mnist":
         config = {**DDPMConfig.mnist_config}
+
+
     else:
         raise ValueError(f"Unknown dataset {config['dataset']}, choose 'cifar' or 'mnist'.")
 
@@ -106,14 +62,15 @@ def main(args):
             dataset_name=config["dataset"],
             batch_size=config["batch_size"],
             excluded_class=excluded_class,
-            unlearning=False
+            unlearning=False,
+            dataset_dir = '/projects/leelab/mingyulu/data_att'
         )
 
         pipeline = DDPMPipeline(
             unet=UNet2DModel(
-                **unet_config
+                **config["unet_config"]
             ).to(device),
-            scheduler=DDPMScheduler(**scheduler_config)
+            scheduler=DDPMScheduler(**config["scheduler_config"])
         )
 
         model = pipeline.unet
@@ -146,37 +103,20 @@ def main(args):
 
             model.train()
 
-            pipeline = DDIMPipeline(
-                unet= model ,
-                scheduler=DDIMScheduler(num_train_timesteps=config["timesteps"])
-            )
-
-            pipeline.scheduler.set_timesteps(config["timesteps"])
-
-            images = pipeline(
-                batch_size=args.n_samples,
-                num_inference_steps=config["timesteps"],
-            ).images
-
-            image_grid = make_image_grid(
-                images,
-                rows=int(math.sqrt(args.n_samples)),
-                cols=int(math.sqrt(args.n_samples))
-            )
-
-            os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
-            image_grid.save(f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png")
-
             for j, (image, _) in enumerate(train_dataloader):
 
-                noise=torch.randn_like(image).to(device)
                 image=image.to(device)
 
+                noise=torch.randn_like(image).to(device)
+
                 timesteps = torch.randint(
-                   0, config["timesteps"], (image.size()[0],), device=image.device
+                   0, 
+                   config["timesteps"], 
+                   (len(image),), 
+                   device=image.device
                 ).long()
 
-                timesteps = torch.cat([timesteps, noise_scheduler.config.num_train_timesteps - timesteps - 1], dim=0)[:image.size()[0]]
+                timesteps = torch.cat([timesteps, noise_scheduler.config.num_train_timesteps - timesteps - 1], dim=0)[:len(image)]
 
                 noisy_images = noise_scheduler.add_noise(image, noise, timesteps)
 
@@ -205,33 +145,30 @@ def main(args):
             if  (epoch+1) % 20 == 0 or global_steps == config['epochs']*len(train_dataloader):
                 model_ema.eval()
 
-                print("Sampling images...")
+                print("Sampling images with EMA...")
 
                 pipeline = DDPMPipeline(
-                    unet= model_ema.module ,
-                    scheduler=DDIMScheduler(num_train_timesteps=config["timesteps"])
+                    unet=model_ema.module,
+                    scheduler=DDPMScheduler(**config["scheduler_config"])
                 )
-
-                pipeline.scheduler.set_timesteps(config["timesteps"])
-
                 images = pipeline(
                     batch_size=args.n_samples,
                     num_inference_steps=config["timesteps"],
-                    output_type="numpy",
                 ).images
 
-                images = np.clip(images / 2 + 0.5, 0. , 1.).squeeze()
+                image_grid = make_image_grid(
+                    images,
+                    rows=int(math.sqrt(args.n_samples)),
+                    cols=int(math.sqrt(args.n_samples))
+                )
 
                 os.makedirs(f"results/{args.dataset}/retrain/samples/{excluded_class}", exist_ok=True)
+                image_grid.save(f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png")
 
-                save_image(
-                    torch.from_numpy(images).permute([0, 3, 1, 2]),
-                    f"results/{args.dataset}/retrain/samples/{excluded_class}/steps_{global_steps:0>8}.png", nrow=int(math.sqrt(args.n_samples))
-                )
 
             ## Checkpoints for training
 
-            if  (epoch+1) % (config['epochs'] //2) == 0 or (epoch+1) % config['epochs'] == 0:
+            if  (epoch+1) % (config['epochs'] // 2) == 0 or (epoch+1) % config['epochs'] == 0:
 
                 print(f"Checkpoint saved at step {global_steps}")
 
@@ -239,9 +176,6 @@ def main(args):
                 torch.save(model, f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/unet_ema_pruned-{global_steps:0>8}.pt" )
 
         torch.save(model, f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/unet_ema_pruned-{global_steps:0>8}.pt" )
-
-        if config['dataset'] != "mnist":
-            np.save(f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/steps_{global_steps:0>8}.npy",  np.array(fid_scores))
 
 if __name__=="__main__":
     args=parse_args()

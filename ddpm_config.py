@@ -33,16 +33,66 @@ class DDPMConfig:
         "attn": True,
         "attn_layer": [2],
         # Training params
-        # old -  results/cifar/retrain/models/full/steps_00078200.pt
+
         "trained_model": (
             "/projects/leelab/mingyulu/data_att/results/cifar/"
             "retrain/models/full/steps_00125000.pt"
         ),
         "lr": 1e-4,
-        "batch_size": 32,
-        "epochs": 100,
+        "batch_size": 128,
+        "epochs": 300,
         "model_ema_steps": 10,
         "model_ema_decay": 0.995,
+
+        # Model configs from https://huggingface.co/google/ddpm-cifar10-32/tree/main
+
+        "unet_config": {
+            "_class_name": "UNet2DModel",
+            "_diffusers_version": "0.0.4",
+            "act_fn": "silu",
+            "block_out_channels": [
+              128,
+              256,
+              256,
+              256
+            ],
+            "center_input_sample": False,
+            "down_block_types": [
+              "DownBlock2D",
+              "AttnDownBlock2D",
+              "DownBlock2D",
+              "DownBlock2D"
+            ],
+            "downsample_padding": 0,
+            "flip_sin_to_cos": False,
+            "freq_shift": 1,
+            "in_channels": 3,
+            "layers_per_block": 2,
+            "mid_block_scale_factor": 1,
+            "norm_eps": 1e-06,
+            "norm_num_groups": 32,
+            "out_channels": 3,
+            "sample_size": 32,
+            "time_embedding_type": "positional",
+            "up_block_types": [
+              "UpBlock2D",
+              "UpBlock2D",
+              "AttnUpBlock2D",
+              "UpBlock2D"
+            ]
+        },
+
+        "scheduler_config": {
+          "_class_name": "DDPMScheduler",
+          "_diffusers_version": "0.1.1",
+          "beta_end": 0.02,
+          "beta_schedule": "linear",
+          "beta_start": 0.0001,
+          "clip_sample": True,
+          "num_train_timesteps": 1000,
+          "trained_betas": None,
+          "variance_type": "fixed_large"
+        }
     }
 
     # MNIST specific configurations
