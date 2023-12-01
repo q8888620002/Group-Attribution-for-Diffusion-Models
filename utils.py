@@ -12,6 +12,7 @@ from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
 
+import constants
 from CLIP.clip import clip
 
 # Load CLIP model and transformation outside of the function for efficiency
@@ -42,6 +43,7 @@ def create_dataloaders(
     excluded_class: int = None,
     unlearning: bool = False,
     return_excluded: bool = False,
+    dataset_dir: str = constants.DATASET_DIR,
 ):
     """
     Create dataloaders for CIFAR10 and MNIST datasets with options for excluding
@@ -57,6 +59,7 @@ def create_dataloaders(
         unlearning (bool, optional): Flag to create subsets for unlearning.
         return_excluded (bool, optional): Flag to return the exlcuded dataset instead of
             the remaining dataset when unlearning is set to False.
+        dataset_dir (str, optional): Parent directory for all the datasets.
 
     Return:
     ------
@@ -78,8 +81,7 @@ def create_dataloaders(
             ]
         )
         DatasetClass = CIFAR10
-        root_dir = "/projects/leelab/mingyulu/data_att/cifar"
-        # root_dir  = "gstratch/cse/mingyulu/data_attribtuion"
+        root_dir = os.path.join(dataset_dir, "cifar")
 
     elif dataset_name == "mnist":
         preprocess = transforms.Compose(
@@ -89,7 +91,7 @@ def create_dataloaders(
             ]
         )
         DatasetClass = MNIST
-        root_dir = "/gscratch/aims/datasets/mnist"
+        root_dir = os.path.join(dataset_dir, "mnist")
     else:
         raise ValueError(f"Unknown dataset {dataset_name}, choose 'cifar' or 'mnist'.")
 

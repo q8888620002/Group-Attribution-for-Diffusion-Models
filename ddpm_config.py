@@ -74,4 +74,5 @@ class DDPMConfig:
         "model_ema_decay": 0.995,
         "ckpt_freq": {"retrain": 2, "ga": 1, "gd": 1},
         "sample_freq": {"retrain": 20, "ga": 1, "gd": 1},
+        "n_samples": 500,
     }

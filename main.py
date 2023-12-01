@@ -16,6 +16,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 from torchvision.utils import save_image
 
+import constants
 from ddpm_config import DDPMConfig
 from diffusion.model_util import create_ddpm_model
 from diffusion.models import CNN
@@ -35,12 +36,6 @@ def parse_args():
 
     parser.add_argument(
         "--load", type=str, help="path for loading pre-trained model", default=None
-    )
-    parser.add_argument(
-        "--n_samples",
-        type=int,
-        help="define sampling amounts after every epoch trained",
-        default=36,
     )
     parser.add_argument(
         "--dataset",
@@ -86,7 +81,7 @@ def parse_args():
         "--device", type=str, help="device of training", default="cuda:0"
     )
     parser.add_argument(
-        "--outdir", type=str, help="output parent directory", default="~/"
+        "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
     parser.add_argument(
         "--db", type=str, help="database file for storing results", default=None
@@ -241,7 +236,7 @@ def main(args):
             sampling_start_time = time.time()
             with torch.no_grad():
                 samples = model_ema.module.sampling(
-                    args.n_samples,
+                    config["n_samples"],
                     clipped_reverse_diffusion=not args.no_clip,
                     device=device,
                 )
@@ -286,7 +281,7 @@ def main(args):
                 inception = InceptionV3([block_idx], normalize_input=False).to(device)
 
                 real_features = get_features(
-                    train_dataloader, mean, std, inception, args.n_samples, device
+                    train_dataloader, mean, std, inception, config["n_samples"], device
                 )
                 resized_samples = torch.stack(
                     [
@@ -315,11 +310,13 @@ def main(args):
             # Rescale images from [-1, 1] to [0, 1] and save
 
             samples = torch.clamp(((samples + 1.0) / 2.0), 0.0, 1.0)
+            if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
+                samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
 
             save_image(
                 samples,
                 os.path.join(sample_outdir, f"steps_{global_steps:0>8}.png"),
-                nrow=int(math.sqrt(args.n_samples)),
+                nrow=int(math.sqrt(len(samples))),
             )
 
         # Checkpoints for training.
