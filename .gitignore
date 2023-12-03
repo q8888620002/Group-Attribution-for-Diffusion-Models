@@ -6,6 +6,5 @@ data/*
 mnist_data/*
 cfair_10/*
 constants.py
-unpack_cifar.py
 train_diffuser.py
 pretrained/*
