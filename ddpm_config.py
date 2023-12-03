@@ -40,12 +40,16 @@ class DDPMConfig:
         ),
         "lr": 1e-4,
         "batch_size": 128,
-        "epochs": 300,
+        "epochs": {"retrain": 250, "ga": 5, "gd": 10, "esd": 250},
         "model_ema_steps": 10,
         "model_ema_decay": 0.995,
+        "ckpt_freq": {"retrain": 50, "ga": 1, "gd": 1, "esd": 20},
+        "sample_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 20},
+        "n_samples": 64,
 
         # Model configs from https://huggingface.co/google/ddpm-cifar10-32/tree/main
-
+        # Cifar-10 Checkpoints - https://heibox.uni-heidelberg.de/d/01207c3f6b8441779abf/?p=%2Fdiffusion_models_converted%2Fema_diffusion_cifar10_model&mode=list
+        
         "unet_config": {
             "_class_name": "UNet2DModel",
             "_diffusers_version": "0.0.4",
@@ -119,10 +123,10 @@ class DDPMConfig:
         # Training params
         "lr": 1e-3,
         "batch_size": 64,
-        "epochs": {"retrain": 100, "ga": 5, "gd": 10},
+        "epochs": {"retrain": 100, "ga": 5, "gd": 10,"esd": 100},
         "model_ema_steps": 10,
         "model_ema_decay": 0.995,
-        "ckpt_freq": {"retrain": 2, "ga": 1, "gd": 1},
-        "sample_freq": {"retrain": 20, "ga": 1, "gd": 1},
+        "ckpt_freq": {"retrain": 2, "ga": 1, "gd": 1, "esd": 20},
+        "sample_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 20},
         "n_samples": 500,
     }

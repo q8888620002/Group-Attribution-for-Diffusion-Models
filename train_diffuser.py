@@ -6,9 +6,10 @@ import diffusers
 import torch
 import torch.nn as nn
 import torchvision.transforms.functional as TF
-
+from torchvision.utils import save_image
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
+from PIL import Image
 
 from diffusers import DDPMPipeline, DDPMScheduler, UNet2DModel, DDIMPipeline, DDIMScheduler
 from diffusers.utils import make_image_grid
@@ -28,11 +29,11 @@ def parse_args():
     parser.add_argument('--ckpt',type = str,help = 'define checkpoint path',default='')
     parser.add_argument('--n_samples',type = int,help = 'define sampling amounts after every epoch trained',default=36)
     parser.add_argument('--dataset', type=str, default='' )
+    parser.add_argument('--batch_size',type = int ,default=128)
 
     parser.add_argument('--log_freq',type = int,help = 'training log message printing frequence',default=10)
     parser.add_argument('--no_clip',action='store_true',help = 'set to normal sampling method without clip x_0 which could yield unstable samples')
     parser.add_argument('--device', type=str ,help = 'device of training', default="cuda:1")
-
 
     args = parser.parse_args()
 
@@ -50,9 +51,68 @@ def main(args):
     elif args.dataset  == "mnist":
         config = {**DDPMConfig.mnist_config}
 
-
     else:
         raise ValueError(f"Unknown dataset {config['dataset']}, choose 'cifar' or 'mnist'.")
+
+    
+    # pipeline = DDPMPipeline(
+    #     unet=UNet2DModel(
+    #         **config["unet_config"]
+    #     ).to(device),
+    #     scheduler=DDPMScheduler(**config["scheduler_config"])
+    # )
+
+    # model = torch.load(f"/projects/leelab/mingyulu/data_att/results/cifar/retrain/models/full/unet_ema_pruned-00117300.pt" ).to(device)
+
+    # pipeline = DDPMPipeline(
+    #     unet=model,
+    #     scheduler=DDPMScheduler(**config["scheduler_config"])   
+    #     # scheduler=DDIMScheduler(num_train_timesteps=config["timesteps"])
+    # )
+
+    # model_id = "google/ddpm-cifar10-32"
+    path  = "pretrained/ddpm_ema_cifar10"
+    pipeline = DDPMPipeline.from_pretrained(path)  
+    
+    model = pipeline.unet
+
+    pipeline = DDIMPipeline(
+        unet=model,
+        scheduler=DDIMScheduler(
+            num_train_timesteps=1000
+        )
+    )
+    # you can replace DDPMPipeline with DDIMPipeline or PNDMPipeline for faster inference
+
+
+    generated_imgs = []
+
+    n_batches = args.n_samples // args.batch_size
+
+    with torch.no_grad():
+        for _ in range(n_batches):
+
+            images = pipeline(
+                batch_size=args.batch_size,
+                num_inference_steps=100,
+                output_type="numpy"
+            ).images
+
+            generated_imgs.append(images)
+
+        generated_imgs = np.concatenate(generated_imgs, axis=0)
+
+    output_dir = os.path.join(f"results/{args.dataset}/pretrained/eval")
+    os.makedirs(output_dir, exist_ok=True)
+
+    for i, images in enumerate(generated_imgs):
+        
+        save_image(
+            torch.from_numpy(images).permute([2, 0, 1]), 
+            os.path.join(output_dir, f"sample_{i:04d}.png")
+        )
+
+    print(f"Images saved to {output_dir}")
 
     for excluded_class in range(10, -1, -1):
 
@@ -110,9 +170,9 @@ def main(args):
                 noise=torch.randn_like(image).to(device)
 
                 timesteps = torch.randint(
-                   0, 
-                   config["timesteps"], 
-                   (len(image),), 
+                   0,
+                   config["timesteps"],
+                   (len(image),),
                    device=image.device
                 ).long()
 
@@ -173,9 +233,11 @@ def main(args):
                 print(f"Checkpoint saved at step {global_steps}")
 
                 os.makedirs(f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}", exist_ok=True)
-                torch.save(model, f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/unet_ema_pruned-{global_steps:0>8}.pt" )
+                torch.save(model, f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/unet_{global_steps:0>8}.pt" )
+                torch.save(model_ema, f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/unet_ema_{global_steps:0>8}.pt" )
 
-        torch.save(model, f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/unet_ema_pruned-{global_steps:0>8}.pt" )
+            torch.save(model, f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/unet_{global_steps:0>8}.pt" )
+            torch.save(model_ema, f"/projects/leelab/mingyulu/data_att/results/{args.dataset}/retrain/models/{excluded_class}/unet_ema_{global_steps:0>8}.pt" )
 
 if __name__=="__main__":
     args=parse_args()

@@ -175,7 +175,7 @@ def create_dataloaders(
         test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
 
-    return train_loader, test_loader
+    return (train_loader, test_loader, train_loader)
 
 
 def get_max_step_file(folder_path):
