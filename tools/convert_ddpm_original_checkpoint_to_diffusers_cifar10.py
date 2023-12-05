@@ -1,6 +1,17 @@
+"""
+This is a script for converting pre-trained cifar-10 checkpoint to a format that can load directly with DDPMpipeline from huggingface
+
+Step 1. mkdir -p pretrained
+Step 2. download the weights here https://heibox.uni-heidelberg.de/d/01207c3f6b8441779abf/?p=%2Fdiffusion_models_converted%2Fdiffusion_cifar10_model&mode=list
+Step 3. python tools/convert_ddpm_original_checkpoint_to_diffusers_cifar10.py 
+            --checkpoint_path pretrained/cifar10-ema-model-790000.ckpt 
+            --config_file tools/ddpm_cifar10_config.json 
+            --dump_path pretrained/ddpm_ema_cifar10
+"""
+
+
 import argparse
 import json
-
 import torch
 
 from diffusers import AutoencoderKL, DDPMPipeline, DDPMScheduler, UNet2DModel, VQModel

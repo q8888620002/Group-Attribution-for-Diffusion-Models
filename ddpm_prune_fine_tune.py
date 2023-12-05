@@ -131,7 +131,7 @@ def main(args):
     clean_images = clean_images.to(args.device)
     noise = torch.randn(clean_images.shape).to(clean_images.device)
 
-    pre_trained_path = os.path.join(constants.DATASET_DIR, "pretrained_models/cifar")
+    pre_trained_path = os.path.join(constants.our_dir, "pretrained_models/cifar")
     # Loading pretrained model
     print("Loading pretrained model from {}".format(pre_trained_path))
 
@@ -182,7 +182,7 @@ def main(args):
         if args.pruner in ['taylor', 'diff-pruning']:
             loss_max = 0
             print("Accumulating gradients for pruning...")
-            for step_k in tqdm(range(1000)):
+            for step_k in tqdm(range(pipeline_scheduler.num_train_timesteps)):
                 timesteps = (step_k*torch.ones((batch_size,), device=clean_images.device)).long()
                 noisy_images = pipeline_scheduler.add_noise(clean_images, noise, timesteps)
                 model_output = model(noisy_images, timesteps).sample
@@ -228,34 +228,7 @@ def main(args):
         model_outdir = os.path.join(outdir, dataset, "pruned/models", pruning_params)
         os.makedirs(model_outdir, exist_ok=True)
         torch.save(model,  os.path.join(model_outdir, f"pruned_unet_{global_steps:0>8}.pth"))
-
-    # Sampling images from the pruned model
-    pipeline = DDIMPipeline(
-        unet = model,
-        scheduler = pipeline_scheduler
-    )
-    with torch.no_grad():
-        generator = torch.Generator(device=pipeline.device).manual_seed(args.opt_seed)
-        pipeline.to(args.device)
-        samples = pipeline(
-            batch_size=config["n_samples"],
-            num_inference_steps=100,
-            generator=generator,
-            output_type="numpy"
-        ).images
-
-        sample_outdir = os.path.join(
-            outdir,
-            dataset,
-            "pruned",
-            "samples",
-            pruning_params
-        )
-        os.makedirs(sample_outdir, exist_ok=True)
-
-        torchvision.utils.save_image(torch.from_numpy(samples).permute([0, 3, 1, 2]), os.path.join(sample_outdir, f"steps_{1:0>8}.png"))
-
-
+ 
     print("==================== fine-tuning on pruned model ====================")
 
     ## Set unet dropout rate
@@ -280,15 +253,15 @@ def main(args):
         model.parameters(),
         lr=config["lr"],
         betas=(0.9, 0.999),
-        weight_decay=0 ,
+        weight_decay=0.00 ,
         eps=1e-8
     )
 
     lr_scheduler = get_scheduler(
         "constant",
         optimizer=optimizer,
-        num_warmup_steps= 0,
-        num_training_steps=(len(train_dataloader) * config["epochs"]["retrain"]),
+        num_warmup_steps = 0,
+        num_training_steps=(len(train_dataloader) * epochs),
     )
 
     ema_model.to(device)
@@ -297,10 +270,12 @@ def main(args):
 
     for epoch in range(start_epoch, epochs):
 
-        model.train()
         steps_start_time = time.time()
 
         for j, (image, _) in enumerate(train_dataloader):
+
+            model.train()
+
             optimizer.zero_grad()
 
             image=image.to(device)
@@ -337,9 +312,8 @@ def main(args):
             global_steps += 1
 
         # Generate samples for evaluation.
-        if (epoch + 1) == 1 or (epoch + 1) % config["sample_freq"]["retrain"] == 0 or (
-            epoch + 1
-        ) == epochs:
+        if (epoch + 1) == 1 or (epoch + 1) % config["sample_freq"]["retrain"] == 0 or ( epoch + 1 ) == epochs:
+
             model.eval()
 
             ema_model.store(model.parameters())
@@ -364,19 +338,31 @@ def main(args):
 
             if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
                 samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
-
-            image_grid = make_image_grid(
-                samples,
-                rows=int(math.sqrt(config["n_samples"])),
-                cols=int(math.sqrt(config["n_samples"]))
+            
+            
+            sample_outdir = os.path.join(
+                outdir,
+                dataset,
+                "pruned",
+                "samples",
+                pruning_params
             )
-            image_grid.save(os.path.join(sample_outdir, f"steps_{global_steps:0>8}.png"))
+
+            save_image(
+                torch.from_numpy(samples).permute([0, 3, 1, 2]), 
+                os.path.join(sample_outdir, f"steps_{global_steps:0>8}.png"),
+                nrow=int(math.sqrt(config["n_samples"]))
+            )
+
+            ema_model.restore(model.parameters())
+
+            os.makedirs(sample_outdir, exist_ok=True)
 
         # Checkpoints for training.
         if  (epoch + 1) % config["ckpt_freq"]["retrain"] == 0 or (epoch + 1) == epochs:
 
             model.eval()
-
+            model.zero_grad()
             torch.save(model, os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt"))
 
             ema_model.store(model.parameters())
@@ -385,7 +371,9 @@ def main(args):
             torch.save(model, os.path.join(model_outdir, f"unet_ema_steps_{global_steps:0>8}.pt"))
 
             # torch.save(ckpt, ckpt_file)
-            print(f"Checkpoint saved at step {global_steps} at {ckpt_file}")
+            print(f"Checkpoint saved at step {global_steps}")
+
+            ema_model.restore(model.parameters())
 
 
 if __name__=="__main__":
