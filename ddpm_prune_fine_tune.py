@@ -89,6 +89,31 @@ def parse_args():
     )
     parser.add_argument("--thr", type=float, default=0.05, help="threshold for diff-pruning")
 
+    # fine-tuning params
+
+    parser.add_argument(
+        "--lr_scheduler",
+        type=str,
+        default="constant",
+        help=(
+            'The scheduler type to use. Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial",'
+            ' "constant", "constant_with_warmup"]'
+        ),
+    )
+    parser.add_argument(
+        "--lr_warmup_steps", type=int, default=500, help="Number of steps for the warmup in the lr scheduler."
+    )
+    parser.add_argument("--adam_beta1", type=float, default=0.9, help="The beta1 parameter for the Adam optimizer.")
+    parser.add_argument("--adam_beta2", type=float, default=0.999, help="The beta2 parameter for the Adam optimizer.")
+    parser.add_argument(
+        "--adam_weight_decay", type=float, default=0.0, help="Weight decay magnitude for the Adam optimizer."
+    )
+    parser.add_argument("--adam_epsilon", type=float, default=1e-08, help="Epsilon value for the Adam optimizer.")
+
+    parser.add_argument("--ema_inv_gamma", type=float, default=1.0, help="The inverse gamma value for the EMA decay.")
+    parser.add_argument("--ema_power", type=float, default=3 / 4, help="The power value for the EMA decay.")
+    parser.add_argument("--ema_max_decay", type=float, default=0.999, help="The maximum decay magnitude for EMA.")
+
     return parser.parse_args()
 
 def print_args(args):
@@ -131,7 +156,7 @@ def main(args):
     clean_images = clean_images.to(args.device)
     noise = torch.randn(clean_images.shape).to(clean_images.device)
 
-    pre_trained_path = os.path.join(constants.our_dir, "pretrained_models/cifar")
+    pre_trained_path = os.path.join(outdir, "pretrained_models/cifar")
     # Loading pretrained model
     print("Loading pretrained model from {}".format(pre_trained_path))
 
