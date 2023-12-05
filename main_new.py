@@ -197,9 +197,7 @@ def main(args):
 
     if args.method == "esd":
         
-        config["pretrained_path"] = "google/ddpm-cifar10-32"
-
-        pipeline_frozen = DDPMPipeline.from_pretrained(config["pretrained_path"])
+        pipeline_frozen = DDPMPipeline.from_pretrained(os.path.join(constants.DATASET_DIR, "pretrained_models/cifar"))
 
 
     loss_fn = nn.MSELoss(reduction="mean")

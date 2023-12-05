@@ -36,9 +36,10 @@ class DDPMConfig:
 
         "trained_model": (
             "/projects/leelab/mingyulu/data_att/results/cifar/"
-            "retrain/models/full/steps_00125000.pt"
+            "retrain/models/full/steps_00125000.pt",
         ),
-        "lr": 1e-4,
+
+        "lr": 2e-4,
         "batch_size": 128,
         "epochs": {"retrain": 250, "ga": 5, "gd": 10, "esd": 250},
         "model_ema_steps": 10,
@@ -49,7 +50,7 @@ class DDPMConfig:
 
         # Model configs from https://huggingface.co/google/ddpm-cifar10-32/tree/main
         # Cifar-10 Checkpoints - https://heibox.uni-heidelberg.de/d/01207c3f6b8441779abf/?p=%2Fdiffusion_models_converted%2Fema_diffusion_cifar10_model&mode=list
-        
+
         "unet_config": {
             "_class_name": "UNet2DModel",
             "_diffusers_version": "0.0.4",

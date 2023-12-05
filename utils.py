@@ -36,6 +36,10 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
 
         super().__init__(model, device, ema_avg, use_buffers=True)
 
+def set_dropout(model, p):
+    for m in model.modules():
+        if isinstance(m, torch.nn.Dropout):
+            m.p = p
 
 def create_dataloaders(
     dataset_name: str,

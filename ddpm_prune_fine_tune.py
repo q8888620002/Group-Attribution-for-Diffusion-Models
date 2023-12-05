@@ -19,6 +19,8 @@ from tqdm import tqdm
 from diffusers import DDPMPipeline, DDIMPipeline, DDIMScheduler, DDPMScheduler, UNet2DModel
 from diffusers.models.resnet import Upsample2D, Downsample2D
 from diffusers.utils import make_image_grid
+from diffusers.training_utils import EMAModel
+from diffusers.optimization import get_scheduler
 
 from glob import glob
 from PIL import Image
@@ -51,7 +53,10 @@ def parse_args():
         default='cpu'
     )
     parser.add_argument(
-        "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
+        "--outdir",
+        type=str,
+        help="output parent directory",
+        default=constants.OUTDIR
     )
 
     parser.add_argument(
@@ -174,7 +179,6 @@ def main(args):
         model.zero_grad()
         model.eval()
 
-
         if args.pruner in ['taylor', 'diff-pruning']:
             loss_max = 0
             print("Accumulating gradients for pruning...")
@@ -216,10 +220,14 @@ def main(args):
     os.makedirs(pipeline_dir, exist_ok=True)
     pipeline.save_pretrained(pipeline_dir)
 
+
+    start_epoch = 0
+    global_steps = start_epoch * len(train_dataloader)
+
     if args.pruning_ratio > 0:
-        model_outdir = os.path.join(outdir, dataset, "pruned/models")
+        model_outdir = os.path.join(outdir, dataset, "pruned/models", pruning_params)
         os.makedirs(model_outdir, exist_ok=True)
-        torch.save(model,  os.path.join(model_outdir, f"{pruning_params}_pruned_unet.pth"))
+        torch.save(model,  os.path.join(model_outdir, f"pruned_unet_{global_steps:0>8}.pth"))
 
     # Sampling images from the pruned model
     pipeline = DDIMPipeline(
@@ -250,30 +258,42 @@ def main(args):
 
     print("==================== fine-tuning on pruned model ====================")
 
-    full_epochs = config["epochs"]["retrain"]
+    ## Set unet dropout rate
+
+    for m in model.modules():
+        if isinstance(m, torch.nn.Dropout):
+            m.p = 0.1
+
     epochs = config["epochs"]["retrain"]
 
-    adjust = 1 * config["batch_size"] * config["model_ema_steps"] / full_epochs
-    alpha = 1.0 - config["model_ema_decay"]
-    alpha = min(1.0, alpha * adjust)
+    ema_model = EMAModel(
+            model.parameters(),
+            decay=0.9999,
+            use_ema_warmup=False,
+            inv_gamma=1.0,
+            power=3/4,
+            model_cls=UNet2DModel,
+            model_config=model.config,
+        )
 
-    model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
-
-    optimizer = AdamW(model.parameters(), lr=config["lr"], weight_decay=1e-4)
-    lr_scheduler = OneCycleLR(
-        optimizer,
-        config["lr"],
-        total_steps=full_epochs * len(train_dataloader),
-        pct_start=0.25,
-        anneal_strategy="cos",
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=config["lr"],
+        betas=(0.9, 0.999),
+        weight_decay=0 ,
+        eps=1e-8
     )
 
+    lr_scheduler = get_scheduler(
+        "constant",
+        optimizer=optimizer,
+        num_warmup_steps= 0,
+        num_training_steps=(len(train_dataloader) * config["epochs"]["retrain"]),
+    )
+
+    ema_model.to(device)
+
     loss_fn = nn.MSELoss(reduction="mean")
-
-    model_ema = ExponentialMovingAverage(model, device=device, decay=1.0 - alpha)
-
-    start_epoch = 0
-    global_steps = start_epoch * len(train_dataloader)
 
     for epoch in range(start_epoch, epochs):
 
@@ -281,35 +301,28 @@ def main(args):
         steps_start_time = time.time()
 
         for j, (image, _) in enumerate(train_dataloader):
+            optimizer.zero_grad()
+
             image=image.to(device)
-
             noise=torch.randn_like(image).to(device)
-
             timesteps = torch.randint(
                 low=0,
                 high=config["timesteps"],
                 size=(len(image)//2 +1, ),  # (len(image),),
                 device=image.device
             ).long()
-
             timesteps = torch.cat([timesteps, pipeline_scheduler.config.num_train_timesteps - timesteps - 1], dim=0)[:len(image)]
 
             noisy_images = pipeline_scheduler.add_noise(image, noise, timesteps)
-
-            optimizer.zero_grad()
-
             eps = model(noisy_images, timesteps).sample
 
             loss=loss_fn(eps,noise)
-
             loss.backward()
-
+            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
-            optimizer.zero_grad()
             lr_scheduler.step()
 
-            if global_steps % config["model_ema_steps"] == 0:
-                model_ema.update_parameters(model)
+            ema_model.step(model.parameters())
 
             if (j + 1) % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
@@ -327,15 +340,19 @@ def main(args):
         if (epoch + 1) == 1 or (epoch + 1) % config["sample_freq"]["retrain"] == 0 or (
             epoch + 1
         ) == epochs:
-            model_ema.eval()
+            model.eval()
+
+            ema_model.store(model.parameters())
+            ema_model.copy_to(model.parameters())
 
             sampling_start_time = time.time()
 
             with torch.no_grad():
-                pipeline = DDPMPipeline(
-                    unet=model_ema.module,
-                    scheduler=pipeline_scheduler
+                pipeline = DDIMPipeline(
+                    unet=model,
+                    scheduler=DDIMScheduler(num_train_timesteps=config["timesteps"])
                 )
+
                 samples = pipeline(
                     batch_size=config["n_samples"],
                     num_inference_steps=config["timesteps"],
@@ -344,15 +361,6 @@ def main(args):
             sampling_time = time.time() - sampling_start_time
 
             print(f", sampling_time: {sampling_time:.3f}" )
-
-            sample_outdir = os.path.join(
-                outdir,
-                dataset,
-                "pruned",
-                "samples",
-                pruning_params
-            )
-            os.makedirs(sample_outdir, exist_ok=True)
 
             if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
                 samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
@@ -367,14 +375,16 @@ def main(args):
         # Checkpoints for training.
         if  (epoch + 1) % config["ckpt_freq"]["retrain"] == 0 or (epoch + 1) == epochs:
 
-            ckpt = {
-                "model": model.state_dict(),
-                "model_ema": model_ema.state_dict(),
-                "epoch": epoch + 1,
-            }
+            model.eval()
 
-            ckpt_file = os.path.join(model_outdir, f"{pruning_params}_fine_tuned_steps_{global_steps:0>8}.pt")
-            torch.save(ckpt, ckpt_file)
+            torch.save(model, os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt"))
+
+            ema_model.store(model.parameters())
+            ema_model.copy_to(model.parameters())
+
+            torch.save(model, os.path.join(model_outdir, f"unet_ema_steps_{global_steps:0>8}.pt"))
+
+            # torch.save(ckpt, ckpt_file)
             print(f"Checkpoint saved at step {global_steps} at {ckpt_file}")
 
 
