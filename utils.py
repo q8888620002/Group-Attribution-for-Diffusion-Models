@@ -3,6 +3,7 @@
 import glob
 import os
 import random
+import clip
 
 import numpy as np
 import torch
@@ -13,7 +14,7 @@ from torchvision.datasets import CIFAR10, MNIST
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
 
 import constants
-from CLIP.clip import clip
+import clip
 
 # Load CLIP model and transformation outside of the function for efficiency
 # device = "cuda:2" if torch.cuda.is_available() else "cpu"
@@ -34,7 +35,6 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
             return decay * avg_model_param + (1 - decay) * model_param
 
         super().__init__(model, device, ema_avg, use_buffers=True)
-
 
 def create_dataloaders(
     dataset_name: str,
@@ -153,12 +153,6 @@ def create_dataloaders(
                 num_workers=num_workers,
             ),
             DataLoader(
-                remaining_dataset,
-                batch_size=batch_size,
-                shuffle=True,
-                num_workers=num_workers,
-            ),
-            DataLoader(
                 ablated_dataset,
                 batch_size=batch_size,
                 shuffle=True,
@@ -174,7 +168,7 @@ def create_dataloaders(
         test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
 
-    return train_loader, test_loader
+    return (train_loader, test_loader)
 
 
 def get_max_step_file(folder_path):
@@ -187,6 +181,20 @@ def get_max_step_file(folder_path):
         files, key=lambda x: int(os.path.basename(x).split("_")[1].split(".")[0])
     )
     return max_step_file
+
+def get_max_steps(folder_path):
+    """Get maximum number of training steps for results in a folder."""
+    
+    path_pattern = os.path.join(folder_path, "unet_ema_steps_*.pt")
+    files = glob.glob(path_pattern)
+
+    if not files:
+        return None
+
+    max_steps = max(
+        files, key=lambda x: int(os.path.basename(x).split("_")[3].split(".")[0])
+    )
+    return int(os.path.basename(max_steps).split("_")[3].split(".")[0])
 
 
 def get_features(dataloader, mean, std, model, n_samples, device) -> np.ndarray:
