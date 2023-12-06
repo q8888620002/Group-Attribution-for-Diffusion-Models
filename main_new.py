@@ -10,7 +10,6 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
-import torchvision.transforms.functional as TF
 
 # from lightning.pytorch import seed_everything
 from torch.optim import AdamW
@@ -20,7 +19,7 @@ from torchvision.utils import save_image
 import constants
 
 from ddpm_config import DDPMConfig
-from tqdm import tqdm
+
 from diffusers import DDPMPipeline, DDIMPipeline, DDIMScheduler, DDPMScheduler, UNet2DModel
 from diffusers.training_utils import EMAModel
 from diffusers.optimization import get_scheduler
@@ -152,7 +151,7 @@ def parse_args():
     )
     parser.add_argument(
         "--ema_power", 
-        type=float, default=3 / 4, 
+        type=float, default= 3/4, 
         help="The power value for the EMA decay."
     )
     parser.add_argument(
@@ -161,6 +160,19 @@ def parse_args():
         default=0.9999, 
         help="The maximum decay magnitude for EMA."
     )
+
+    parser.add_argument(
+        "--num_inference_steps", 
+        type=int, 
+        default=100
+    )
+
+    parser.add_argument(
+        "--num_train_steps", 
+        type=int, 
+        default=1000
+    )
+
     return parser.parse_args()
 
 
@@ -205,15 +217,18 @@ def main(args):
         dataset_name=config["dataset"],
         batch_size=config["batch_size"],
         excluded_class=args.excluded_class,
-        unlearning=True,
-        return_excluded= args.method == "ga"
+        unlearning= (args.method !="retrain"),
+        return_excluded= (args.method == "ga")
     )
+
+    if args.method == "retrain":
+        forget_dataloader = train_dataloader
     
     start_epoch = 0
     epochs = config["epochs"][args.method]
     global_steps = start_epoch * len(train_dataloader)
 
-    pretrained_steps = get_max_steps(args.load)
+    pretrained_steps = get_max_steps(args.load) if args.load else None
 
     if pretrained_steps is not None:
         # Loading model
@@ -297,7 +312,7 @@ def main(args):
             noise=torch.randn_like(image_r).to(device)
             timesteps = torch.randint(
                 0,
-                config["timesteps"],
+                pipeline_scheduler.config.num_train_timesteps,
                 (len(image_r)//2 +1,),
                 device=image_r.device
             ).long()
@@ -344,9 +359,9 @@ def main(args):
             global_steps += 1
 
         # Generate samples for evaluation.
-        if epoch == 0 or (epoch + 1) == 1 or (epoch + 1) % config["sample_freq"][args.method] == 0 or ( epoch + 1 ) == epochs:
+        if (epoch + 1) % config["sample_freq"][args.method] == 0 or ( epoch + 1 ) == epochs:
 
-            model.eval()
+            model.eval()    
 
             ema_model.store(model.parameters())
             ema_model.copy_to(model.parameters())
@@ -356,12 +371,12 @@ def main(args):
             with torch.no_grad():
                 pipeline = DDIMPipeline(
                     unet=model,
-                    scheduler=DDIMScheduler(num_train_timesteps=config["timesteps"])
+                    scheduler=DDIMScheduler(num_train_timesteps = args.num_train_steps)
                 )
 
                 samples = pipeline(
                     batch_size=config["n_samples"],
-                    num_inference_steps=config["timesteps"],
+                    num_inference_steps=args.num_inference_steps,
                     output_type="numpy"
                 ).images
                 

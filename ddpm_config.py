@@ -2,18 +2,8 @@
 
 
 class DDPMConfig:
-    """Configuration class for DDPM"""
 
     # CIFAR specific configurations
-
-    # Channel_mult configs from
-    # https://github.com/openai/improved-diffusion/blob/main/improved_diffusion/script_util.py
-    #     if image_size == 256:
-    #       channel_mult = (1, 1, 2, 2, 4, 4)
-    #     elif image_size == 64:
-    #       channel_mult = (1, 2, 3, 4)
-    #     elif image_size == 32:
-    #       channel_mult = (1, 2, 2, 2)
 
     cifar_config = {
         "dataset": "cifar",
@@ -22,28 +12,17 @@ class DDPMConfig:
         # "std": [0.229, 0.224, 0.225],
         "mean": [0.5, 0.5, 0.5],
         "std": [0.5, 0.5, 0.5],
-        # Unet params
-        "timesteps": 1000,
-        "base_dim": 128,
-        "channel_mult": [1, 2, 2, 2],
-        "in_channels": 3,
-        "out_channels": 3,
-        "num_res_blocks": 2,
-        "dropout": 0.15,
-        "attn": True,
-        "attn_layer": [2],
-        # Training params
+
 
         "trained_model": (
             "/projects/leelab/mingyulu/data_att/results/cifar/"
             "retrain/models/full/steps_00125000.pt",
         ),
 
-        "lr": 2e-4,
+        # Training params
+        "lr": 1e-4,
         "batch_size": 128,
-        "epochs": {"retrain": 250, "ga": 5, "gd": 10, "esd": 250},
-        "model_ema_steps": 10,
-        "model_ema_decay": 0.995,
+        "epochs": {"retrain": 400, "ga": 5, "gd": 10, "esd": 250},
         "ckpt_freq": {"retrain": 50, "ga": 1, "gd": 1, "esd": 20},
         "sample_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 20},
         "n_samples": 64,
