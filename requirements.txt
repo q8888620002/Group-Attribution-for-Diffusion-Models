@@ -1,6 +1,8 @@
 torch
 torchvision
 lightning
+torch_pruning
+diffuser
 tqdm
 argparse
 pre-commit
