@@ -11,6 +11,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+import wandb
+
 # from lightning.pytorch import seed_everything
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
@@ -334,6 +336,21 @@ def main(args):
         pipeline_frozen = DDPMPipeline.from_pretrained(os.path.join(args.outdir, "pretrained_models/cifar"))
         frozen_unet = pipeline_frozen.unet.to(device)
 
+    # For tracking model finetuning.
+
+    wandb.init(
+        project ="Data Shapley for Diffusion",
+        config = {
+            "architecture": "DDPM",
+            "learning_rate": config["lr"],
+            "batch_size": args.batch_size,
+            "dataset": args.dataset,
+            "epochs": epochs,
+            "method": args.method,
+            "pretrained_model": args.load
+        }
+    )
+
 
     for epoch in range(start_epoch, epochs):
 
@@ -406,6 +423,16 @@ def main(args):
                 print(info, flush=True)
                 steps_start_time = time.time()
 
+                wandb.log(
+                    {
+                        "Epoch": (epoch + 1)/epochs,
+                        "loss": loss.detach().cpu().item(),
+                        "steps_time": steps_time,
+                        "gradient norms": grad_norm,
+                        "parameters norms": params_norm,
+                        "lr" : lr_scheduler.get_last_lr()[0]
+                    }
+                )
             global_steps += 1
 
         # Generate samples for evaluation.

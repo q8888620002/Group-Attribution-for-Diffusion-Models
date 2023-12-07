@@ -46,7 +46,7 @@ def parse_args():
     parser.add_argument(
         "--device",
         type=str,
-        default='cpu'
+        default='cuda:0'
     )
     parser.add_argument(
         "--outdir",
@@ -106,7 +106,6 @@ def parse_args():
             ' "constant", "constant_with_warmup"]'
         ),
     )
-
 
     parser.add_argument(
         "--num_inference_steps",

@@ -1,0 +1,19 @@
+/homes/gws/mingyulu/.local/lib/python3.9/site-packages/transformers/deepspeed.py:23: FutureWarning: transformers.deepspeed module is deprecated and will be removed in a future version. Please import deepspeed modules directly from transformers.integrations
+  warnings.warn(
+Epoch[1/400], Step[20/391], steps_time: 13.297, loss: 0.14992, gradient norms: 0.33174, parameters norms: 131.24657, lr: 0.000100
+Epoch[1/400], Step[40/391], steps_time: 11.521, loss: 0.13099, gradient norms: 0.16738, parameters norms: 131.25887, lr: 0.000100
+Epoch[1/400], Step[60/391], steps_time: 11.549, loss: 0.09770, gradient norms: 0.13433, parameters norms: 131.26947, lr: 0.000100
+Epoch[1/400], Step[80/391], steps_time: 11.553, loss: 0.09053, gradient norms: 0.16302, parameters norms: 131.27922, lr: 0.000100
+Epoch[1/400], Step[100/391], steps_time: 11.565, loss: 0.07068, gradient norms: 0.11599, parameters norms: 131.28990, lr: 0.000100
+Epoch[1/400], Step[120/391], steps_time: 11.694, loss: 0.07109, gradient norms: 0.11531, parameters norms: 131.30200, lr: 0.000100
+Epoch[1/400], Step[140/391], steps_time: 11.634, loss: 0.06660, gradient norms: 0.18279, parameters norms: 131.31197, lr: 0.000100
+Traceback (most recent call last):
+  File "/homes/gws/mingyulu/data_attribution/main_new.py", line 533, in <module>
+    main(args)
+  File "/homes/gws/mingyulu/data_attribution/main_new.py", line 400, in main
+    ema_model.step(model.parameters())
+  File "/homes/gws/mingyulu/.local/lib/python3.9/site-packages/torch/utils/_contextlib.py", line 115, in decorate_context
+    return func(*args, **kwargs)
+  File "/homes/gws/mingyulu/miniconda3/envs/data_att/lib/python3.9/site-packages/diffusers/training_utils.py", line 240, in step
+    s_param.sub_(one_minus_decay * (s_param - param))
+KeyboardInterrupt
