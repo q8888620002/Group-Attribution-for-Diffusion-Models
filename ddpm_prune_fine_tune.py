@@ -378,12 +378,24 @@ def main(args):
 
             ema_model.step(model.parameters())
 
+            grads = [
+                param.grad.detach().flatten() for param in model.parameters() if param.grad is not None
+            ]
+            grad_norm = torch.cat(grads).norm()
+
+            params =[
+                param.data.detach().flatten() for param in model.parameters() if param.data is not None
+            ]
+            params_norm = torch.cat(params).norm()
+
             if (j + 1) % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{len(train_dataloader)}]"
                 info += f", steps_time: {steps_time:.3f}"
                 info += f", loss: {loss.detach().cpu().item():.5f}"
+                info += f", gradient norms: {grad_norm:.5f}"
+                info += f", parameters norms: {params_norm:.5f}"
                 info += f", lr: {lr_scheduler.get_last_lr()[0]:.6f}"
                 print(info, flush=True)
                 steps_start_time = time.time()
