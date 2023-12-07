@@ -36,8 +36,18 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training DDPM")
 
     parser.add_argument(
-        "--load", type=str, help="path for loading pre-trained model", default=None
+        "--load", type=str,
+        help="path for loading pre-trained model",
+        default=None
     )
+
+    parser.add_argument(
+        "--init",
+        action='store_true',
+        help="whether to initialize with a new model.",
+        default=False
+    )
+
     parser.add_argument(
         "--dataset",
         type=str,
@@ -97,11 +107,16 @@ def parse_args():
     )
 
     # fine-tuning/training params
-
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=64,
+        help="The batch size rate for fine-tuning."
+    )
     parser.add_argument(
         "--dropout",
-        type=float, 
-        default=0.1, 
+        type=float,
+        default=0.1,
         help="The dropout rate for fine-tuning."
     )
     parser.add_argument(
@@ -114,62 +129,62 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--lr_warmup_steps", 
-        type=int, 
-        default=0, 
+        "--lr_warmup_steps",
+        type=int,
+        default=0,
         help="Number of steps for the warmup in the lr scheduler."
     )
     parser.add_argument(
-        "--adam_beta1", 
-        type=float, 
-        default=0.9, 
+        "--adam_beta1",
+        type=float,
+        default=0.9,
         help="The beta1 parameter for the Adam optimizer."
     )
     parser.add_argument(
-        "--adam_beta2", 
-        type=float, 
-        default=0.999, 
+        "--adam_beta2",
+        type=float,
+        default=0.999,
         help="The beta2 parameter for the Adam optimizer."
     )
     parser.add_argument(
-        "--adam_weight_decay", 
-        type=float, 
-        default=0.0, 
+        "--adam_weight_decay",
+        type=float,
+        default=0.0,
         help="Weight decay magnitude for the Adam optimizer."
     )
     parser.add_argument(
-        "--adam_epsilon", 
-        type=float, 
-        default=1e-08, 
+        "--adam_epsilon",
+        type=float,
+        default=1e-08,
         help="Epsilon value for the Adam optimizer."
     )
     parser.add_argument(
-        "--ema_inv_gamma", 
-        type=float, 
-        default=1.0, 
+        "--ema_inv_gamma",
+        type=float,
+        default=1.0,
         help="The inverse gamma value for the EMA decay."
     )
     parser.add_argument(
-        "--ema_power", 
-        type=float, default= 3/4, 
+        "--ema_power",
+        type=float, default= 3/4,
         help="The power value for the EMA decay."
     )
     parser.add_argument(
         "--ema_max_decay",
-        type=float, 
-        default=0.9999, 
+        type=float,
+        default=0.9999,
         help="The maximum decay magnitude for EMA."
     )
 
     parser.add_argument(
-        "--num_inference_steps", 
-        type=int, 
+        "--num_inference_steps",
+        type=int,
         default=100
     )
 
     parser.add_argument(
-        "--num_train_steps", 
-        type=int, 
+        "--num_train_steps",
+        type=int,
         default=1000
     )
 
@@ -215,7 +230,7 @@ def main(args):
 
     (train_dataloader, forget_dataloader) = create_dataloaders(
         dataset_name=config["dataset"],
-        batch_size=config["batch_size"],
+        batch_size=args.batch_size,
         excluded_class=args.excluded_class,
         unlearning= (args.method !="retrain"),
         return_excluded= (args.method == "ga")
@@ -223,7 +238,7 @@ def main(args):
 
     if args.method == "retrain":
         forget_dataloader = train_dataloader
-    
+
     start_epoch = 0
     epochs = config["epochs"][args.method]
     global_steps = start_epoch * len(train_dataloader)
@@ -249,6 +264,27 @@ def main(args):
             model_cls=UNet2DModel,
             model_config=model.config,
         )
+
+        global_steps = pretrained_steps
+
+        if args.init:
+
+            print("initialized a new model from pruned/pretrained at {}.".format(args.load))
+
+            for m in model.modules():
+                if hasattr(m, 'reset_parameters'):
+                    m.reset_parameters()
+
+            ema_model = EMAModel(
+                model.parameters(),
+                decay=args.ema_max_decay,
+                use_ema_warmup=False,
+                inv_gamma=args.ema_inv_gamma,
+                power=args.ema_power,
+                model_cls=UNet2DModel,
+                model_config=model.config,
+            )
+
     else:
         # initializing standard model from scratch.
 
@@ -292,7 +328,7 @@ def main(args):
 
     loss_fn = nn.MSELoss(reduction="mean")
 
-    # Load frozen model 
+    # Load frozen model
 
     if args.method == "esd":
         pipeline_frozen = DDPMPipeline.from_pretrained(os.path.join(args.outdir, "pretrained_models/cifar"))
@@ -328,11 +364,11 @@ def main(args):
                 loss *= -1.0
 
             elif args.method == "esd":
-            
+
                 image_f=image_f.to(device)
-                
+
                 with torch.no_grad():
-                    
+
                     noisy_images_f = pipeline_scheduler.add_noise(image_f, noise, timesteps)
 
                     eps_r_frozen = frozen_unet(noisy_images_r, timesteps).sample
@@ -346,12 +382,26 @@ def main(args):
             lr_scheduler.step()
             ema_model.step(model.parameters())
 
+            ## check gradient norm & params norm
+
+            grads = [
+                param.grad.detach().flatten() for param in model.parameters() if param.grad is not None
+            ]
+            grad_norm = torch.cat(grads).norm()
+
+            params =[
+                param.data.detach().flatten() for param in model.parameters() if param.data is not None
+            ]
+            params_norm = torch.cat(params).norm()
+
             if (j + 1) % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{len(train_dataloader)}]"
                 info += f", steps_time: {steps_time:.3f}"
                 info += f", loss: {loss.detach().cpu().item():.5f}"
+                info += f", gradient norms: {grad_norm:.5f}"
+                info += f", parameters norms: {params_norm:.5f}"
                 info += f", lr: {lr_scheduler.get_last_lr()[0]:.6f}"
                 print(info, flush=True)
                 steps_start_time = time.time()
@@ -361,7 +411,7 @@ def main(args):
         # Generate samples for evaluation.
         if (epoch + 1) % config["sample_freq"][args.method] == 0 or ( epoch + 1 ) == epochs:
 
-            model.eval()    
+            model.eval()
 
             ema_model.store(model.parameters())
             ema_model.copy_to(model.parameters())
@@ -379,7 +429,7 @@ def main(args):
                     num_inference_steps=args.num_inference_steps,
                     output_type="numpy"
                 ).images
-                
+
                 samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
 
             sampling_time = time.time() - sampling_start_time
@@ -427,7 +477,7 @@ def main(args):
                 samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
 
             save_image(
-                samples, 
+                samples,
                 os.path.join(sample_outdir, f"steps_{global_steps:0>8}.png"),
                 nrow=int(math.sqrt(config["n_samples"]))
             )

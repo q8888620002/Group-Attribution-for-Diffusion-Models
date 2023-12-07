@@ -8,8 +8,7 @@ class DDPMConfig:
     cifar_config = {
         "dataset": "cifar",
         "image_size": 32,
-        # "mean": [0.485, 0.456, 0.406],
-        # "std": [0.229, 0.224, 0.225],
+
         "mean": [0.5, 0.5, 0.5],
         "std": [0.5, 0.5, 0.5],
 
@@ -22,9 +21,9 @@ class DDPMConfig:
         # Training params
         "lr": 1e-4,
         "batch_size": 128,
-        "epochs": {"retrain": 400, "ga": 5, "gd": 10, "esd": 250},
-        "ckpt_freq": {"retrain": 50, "ga": 1, "gd": 1, "esd": 20},
-        "sample_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 20},
+        "epochs": {"retrain": 400, "ga": 5, "gd": 10, "esd": 500},
+        "ckpt_freq": {"retrain": 100, "ga": 1, "gd": 1, "esd": 250},
+        "sample_freq": {"retrain": 50, "ga": 1, "gd": 1, "esd": 20},
         "n_samples": 64,
 
         # Cifar-10 Checkpoints - https://heibox.uni-heidelberg.de/d/01207c3f6b8441779abf/?p=%2Fdiffusion_models_converted%2Fema_diffusion_cifar10_model&mode=list
