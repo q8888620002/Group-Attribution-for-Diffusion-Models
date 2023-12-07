@@ -9,3 +9,4 @@ constants.py
 generate_imgs.py
 pretrained/*
 eval/*
+wandb/*
