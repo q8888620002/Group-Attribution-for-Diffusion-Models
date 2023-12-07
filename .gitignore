@@ -8,3 +8,4 @@ cfair_10/*
 constants.py
 generate_imgs.py
 pretrained/*
+eval/*
