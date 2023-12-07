@@ -21,7 +21,7 @@ class DDPMConfig:
         # Training params
         "lr": 1e-4,
         "batch_size": 128,
-        "epochs": {"retrain": 400, "ga": 5, "gd": 10, "esd": 500},
+        "epochs": {"retrain": 800, "ga": 5, "gd": 10, "esd": 500},
         "ckpt_freq": {"retrain": 100, "ga": 1, "gd": 1, "esd": 250},
         "sample_freq": {"retrain": 50, "ga": 1, "gd": 1, "esd": 20},
         "n_samples": 64,
@@ -42,7 +42,7 @@ class DDPMConfig:
               256
             ],
             "center_input_sample": False,
-            "class_embed_type": None,                                                                           
+            "class_embed_type": None,
             "down_block_types": [
               "DownBlock2D",
               "AttnDownBlock2D",
