@@ -284,23 +284,29 @@ class CNN(nn.Module):
                 out_channels=16,
                 kernel_size=5,
                 stride=1,
-                padding=2,
+                padding=0,
             ),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2),
         )
         self.conv2 = nn.Sequential(
-            nn.Conv2d(16, 32, 5, 1, 2),
+            nn.Conv2d(
+                in_channels=16,
+                out_channels=32,
+                kernel_size=5,
+                stride=1,
+                padding=0,
+            ),
             nn.ReLU(),
-            nn.MaxPool2d(2),
+            nn.MaxPool2d(kernel_size=2),
         )
         # fully connected layer, output 10 classes
-        self.out = nn.Linear(32 * 7 * 7, num_class)
+        self.out = nn.Linear(32 * 5 * 5, num_class)
 
     def forward(self, x):
         x = self.conv1(x)
         x = self.conv2(x)
-        # flatten the output of conv2 to (batch_size, 32 * 7 * 7)
+        # flatten the output of conv2 to (batch_size, 32 * 5 * 5)
         x = x.view(x.size(0), -1)
         output = self.out(x)
         return output, x
