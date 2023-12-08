@@ -210,7 +210,7 @@ def main(args):
 
     (train_dataloader, forget_dataloader) = create_dataloaders(
         dataset_name=config["dataset"],
-        batch_size=args.batch_size,
+        batch_size=config["batch_size"],
         excluded_class=args.excluded_class,
         unlearning=(args.method != "retrain"),
         return_excluded=(args.method == "ga"),
@@ -324,9 +324,9 @@ def main(args):
         notes=f"Experiment for {args.method}:{args.dataset}",
         tags=[f"{args.method}"],
         config={
-            "epochs": epochs, 
+            "epochs": epochs,
             "batch_size": config["batch_size"],
-            "model": model._class_name
+            "model": model.config._class_name
         }
     )
 
@@ -417,7 +417,7 @@ def main(args):
 
                 wandb.log(
                     {
-                        "Epoch": (epoch + 1) / epochs,
+                        "Epoch": (epoch + 1),
                         "loss": loss.detach().cpu().item(),
                         "steps_time": steps_time,
                         "gradient norms": grad_norm,
