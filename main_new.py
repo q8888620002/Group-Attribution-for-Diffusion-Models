@@ -9,14 +9,8 @@ import time
 
 import torch
 import torch.nn as nn
-<<<<<<< HEAD
-
 import wandb
 
-# from lightning.pytorch import seed_everything
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import OneCycleLR
-=======
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
@@ -27,7 +21,6 @@ from diffusers import (
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
->>>>>>> origin/main
 from torchvision.utils import save_image
 
 import constants
@@ -103,23 +96,7 @@ def parse_args():
         help="whether to resume from the latest available model checkpoint",
     )
 
-<<<<<<< HEAD
-    # fine-tuning/training params
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=64,
-        help="The batch size rate for fine-tuning."
-    )
-    parser.add_argument(
-        "--dropout",
-        type=float,
-        default=0.1,
-        help="The dropout rate for fine-tuning."
-    )
-=======
     # Training and fine-tuning parameters.
->>>>>>> origin/main
     parser.add_argument(
         "--lr_scheduler",
         type=str,
@@ -138,64 +115,36 @@ def parse_args():
         "--lr_warmup_steps",
         type=int,
         default=0,
-<<<<<<< HEAD
-        help="Number of steps for the warmup in the lr scheduler."
-=======
         help="number of warmup steps in the learning rate scheduler",
->>>>>>> origin/main
     )
     parser.add_argument(
         "--adam_beta1",
         type=float,
         default=0.9,
-<<<<<<< HEAD
-        help="The beta1 parameter for the Adam optimizer."
-=======
         help="beta1 parameter in Adam optimizer",
->>>>>>> origin/main
     )
     parser.add_argument(
         "--adam_beta2",
         type=float,
         default=0.999,
-<<<<<<< HEAD
-        help="The beta2 parameter for the Adam optimizer."
-=======
         help="beta2 parameter in Adam optimizer",
->>>>>>> origin/main
     )
     parser.add_argument(
         "--adam_weight_decay",
         type=float,
         default=0.0,
-<<<<<<< HEAD
-        help="Weight decay magnitude for the Adam optimizer."
-=======
         help="weight decay magnitude in Adam optimizer",
->>>>>>> origin/main
     )
     parser.add_argument(
         "--adam_epsilon",
         type=float,
         default=1e-08,
-<<<<<<< HEAD
-        help="Epsilon value for the Adam optimizer."
-=======
         help="epsilon value in Adam optimizer",
->>>>>>> origin/main
     )
     parser.add_argument(
         "--ema_inv_gamma",
         type=float,
         default=1.0,
-<<<<<<< HEAD
-        help="The inverse gamma value for the EMA decay."
-    )
-    parser.add_argument(
-        "--ema_power",
-        type=float, default= 3/4,
-        help="The power value for the EMA decay."
-=======
         help="inverse gamma value for EMA decay",
     )
     parser.add_argument(
@@ -203,38 +152,25 @@ def parse_args():
         type=float,
         default=3 / 4,
         help="power value for EMA decay",
->>>>>>> origin/main
     )
     parser.add_argument(
         "--ema_max_decay",
         type=float,
         default=0.9999,
-<<<<<<< HEAD
-        help="The maximum decay magnitude for EMA."
-=======
         help="maximum decay magnitude EMA",
->>>>>>> origin/main
     )
 
     parser.add_argument(
         "--num_inference_steps",
         type=int,
-<<<<<<< HEAD
-        default=100
-=======
         default=100,
         help="number of diffusion steps for generating images",
->>>>>>> origin/main
     )
     parser.add_argument(
         "--num_train_steps",
         type=int,
-<<<<<<< HEAD
-        default=1000
-=======
         default=1000,
         help="number of diffusion steps during training",
->>>>>>> origin/main
     )
 
     return parser.parse_args()
@@ -382,25 +318,6 @@ def main(args):
         )
         frozen_unet = pipeline_frozen.unet.to(device)
 
-<<<<<<< HEAD
-    # For tracking model finetuning.
-
-    wandb.init(
-        project ="Data Shapley for Diffusion",
-        config = {
-            "architecture": "DDPM",
-            "learning_rate": config["lr"],
-            "batch_size": args.batch_size,
-            "dataset": args.dataset,
-            "epochs": epochs,
-            "method": args.method,
-            "pretrained_model": args.load
-        }
-    )
-
-
-=======
->>>>>>> origin/main
     for epoch in range(start_epoch, epochs):
 
         steps_start_time = time.time()
@@ -439,13 +356,6 @@ def main(args):
 
             elif args.method == "esd":
 
-<<<<<<< HEAD
-                image_f=image_f.to(device)
-
-                with torch.no_grad():
-
-                    noisy_images_f = pipeline_scheduler.add_noise(image_f, noise, timesteps)
-=======
                 image_f = image_f.to(device)
 
                 with torch.no_grad():
@@ -453,7 +363,6 @@ def main(args):
                     noisy_images_f = pipeline_scheduler.add_noise(
                         image_f, noise, timesteps
                     )
->>>>>>> origin/main
 
                     eps_r_frozen = frozen_unet(noisy_images_r, timesteps).sample
                     eps_f_frozen = frozen_unet(noisy_images_f, timesteps).sample

@@ -1,3 +1,5 @@
+""" Pruning and fine-tuning diffusion models """
+
 import argparse
 import math
 import os
@@ -25,7 +27,6 @@ import constants
 
 from ddpm_config import DDPMConfig
 from utils import (
-    ExponentialMovingAverage,
     create_dataloaders,
 )
 
