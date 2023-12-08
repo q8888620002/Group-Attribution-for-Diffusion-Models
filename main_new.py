@@ -319,6 +319,17 @@ def main(args):
         )
         frozen_unet = pipeline_frozen.unet.to(device)
 
+    wandb.init(
+        project="Data Shapley for Diffusion",
+        notes=f"Experiment for {args.method}:{args.dataset}",
+        tags=[f"{args.method}"],
+        config={
+            "epochs": epochs, 
+            "batch_size": config["batch_size"],
+            "model": model._class_name
+        }
+    )
+
     for epoch in range(start_epoch, epochs):
 
         steps_start_time = time.time()
