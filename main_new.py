@@ -7,30 +7,33 @@ import os
 import sys
 import time
 
-import numpy as np
 import torch
 import torch.nn as nn
+<<<<<<< HEAD
 
 import wandb
 
 # from lightning.pytorch import seed_everything
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
+=======
+from diffusers import (
+    DDIMPipeline,
+    DDIMScheduler,
+    DDPMPipeline,
+    DDPMScheduler,
+    UNet2DModel,
+)
+from diffusers.optimization import get_scheduler
+from diffusers.training_utils import EMAModel
+from lightning.pytorch import seed_everything
+>>>>>>> origin/main
 from torchvision.utils import save_image
 
 import constants
-
 from ddpm_config import DDPMConfig
-
-from diffusers import DDPMPipeline, DDIMPipeline, DDIMScheduler, DDPMScheduler, UNet2DModel
-from diffusers.training_utils import EMAModel
-from diffusers.optimization import get_scheduler
-
 from diffusion.models import CNN
-from utils import (
-    create_dataloaders,
-    get_max_steps,
-)
+from utils import create_dataloaders, get_max_steps
 
 
 def parse_args():
@@ -64,23 +67,15 @@ def parse_args():
         default=20,
     )
     parser.add_argument(
-        "--no_clip",
-        action="store_true",
-        help=(
-            "set to normal sampling method without clip x_0 which could yield "
-            "unstable samples"
-        ),
-    )
-    parser.add_argument(
         "--excluded_class",
         type=int,
-        help="dataset class to unlearn or retrain on",
+        help="dataset class to exclude for class-wise data removal",
         default=None,
     )
     parser.add_argument(
         "--method",
         type=str,
-        help="unlearning method",
+        help="training or unlearning method",
         choices=["retrain", "gd", "ga", "esd"],
         required=True,
     )
@@ -105,9 +100,10 @@ def parse_args():
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="whether to resume from the latest model checkpoint",
+        help="whether to resume from the latest available model checkpoint",
     )
 
+<<<<<<< HEAD
     # fine-tuning/training params
     parser.add_argument(
         "--batch_size",
@@ -121,73 +117,124 @@ def parse_args():
         default=0.1,
         help="The dropout rate for fine-tuning."
     )
+=======
+    # Training and fine-tuning parameters.
+>>>>>>> origin/main
     parser.add_argument(
         "--lr_scheduler",
         type=str,
         default="constant",
-        help=(
-            'The scheduler type to use. Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial",'
-            ' "constant", "constant_with_warmup"]'
-        ),
+        choices=[
+            "constant",
+            "constant_with_warmup",
+            "cosine",
+            "cosine_with_restarts",
+            "linear",
+            "polynomial",
+        ],
+        help="learning rate scheduler to use",
     )
     parser.add_argument(
         "--lr_warmup_steps",
         type=int,
         default=0,
+<<<<<<< HEAD
         help="Number of steps for the warmup in the lr scheduler."
+=======
+        help="number of warmup steps in the learning rate scheduler",
+>>>>>>> origin/main
     )
     parser.add_argument(
         "--adam_beta1",
         type=float,
         default=0.9,
+<<<<<<< HEAD
         help="The beta1 parameter for the Adam optimizer."
+=======
+        help="beta1 parameter in Adam optimizer",
+>>>>>>> origin/main
     )
     parser.add_argument(
         "--adam_beta2",
         type=float,
         default=0.999,
+<<<<<<< HEAD
         help="The beta2 parameter for the Adam optimizer."
+=======
+        help="beta2 parameter in Adam optimizer",
+>>>>>>> origin/main
     )
     parser.add_argument(
         "--adam_weight_decay",
         type=float,
         default=0.0,
+<<<<<<< HEAD
         help="Weight decay magnitude for the Adam optimizer."
+=======
+        help="weight decay magnitude in Adam optimizer",
+>>>>>>> origin/main
     )
     parser.add_argument(
         "--adam_epsilon",
         type=float,
         default=1e-08,
+<<<<<<< HEAD
         help="Epsilon value for the Adam optimizer."
+=======
+        help="epsilon value in Adam optimizer",
+>>>>>>> origin/main
     )
     parser.add_argument(
         "--ema_inv_gamma",
         type=float,
         default=1.0,
+<<<<<<< HEAD
         help="The inverse gamma value for the EMA decay."
     )
     parser.add_argument(
         "--ema_power",
         type=float, default= 3/4,
         help="The power value for the EMA decay."
+=======
+        help="inverse gamma value for EMA decay",
+    )
+    parser.add_argument(
+        "--ema_power",
+        type=float,
+        default=3 / 4,
+        help="power value for EMA decay",
+>>>>>>> origin/main
     )
     parser.add_argument(
         "--ema_max_decay",
         type=float,
         default=0.9999,
+<<<<<<< HEAD
         help="The maximum decay magnitude for EMA."
+=======
+        help="maximum decay magnitude EMA",
+>>>>>>> origin/main
     )
 
     parser.add_argument(
         "--num_inference_steps",
         type=int,
+<<<<<<< HEAD
         default=100
+=======
+        default=100,
+        help="number of diffusion steps for generating images",
+>>>>>>> origin/main
     )
-
     parser.add_argument(
         "--num_train_steps",
         type=int,
+<<<<<<< HEAD
         default=1000
+=======
+        default=1000,
+        help="number of diffusion steps during training",
+>>>>>>> origin/main
     )
 
     return parser.parse_args()
@@ -198,6 +245,7 @@ def print_args(args):
     print(f"Running {sys.argv[0]} with arguments")
     for arg in vars(args):
         print(f"\t{arg}={getattr(args, arg)}")
+
 
 def main(args):
     """Main function for training or unlearning."""
@@ -213,12 +261,9 @@ def main(args):
         )
         classifier.eval()
     else:
-        raise ValueError(
-            f"Unknown dataset {config['dataset']}, choose 'cifar' or 'mnist'."
-        )
+        raise ValueError(f"dataset={args.dataset} is not one of ['cifar', 'mnist']")
 
     excluded_class = "full" if args.excluded_class is None else args.excluded_class
-
     model_outdir = os.path.join(
         args.outdir,
         args.dataset,
@@ -228,15 +273,15 @@ def main(args):
     )
     os.makedirs(model_outdir, exist_ok=True)
 
-    # seed_everything(args.opt_seed, workers=True)
+    seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
     (train_dataloader, forget_dataloader) = create_dataloaders(
         dataset_name=config["dataset"],
         batch_size=args.batch_size,
         excluded_class=args.excluded_class,
-        unlearning= (args.method !="retrain"),
-        return_excluded= (args.method == "ga")
-    )
+        unlearning=(args.method != "retrain"),
+        return_excluded=(args.method == "ga"),
+    )  # TODO: Make sure that this is right.
 
     if args.method == "retrain":
         forget_dataloader = train_dataloader
@@ -252,7 +297,9 @@ def main(args):
         print("Loading pruned/pretrained model from {}".format(args.load))
 
         unet_out_dir = os.path.join(args.load, f"unet_steps_{pretrained_steps:0>8}.pt")
-        unet_ema_out_dir = os.path.join(args.load, f"unet_ema_steps_{pretrained_steps:0>8}.pt")
+        unet_ema_out_dir = os.path.join(
+            args.load, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
+        )
 
         model = torch.load(unet_out_dir, map_location=device)
         ema_model = torch.load(unet_ema_out_dir, map_location=device)
@@ -292,9 +339,7 @@ def main(args):
 
         print(f"Initializing model from scratch for {args.dataset}")
 
-        model = UNet2DModel(
-            **config["unet_config"]
-        ).to(device)
+        model = UNet2DModel(**config["unet_config"]).to(device)
 
         ema_model = EMAModel(
             model.parameters(),
@@ -307,8 +352,7 @@ def main(args):
         )
 
     pipeline = DDPMPipeline(
-        unet=model,
-        scheduler=DDPMScheduler(**config["scheduler_config"])
+        unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
     )
 
     pipeline_scheduler = pipeline.scheduler
@@ -316,15 +360,15 @@ def main(args):
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=config["lr"],
-        betas=(args.adam_beta1,args.adam_beta2),
-        weight_decay=args.adam_weight_decay ,
-        eps=args.adam_epsilon
+        betas=(args.adam_beta1, args.adam_beta2),
+        weight_decay=args.adam_weight_decay,
+        eps=args.adam_epsilon,
     )
 
     lr_scheduler = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
-        num_warmup_steps = args.lr_warmup_steps,
+        num_warmup_steps=args.lr_warmup_steps,
         num_training_steps=(len(train_dataloader) * epochs),
     )
 
@@ -333,9 +377,12 @@ def main(args):
     # Load frozen model
 
     if args.method == "esd":
-        pipeline_frozen = DDPMPipeline.from_pretrained(os.path.join(args.outdir, "pretrained_models/cifar"))
+        pipeline_frozen = DDPMPipeline.from_pretrained(
+            os.path.join(args.outdir, "pretrained_models/cifar")
+        )
         frozen_unet = pipeline_frozen.unet.to(device)
 
+<<<<<<< HEAD
     # For tracking model finetuning.
 
     wandb.init(
@@ -352,46 +399,66 @@ def main(args):
     )
 
 
+=======
+>>>>>>> origin/main
     for epoch in range(start_epoch, epochs):
 
         steps_start_time = time.time()
 
-        for j, ((image_r, _), (image_f, _)) in enumerate(zip(train_dataloader, forget_dataloader)):
+        for j, ((image_r, _), (image_f, _)) in enumerate(
+            zip(train_dataloader, forget_dataloader)
+        ):
 
             model.train()
             optimizer.zero_grad()
 
-            image_r=image_r.to(device)
-            noise=torch.randn_like(image_r).to(device)
+            image_r = image_r.to(device)
+            noise = torch.randn_like(image_r).to(device)
             timesteps = torch.randint(
                 0,
                 pipeline_scheduler.config.num_train_timesteps,
-                (len(image_r)//2 +1,),
-                device=image_r.device
+                (len(image_r) // 2 + 1,),
+                device=image_r.device,
             ).long()
-            timesteps = torch.cat([timesteps, pipeline_scheduler.config.num_train_timesteps - timesteps - 1], dim=0)[:len(image_r)]
+            timesteps = torch.cat(
+                [
+                    timesteps,
+                    pipeline_scheduler.config.num_train_timesteps - timesteps - 1,
+                ],
+                dim=0,
+            )[: len(image_r)]
 
             noisy_images_r = pipeline_scheduler.add_noise(image_r, noise, timesteps)
 
             eps_r = model(noisy_images_r, timesteps).sample
 
-            loss=loss_fn(eps_r,noise)
+            loss = loss_fn(eps_r, noise)
 
             if args.method == "ga":
                 loss *= -1.0
 
             elif args.method == "esd":
 
+<<<<<<< HEAD
                 image_f=image_f.to(device)
 
                 with torch.no_grad():
 
                     noisy_images_f = pipeline_scheduler.add_noise(image_f, noise, timesteps)
+=======
+                image_f = image_f.to(device)
+
+                with torch.no_grad():
+
+                    noisy_images_f = pipeline_scheduler.add_noise(
+                        image_f, noise, timesteps
+                    )
+>>>>>>> origin/main
 
                     eps_r_frozen = frozen_unet(noisy_images_r, timesteps).sample
                     eps_f_frozen = frozen_unet(noisy_images_f, timesteps).sample
 
-                loss += loss_fn(eps_r, (eps_r_frozen - 1e-4*eps_f_frozen))
+                loss += loss_fn(eps_r, (eps_r_frozen - 1e-4 * eps_f_frozen))
 
             loss.backward()
 
@@ -436,7 +503,9 @@ def main(args):
             global_steps += 1
 
         # Generate samples for evaluation.
-        if (epoch + 1) % config["sample_freq"][args.method] == 0 or ( epoch + 1 ) == epochs:
+        if (epoch + 1) % config["sample_freq"][args.method] == 0 or (
+            epoch + 1
+        ) == epochs:
 
             model.eval()
 
@@ -448,13 +517,13 @@ def main(args):
             with torch.no_grad():
                 pipeline = DDIMPipeline(
                     unet=model,
-                    scheduler=DDIMScheduler(num_train_timesteps = args.num_train_steps)
+                    scheduler=DDIMScheduler(num_train_timesteps=args.num_train_steps),
                 )
 
                 samples = pipeline(
                     batch_size=config["n_samples"],
                     num_inference_steps=args.num_inference_steps,
-                    output_type="numpy"
+                    output_type="numpy",
                 ).images
 
                 samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
@@ -506,20 +575,25 @@ def main(args):
             save_image(
                 samples,
                 os.path.join(sample_outdir, f"steps_{global_steps:0>8}.png"),
-                nrow=int(math.sqrt(config["n_samples"]))
+                nrow=int(math.sqrt(config["n_samples"])),
             )
 
         # Checkpoints for training.
-        if  (epoch + 1) % config["ckpt_freq"][args.method] == 0 or (epoch + 1) == epochs:
+        if (epoch + 1) % config["ckpt_freq"][args.method] == 0 or (epoch + 1) == epochs:
 
             model.eval()
             model.zero_grad()
-            torch.save(model, os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt"))
+            torch.save(
+                model, os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt")
+            )
 
             ema_model.store(model.parameters())
             ema_model.copy_to(model.parameters())
 
-            torch.save(model, os.path.join(model_outdir, f"unet_ema_steps_{global_steps:0>8}.pt"))
+            torch.save(
+                model,
+                os.path.join(model_outdir, f"unet_ema_steps_{global_steps:0>8}.pt"),
+            )
 
             # torch.save(ckpt, ckpt_file)
             print(f"Checkpoint saved at step {global_steps}")

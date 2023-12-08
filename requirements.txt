@@ -1,8 +1,9 @@
-torch
-torchvision
-lightning
+torch==2.1.1
+torchvision==0.16.1
+lightning==2.1.2
+transformers==4.35.2
+diffusers==0.24.0
 torch_pruning
-diffuser
 tqdm
 argparse
 pre-commit
@@ -10,3 +11,4 @@ toml
 scipy
 ftfy
 regex
+clip @ git+https://github.com/openai/CLIP.git
