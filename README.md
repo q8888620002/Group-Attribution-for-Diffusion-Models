@@ -4,7 +4,7 @@ This README provides instructions for training diffusion models, including from 
 
 ## Training Instructions
 
-### Install Required Packages[]
+### Install Required Packages
 Set up a virtual environment with Python 3.11.5.
 Before starting, ensure all required packages are installed:
 ```bash
