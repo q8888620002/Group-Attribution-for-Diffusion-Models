@@ -22,7 +22,11 @@ from lightning.pytorch import seed_everything
 from torchvision.utils import save_image
 
 import constants
+
+# Wandb is for monitoring retrain/unlearn loss https://wandb.ai/
+
 import wandb
+
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
 from utils import create_dataloaders, get_max_steps

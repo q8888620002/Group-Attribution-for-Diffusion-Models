@@ -39,7 +39,7 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
 def create_dataloaders(
     dataset_name: str,
     batch_size: int,
-    num_workers: int = 4,
+    num_workers: int = 1,
     excluded_class: int = None,
     unlearning: bool = False,
     return_excluded: bool = False,
