@@ -3,32 +3,34 @@
 import argparse
 import math
 import os
+import random
 import sys
 import time
-import random
-import torch
-import torchvision
-import torch_pruning as tp
-import torch.nn as nn
-from lightning.pytorch import seed_everything
-
-from torchvision.utils import save_image
-
-from tqdm import tqdm
-from diffusers import DDPMPipeline, DDIMPipeline, DDIMScheduler, DDPMScheduler, UNet2DModel
-from diffusers.models.resnet import Upsample2D, Downsample2D
-from diffusers.training_utils import EMAModel
-from diffusers.optimization import get_scheduler
-
 from glob import glob
+
+import torch
+import torch.nn as nn
+import torch_pruning as tp
+import torchvision
+from diffusers import (
+    DDIMPipeline,
+    DDIMScheduler,
+    DDPMPipeline,
+    DDPMScheduler,
+    UNet2DModel,
+)
+from diffusers.models.resnet import Downsample2D, Upsample2D
+from diffusers.optimization import get_scheduler
+from diffusers.training_utils import EMAModel
+from lightning.pytorch import seed_everything
 from PIL import Image
+from torchvision.utils import save_image
+from tqdm import tqdm
 
 import constants
-
 from ddpm_config import DDPMConfig
-from utils import (
-    create_dataloaders,
-)
+from utils import create_dataloaders
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -39,21 +41,10 @@ def parse_args():
         choices=["mnist", "cifar"],
         default="mnist",
     )
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=128
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default='cuda:0'
-    )
-    parser.add_argument(
-        "--outdir",
-        type=str,
-        help="output parent directory",
-        default=constants.OUTDIR
+        "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
 
     parser.add_argument(
@@ -72,31 +63,21 @@ def parse_args():
 
     ## Pruning params
 
-    parser.add_argument(
-        "--pruning_ratio",
-          type=float,
-          default=0.3
-    )
+    parser.add_argument("--pruning_ratio", type=float, default=0.3)
 
     parser.add_argument(
         "--pruner",
         type=str,
-        default='magnitude',
-        choices=['taylor', 'random', 'magnitude', 'reinit', 'diff-pruning']
+        default="magnitude",
+        choices=["taylor", "random", "magnitude", "reinit", "diff-pruning"],
     )
     parser.add_argument(
-        "--thr",
-        type=float,
-        default=0.05,
-        help="threshold for diff-pruning"
+        "--thr", type=float, default=0.05, help="threshold for diff-pruning"
     )
 
     # fine-tuning params
     parser.add_argument(
-        "--dropout",
-        type=float,
-        default=0.1,
-        help="The dropout rate for fine-tuning."
+        "--dropout", type=float, default=0.1, help="The dropout rate for fine-tuning."
     )
     parser.add_argument(
         "--lr_scheduler",
@@ -108,67 +89,61 @@ def parse_args():
         ),
     )
 
-    parser.add_argument(
-        "--num_inference_steps",
-        type=int,
-        default=100
-    )
+    parser.add_argument("--num_inference_steps", type=int, default=100)
 
-    parser.add_argument(
-        "--num_train_steps",
-        type=int,
-        default=1000
-    )
+    parser.add_argument("--num_train_steps", type=int, default=1000)
 
     parser.add_argument(
         "--lr_warmup_steps",
         type=int,
         default=0,
-        help="Number of steps for the warmup in the lr scheduler."
+        help="Number of steps for the warmup in the lr scheduler.",
     )
     parser.add_argument(
         "--adam_beta1",
         type=float,
         default=0.9,
-        help="The beta1 parameter for the Adam optimizer."
+        help="The beta1 parameter for the Adam optimizer.",
     )
     parser.add_argument(
         "--adam_beta2",
         type=float,
         default=0.999,
-        help="The beta2 parameter for the Adam optimizer."
+        help="The beta2 parameter for the Adam optimizer.",
     )
     parser.add_argument(
         "--adam_weight_decay",
         type=float,
         default=0.0,
-        help="Weight decay magnitude for the Adam optimizer."
+        help="Weight decay magnitude for the Adam optimizer.",
     )
     parser.add_argument(
         "--adam_epsilon",
         type=float,
         default=1e-08,
-        help="Epsilon value for the Adam optimizer."
+        help="Epsilon value for the Adam optimizer.",
     )
     parser.add_argument(
         "--ema_inv_gamma",
         type=float,
         default=1.0,
-        help="The inverse gamma value for the EMA decay."
+        help="The inverse gamma value for the EMA decay.",
     )
     parser.add_argument(
         "--ema_power",
-        type=float, default=3 / 4,
-        help="The power value for the EMA decay."
+        type=float,
+        default=3 / 4,
+        help="The power value for the EMA decay.",
     )
     parser.add_argument(
         "--ema_max_decay",
         type=float,
         default=0.9999,
-        help="The maximum decay magnitude for EMA."
+        help="The maximum decay magnitude for EMA.",
     )
 
     return parser.parse_args()
+
 
 def print_args(args):
     """Print script name and args."""
@@ -187,21 +162,26 @@ def main(args):
 
     seed_everything(args.opt_seed, workers=True)
 
-
     if dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
-        example_inputs = {'sample': torch.randn(1, 3, 32, 32).to(device), 'timestep': torch.ones((1,)).long().to(device)}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 32, 32).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
 
-    elif dataset  == "mnist":
+    elif dataset == "mnist":
         config = {**DDPMConfig.mnist_config}
-        example_inputs = {'sample': torch.randn(1, 3, 256, 256).to(device), 'timestep': torch.ones((1,)).long().to(device)}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 256, 256).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
 
-    (train_dataloader, _ ) = create_dataloaders(
+    (train_dataloader, _) = create_dataloaders(
         dataset_name=config["dataset"],
         batch_size=batch_size,
         excluded_class=None,
         unlearning=False,
-        return_excluded=False
+        return_excluded=False,
     )
 
     clean_images = next(iter(train_dataloader))
@@ -221,24 +201,30 @@ def main(args):
     model = pipeline.unet.eval()
     model.to(device)
 
-    pruning_params = f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}"
+    pruning_params = (
+        f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}"
+    )
 
-    if args.pruning_ratio>0:
-        if args.pruner == 'taylor':
-            imp = tp.importance.TaylorImportance(multivariable=True) # standard first-order taylor expansion
-        elif args.pruner == 'random' or args.pruner=='reinit':
+    if args.pruning_ratio > 0:
+        if args.pruner == "taylor":
+            imp = tp.importance.TaylorImportance(
+                multivariable=True
+            )  # standard first-order taylor expansion
+        elif args.pruner == "random" or args.pruner == "reinit":
             imp = tp.importance.RandomImportance()
-        elif args.pruner == 'magnitude':
+        elif args.pruner == "magnitude":
             imp = tp.importance.MagnitudeImportance()
-        elif args.pruner == 'diff-pruning':
-            imp = tp.importance.TaylorImportance(multivariable=False) # a modified version, estimating the accumulated error of weight removal
+        elif args.pruner == "diff-pruning":
+            imp = tp.importance.TaylorImportance(
+                multivariable=False
+            )  # a modified version, estimating the accumulated error of weight removal
         else:
             raise NotImplementedError
 
         ignored_layers = [model.conv_out]
         channel_groups = {}
-        #from diffusers.models.attention import
-        #for m in model.modules():
+        # from diffusers.models.attention import
+        # for m in model.modules():
         #    if isinstance(m, AttentionBlock):
         #        channel_groups[m.query] = m.num_heads
         #        channel_groups[m.key] = m.num_heads
@@ -258,19 +244,25 @@ def main(args):
         model.zero_grad()
         model.eval()
 
-        if args.pruner in ['taylor', 'diff-pruning']:
+        if args.pruner in ["taylor", "diff-pruning"]:
             loss_max = 0
             print("Accumulating gradients for pruning...")
             for step_k in tqdm(range(pipeline_scheduler.num_train_timesteps)):
-                timesteps = (step_k*torch.ones((batch_size,), device=clean_images.device)).long()
-                noisy_images = pipeline_scheduler.add_noise(clean_images, noise, timesteps)
+                timesteps = (
+                    step_k * torch.ones((batch_size,), device=clean_images.device)
+                ).long()
+                noisy_images = pipeline_scheduler.add_noise(
+                    clean_images, noise, timesteps
+                )
                 model_output = model(noisy_images, timesteps).sample
                 loss = nn.functional.mse_loss(model_output, noise)
                 loss.backward()
 
-                if args.pruner=='diff-pruning':
-                    if loss>loss_max: loss_max = loss
-                    if loss<loss_max * args.thr: break # taylor expansion over pruned timesteps ( L_t / L_max > thr )
+                if args.pruner == "diff-pruning":
+                    if loss > loss_max:
+                        loss_max = loss
+                    if loss < loss_max * args.thr:
+                        break  # taylor expansion over pruned timesteps ( L_t / L_max > thr )
 
         for g in pruner.step(interactive=True):
             g.prune()
@@ -283,22 +275,23 @@ def main(args):
 
         macs, params = tp.utils.count_ops_and_params(model, example_inputs)
         print(model)
-        print("#Params: {:.4f} M => {:.4f} M".format(base_params/1e6, params/1e6))
-        print("#MACS: {:.4f} G => {:.4f} G".format(base_macs/1e9, macs/1e9))
+        print("#Params: {:.4f} M => {:.4f} M".format(base_params / 1e6, params / 1e6))
+        print("#MACS: {:.4f} G => {:.4f} G".format(base_macs / 1e9, macs / 1e9))
         model.zero_grad()
         del pruner
 
-        if args.pruner=='reinit':
+        if args.pruner == "reinit":
+
             def reset_parameters(model):
                 for m in model.modules():
-                    if hasattr(m, 'reset_parameters'):
+                    if hasattr(m, "reset_parameters"):
                         m.reset_parameters()
+
             reset_parameters(model)
 
-    pipeline_dir = os.path.join(outdir, dataset,f"pruned/pipelines/{pruning_params}")
+    pipeline_dir = os.path.join(outdir, dataset, f"pruned/pipelines/{pruning_params}")
     os.makedirs(pipeline_dir, exist_ok=True)
     pipeline.save_pretrained(pipeline_dir)
-
 
     start_epoch = 0
     global_steps = start_epoch * len(train_dataloader)
@@ -306,7 +299,9 @@ def main(args):
     if args.pruning_ratio > 0:
         model_outdir = os.path.join(outdir, dataset, "pruned/models", pruning_params)
         os.makedirs(model_outdir, exist_ok=True)
-        torch.save(model,  os.path.join(model_outdir, f"pruned_unet_{global_steps:0>8}.pth"))
+        torch.save(
+            model, os.path.join(model_outdir, f"pruned_unet_{global_steps:0>8}.pth")
+        )
 
     print("==================== fine-tuning on pruned model ====================")
 
@@ -319,27 +314,27 @@ def main(args):
     epochs = config["epochs"]["retrain"]
 
     ema_model = EMAModel(
-            model.parameters(),
-            decay=args.ema_max_decay,
-            use_ema_warmup=False,
-            inv_gamma=args.ema_inv_gamma,
-            power=args.ema_power,
-            model_cls=UNet2DModel,
-            model_config=model.config,
-        )
+        model.parameters(),
+        decay=args.ema_max_decay,
+        use_ema_warmup=False,
+        inv_gamma=args.ema_inv_gamma,
+        power=args.ema_power,
+        model_cls=UNet2DModel,
+        model_config=model.config,
+    )
 
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=config["lr"],
-        betas=(args.adam_beta1,args.adam_beta2),
-        weight_decay=args.adam_weight_decay ,
-        eps=args.adam_epsilon
+        betas=(args.adam_beta1, args.adam_beta2),
+        weight_decay=args.adam_weight_decay,
+        eps=args.adam_epsilon,
     )
 
     lr_scheduler = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
-        num_warmup_steps = args.lr_warmup_steps,
+        num_warmup_steps=args.lr_warmup_steps,
         num_training_steps=(len(train_dataloader) * epochs),
     )
 
@@ -357,20 +352,26 @@ def main(args):
 
             optimizer.zero_grad()
 
-            image=image.to(device)
-            noise=torch.randn_like(image).to(device)
+            image = image.to(device)
+            noise = torch.randn_like(image).to(device)
             timesteps = torch.randint(
                 low=0,
                 high=args.num_train_steps,
-                size=(len(image)//2 +1, ),  # (len(image),),
-                device=image.device
+                size=(len(image) // 2 + 1,),  # (len(image),),
+                device=image.device,
             ).long()
-            timesteps = torch.cat([timesteps, pipeline_scheduler.config.num_train_timesteps - timesteps - 1], dim=0)[:len(image)]
+            timesteps = torch.cat(
+                [
+                    timesteps,
+                    pipeline_scheduler.config.num_train_timesteps - timesteps - 1,
+                ],
+                dim=0,
+            )[: len(image)]
 
             noisy_images = pipeline_scheduler.add_noise(image, noise, timesteps)
             eps = model(noisy_images, timesteps).sample
 
-            loss=loss_fn(eps,noise)
+            loss = loss_fn(eps, noise)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
@@ -379,12 +380,16 @@ def main(args):
             ema_model.step(model.parameters())
 
             grads = [
-                param.grad.detach().flatten() for param in model.parameters() if param.grad is not None
+                param.grad.detach().flatten()
+                for param in model.parameters()
+                if param.grad is not None
             ]
             grad_norm = torch.cat(grads).norm()
 
-            params =[
-                param.data.detach().flatten() for param in model.parameters() if param.data is not None
+            params = [
+                param.data.detach().flatten()
+                for param in model.parameters()
+                if param.data is not None
             ]
             params_norm = torch.cat(params).norm()
 
@@ -403,7 +408,11 @@ def main(args):
             global_steps += 1
 
         # Generate samples for evaluation.
-        if (epoch + 1) == 1 or (epoch + 1) % config["sample_freq"]["retrain"] == 0 or ( epoch + 1 ) == epochs:
+        if (
+            (epoch + 1) == 1
+            or (epoch + 1) % config["sample_freq"]["retrain"] == 0
+            or (epoch + 1) == epochs
+        ):
 
             model.eval()
 
@@ -415,52 +424,53 @@ def main(args):
             with torch.no_grad():
                 pipeline = DDIMPipeline(
                     unet=model,
-                    scheduler=DDIMScheduler(num_train_timesteps=args.num_inference_steps)
+                    scheduler=DDIMScheduler(
+                        num_train_timesteps=args.num_inference_steps
+                    ),
                 )
 
                 samples = pipeline(
                     batch_size=config["n_samples"],
                     num_inference_steps=args.num_inference_steps,
-                    output_type="numpy"
+                    output_type="numpy",
                 ).images
 
             sampling_time = time.time() - sampling_start_time
 
-            print(f", sampling_time: {sampling_time:.3f}" )
+            print(f", sampling_time: {sampling_time:.3f}")
 
             if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
                 samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
 
-
             sample_outdir = os.path.join(
-                outdir,
-                dataset,
-                "pruned",
-                "samples",
-                pruning_params
+                outdir, dataset, "pruned", "samples", pruning_params
             )
             os.makedirs(sample_outdir, exist_ok=True)
 
             save_image(
                 torch.from_numpy(samples).permute([0, 3, 1, 2]),
                 os.path.join(sample_outdir, f"steps_{global_steps:0>8}.png"),
-                nrow=int(math.sqrt(config["n_samples"]))
+                nrow=int(math.sqrt(config["n_samples"])),
             )
 
             ema_model.restore(model.parameters())
 
-
         # Checkpoints for training.
-        if  (epoch + 1) % config["ckpt_freq"]["retrain"] == 0 or (epoch + 1) == epochs:
+        if (epoch + 1) % config["ckpt_freq"]["retrain"] == 0 or (epoch + 1) == epochs:
 
             model.eval()
             model.zero_grad()
-            torch.save(model, os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt"))
+            torch.save(
+                model, os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt")
+            )
 
             ema_model.store(model.parameters())
             ema_model.copy_to(model.parameters())
 
-            torch.save(model, os.path.join(model_outdir, f"unet_ema_steps_{global_steps:0>8}.pt"))
+            torch.save(
+                model,
+                os.path.join(model_outdir, f"unet_ema_steps_{global_steps:0>8}.pt"),
+            )
 
             # torch.save(ckpt, ckpt_file)
             print(f"Checkpoint saved at step {global_steps}")
@@ -468,11 +478,12 @@ def main(args):
             ema_model.restore(model.parameters())
 
     # Save updated pipeline
-    pipeline_dir = os.path.join(outdir, dataset,f"pruned/pipelines/{pruning_params}")
+    pipeline_dir = os.path.join(outdir, dataset, f"pruned/pipelines/{pruning_params}")
     os.makedirs(pipeline_dir, exist_ok=True)
     pipeline.save_pretrained(pipeline_dir)
 
-if __name__=="__main__":
+
+if __name__ == "__main__":
     args = parse_args()
     print_args(args)
     main(args)

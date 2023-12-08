@@ -9,8 +9,6 @@ import time
 
 import torch
 import torch.nn as nn
-import wandb
-
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
@@ -24,6 +22,7 @@ from lightning.pytorch import seed_everything
 from torchvision.utils import save_image
 
 import constants
+import wandb
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
 from utils import create_dataloaders, get_max_steps
@@ -34,16 +33,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training DDPM")
 
     parser.add_argument(
-        "--load", type=str,
-        help="path for loading pre-trained model",
-        default=None
+        "--load", type=str, help="path for loading pre-trained model", default=None
     )
 
     parser.add_argument(
         "--init",
-        action='store_true',
+        action="store_true",
         help="whether to initialize with a new model.",
-        default=False
+        default=False,
     )
 
     parser.add_argument(
@@ -254,10 +251,14 @@ def main(args):
 
         if args.init:
 
-            print("initialized a new model from pruned/pretrained at {}.".format(args.load))
+            print(
+                "initialized a new model from pruned/pretrained at {}.".format(
+                    args.load
+                )
+            )
 
             for m in model.modules():
-                if hasattr(m, 'reset_parameters'):
+                if hasattr(m, "reset_parameters"):
                     m.reset_parameters()
 
             ema_model = EMAModel(
@@ -378,12 +379,16 @@ def main(args):
             ## check gradient norm & params norm
 
             grads = [
-                param.grad.detach().flatten() for param in model.parameters() if param.grad is not None
+                param.grad.detach().flatten()
+                for param in model.parameters()
+                if param.grad is not None
             ]
             grad_norm = torch.cat(grads).norm()
 
-            params =[
-                param.data.detach().flatten() for param in model.parameters() if param.data is not None
+            params = [
+                param.data.detach().flatten()
+                for param in model.parameters()
+                if param.data is not None
             ]
             params_norm = torch.cat(params).norm()
 
@@ -401,12 +406,12 @@ def main(args):
 
                 wandb.log(
                     {
-                        "Epoch": (epoch + 1)/epochs,
+                        "Epoch": (epoch + 1) / epochs,
                         "loss": loss.detach().cpu().item(),
                         "steps_time": steps_time,
                         "gradient norms": grad_norm,
                         "parameters norms": params_norm,
-                        "lr" : lr_scheduler.get_last_lr()[0]
+                        "lr": lr_scheduler.get_last_lr()[0],
                     }
                 )
             global_steps += 1

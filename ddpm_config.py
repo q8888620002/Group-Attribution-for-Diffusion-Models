@@ -8,16 +8,12 @@ class DDPMConfig:
     cifar_config = {
         "dataset": "cifar",
         "image_size": 32,
-
         "mean": [0.5, 0.5, 0.5],
         "std": [0.5, 0.5, 0.5],
-
-
         "trained_model": (
             "/projects/leelab/mingyulu/data_att/results/cifar/"
             "retrain/models/full/steps_00125000.pt",
         ),
-
         # Training params
         "lr": 1e-4,
         "batch_size": 128,
@@ -25,9 +21,7 @@ class DDPMConfig:
         "ckpt_freq": {"retrain": 100, "ga": 1, "gd": 1, "esd": 250},
         "sample_freq": {"retrain": 50, "ga": 1, "gd": 1, "esd": 20},
         "n_samples": 64,
-
         # Cifar-10 Checkpoints - https://heibox.uni-heidelberg.de/d/01207c3f6b8441779abf/?p=%2Fdiffusion_models_converted%2Fema_diffusion_cifar10_model&mode=list
-
         "unet_config": {
             "_class_name": "UNet2DModel",
             "_diffusers_version": "0.24.0",
@@ -35,19 +29,14 @@ class DDPMConfig:
             "add_attention": True,
             "attention_head_dim": None,
             "attn_norm_num_groups": None,
-            "block_out_channels": [
-              128,
-              256,
-              256,
-              256
-            ],
+            "block_out_channels": [128, 256, 256, 256],
             "center_input_sample": False,
             "class_embed_type": None,
             "down_block_types": [
-              "DownBlock2D",
-              "AttnDownBlock2D",
-              "DownBlock2D",
-              "DownBlock2D"
+                "DownBlock2D",
+                "AttnDownBlock2D",
+                "DownBlock2D",
+                "DownBlock2D",
             ],
             "downsample_padding": 0,
             "downsample_type": "conv",
@@ -65,15 +54,9 @@ class DDPMConfig:
             "resnet_time_scale_shift": "default",
             "sample_size": 32,
             "time_embedding_type": "positional",
-            "up_block_types": [
-              "UpBlock2D",
-              "UpBlock2D",
-              "AttnUpBlock2D",
-              "UpBlock2D"
-            ],
-            "upsample_type": "conv"
-          },
-
+            "up_block_types": ["UpBlock2D", "UpBlock2D", "AttnUpBlock2D", "UpBlock2D"],
+            "upsample_type": "conv",
+        },
         "scheduler_config": {
             "_class_name": "DDPMScheduler",
             "_diffusers_version": "0.24.0",
@@ -90,8 +73,8 @@ class DDPMConfig:
             "thresholding": False,
             "timestep_spacing": "leading",
             "trained_betas": None,
-            "variance_type": "fixed_large"
-          }
+            "variance_type": "fixed_large",
+        },
     }
 
     # MNIST specific configurations
@@ -118,7 +101,7 @@ class DDPMConfig:
         # Training params
         "lr": 1e-3,
         "batch_size": 64,
-        "epochs": {"retrain": 100, "ga": 5, "gd": 10,"esd": 100},
+        "epochs": {"retrain": 100, "ga": 5, "gd": 10, "esd": 100},
         "model_ema_steps": 10,
         "model_ema_decay": 0.995,
         "ckpt_freq": {"retrain": 2, "ga": 1, "gd": 1, "esd": 20},

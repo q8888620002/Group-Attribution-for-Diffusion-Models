@@ -4,6 +4,7 @@ import glob
 import os
 import random
 
+import clip
 import numpy as np
 import torch
 from scipy.linalg import sqrtm
@@ -13,7 +14,6 @@ from torchvision.datasets import CIFAR10, MNIST
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
 
 import constants
-import clip
 
 # Load CLIP model and transformation outside of the function for efficiency
 # device = "cuda:2" if torch.cuda.is_available() else "cpu"
@@ -34,6 +34,7 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
             return decay * avg_model_param + (1 - decay) * model_param
 
         super().__init__(model, device, ema_avg, use_buffers=True)
+
 
 def create_dataloaders(
     dataset_name: str,
@@ -142,7 +143,7 @@ def create_dataloaders(
 
         remaining_dataset = Subset(train_dataset, remaining_indices)
         ablated_dataset = Subset(train_dataset, ablated_indices)
-        
+
         # Return dataloaders for unlearning
         return (
             DataLoader(
@@ -180,6 +181,7 @@ def get_max_step_file(folder_path):
         files, key=lambda x: int(os.path.basename(x).split("_")[1].split(".")[0])
     )
     return max_step_file
+
 
 def get_max_steps(folder_path):
     """Get maximum number of training steps for results in a folder."""

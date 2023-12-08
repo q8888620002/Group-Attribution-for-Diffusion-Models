@@ -1,6 +1,5 @@
-from abc import abstractmethod
-
 import math
+from abc import abstractmethod
 
 import numpy as np
 import torch as th
@@ -10,13 +9,13 @@ import torch.nn.functional as F
 from diffusion.fp16_util import convert_module_to_f16, convert_module_to_f32
 from diffusion.nn import (
     SiLU,
+    avg_pool_nd,
+    checkpoint,
     conv_nd,
     linear,
-    avg_pool_nd,
-    zero_module,
     normalization,
     timestep_embedding,
-    checkpoint,
+    zero_module,
 )
 
 
