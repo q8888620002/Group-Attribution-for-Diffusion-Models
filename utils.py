@@ -7,8 +7,9 @@ import random
 import clip
 import numpy as np
 import torch
+from PIL import Image
 from scipy.linalg import sqrtm
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Subset, Dataset
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
@@ -35,6 +36,35 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
 
         super().__init__(model, device, ema_avg, use_buffers=True)
 
+class CelebA(Dataset):
+    """
+    DataLoader for CelebA 256 x 256. Note that there's no label for this one.
+
+    Return:
+        3x256x256 Celeb images, and -1, pseudo-label
+    """
+    def __init__(self, root, train=True, download = False, transform=None):
+        self.root = root
+        self.transform = transform
+        self.train = train
+
+        all_img_names = os.listdir(root)
+        train_size = int(0.8 * len(all_img_names))
+        if train:
+            self.img_names = all_img_names[:train_size]
+        else:
+            self.img_names = all_img_names[train_size:]
+
+    def __len__(self):
+        return len(self.img_names)
+
+    def __getitem__(self, idx):
+        img_path = os.path.join(self.root, self.img_names[idx])
+        image = Image.open(img_path).convert('RGB')
+        if self.transform:
+            image = self.transform(image)
+
+        return image , -1
 
 def create_dataloaders(
     dataset_name: str,
@@ -87,19 +117,37 @@ def create_dataloaders(
         preprocess = transforms.Compose(
             [
                 transforms.ToTensor(),  # normalize to [0,1]
-                transforms.Normalize([0.5], [0.5]),  # normalize to [-1,1]
+                transforms.Normalize([0.5], [0.5])  # normalize to [-1,1]
             ]
         )
         DatasetClass = MNIST
         root_dir = os.path.join(dataset_dir, "mnist")
+
+    elif dataset_name == "celeba":
+        preprocess = transforms.Compose(
+            [
+                transforms.Resize((256, 256)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.5], [0.5])  # normalize to [-1,1]
+            ]
+        )
+        DatasetClass = CelebA
+        root_dir = os.path.join(dataset_dir, "celeba/celeba_hq_256")
+
     else:
         raise ValueError(f"Unknown dataset {dataset_name}, choose 'cifar' or 'mnist'.")
 
     train_dataset = DatasetClass(
-        root=root_dir, train=True, download=True, transform=preprocess
+        root=root_dir,
+        train=True,
+        download=True,
+        transform=preprocess
     )
     test_dataset = DatasetClass(
-        root=root_dir, train=False, download=True, transform=preprocess
+        root=root_dir,
+        train=False,
+        download=True,
+        transform=preprocess
     )
 
     # Exclude specified class if needed

@@ -18,11 +18,14 @@ from diffusers import (
     DDPMPipeline,
     DDPMScheduler,
     UNet2DModel,
+    LDMPipeline,
+    VQModel
 )
 from diffusers.models.resnet import Downsample2D, Upsample2D
+from diffusers.models.attention import Attention
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
-from lightning.pytorch import seed_everything
+# from lightning.pytorch import seed_everything
 from PIL import Image
 from torchvision.utils import save_image
 from tqdm import tqdm
@@ -38,13 +41,24 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar"],
+        choices=["mnist", "cifar", "celeba"],
         default="mnist",
     )
-    parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument(
-        "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
+        "--batch_size",
+        type=int,
+        default=128
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda:0"
+    )
+    parser.add_argument(
+        "--outdir",
+        type=str,
+        help="output parent directory",
+        default=constants.OUTDIR
     )
 
     parser.add_argument(
@@ -63,7 +77,11 @@ def parse_args():
 
     ## Pruning params
 
-    parser.add_argument("--pruning_ratio", type=float, default=0.3)
+    parser.add_argument(
+        "--pruning_ratio",
+        type=float,
+        default=0.3
+    )
 
     parser.add_argument(
         "--pruner",
@@ -89,9 +107,17 @@ def parse_args():
         ),
     )
 
-    parser.add_argument("--num_inference_steps", type=int, default=100)
+    parser.add_argument(
+        "--num_inference_steps",
+        type=int,
+        default=100
+    )
 
-    parser.add_argument("--num_train_steps", type=int, default=1000)
+    parser.add_argument(
+        "--num_train_steps",
+        type=int,
+        default=1000
+    )
 
     parser.add_argument(
         "--lr_warmup_steps",
@@ -160,7 +186,7 @@ def main(args):
     outdir = args.outdir
     device = args.device
 
-    seed_everything(args.opt_seed, workers=True)
+    # seed_everything(args.opt_seed, workers=True)
 
     if dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
@@ -175,6 +201,13 @@ def main(args):
             "sample": torch.randn(1, 3, 256, 256).to(device),
             "timestep": torch.ones((1,)).long().to(device),
         }
+    elif dataset == "celeba":
+        config = {**DDPMConfig.celeb_config}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 256, 256).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
+
 
     (train_dataloader, _) = create_dataloaders(
         dataset_name=config["dataset"],
@@ -190,16 +223,28 @@ def main(args):
     clean_images = clean_images.to(args.device)
     noise = torch.randn(clean_images.shape).to(clean_images.device)
 
-    pre_trained_path = os.path.join(outdir, "pretrained_models/cifar")
+    pre_trained_path = os.path.join(outdir, f"pretrained_models/{args.dataset}")
     # Loading pretrained model
     print("Loading pretrained model from {}".format(pre_trained_path))
 
     # load model and scheduler
+    if args.dataset == "cifar":
 
-    pipeline = DDPMPipeline.from_pretrained(pre_trained_path)
-    pipeline_scheduler = pipeline.scheduler
-    model = pipeline.unet.eval()
-    model.to(device)
+        pipeline = DDPMPipeline.from_pretrained(pre_trained_path)
+        pipeline_scheduler = pipeline.scheduler
+        model = pipeline.unet.eval()
+        model.to(device)
+
+    elif args.dataset == "celeba":
+
+        model_id = "CompVis/ldm-celebahq-256"
+        model = UNet2DModel.from_pretrained(model_id, subfolder="unet")
+        vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
+        pipeline_scheduler = DDIMScheduler.from_config(model_id, subfolder="scheduler")
+
+        model.eval()
+        model.to(device)
+        vqvae.to(device)
 
     pruning_params = (
         f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}"
@@ -223,12 +268,16 @@ def main(args):
 
         ignored_layers = [model.conv_out]
         channel_groups = {}
-        # from diffusers.models.attention import
-        # for m in model.modules():
-        #    if isinstance(m, AttentionBlock):
-        #        channel_groups[m.query] = m.num_heads
-        #        channel_groups[m.key] = m.num_heads
-        #        channel_groups[m.value] = m.num_heads
+
+        if args.dataset == "celeba":
+
+            ## Prunig attention for celeba
+
+            for m in model.modules():
+                if isinstance(m, Attention):
+                    channel_groups[m.to_q] = m.heads
+                    channel_groups[m.to_k] = m.heads
+                    channel_groups[m.to_v] = m.heads
 
         pruner = tp.pruner.MagnitudePruner(
             model,
@@ -288,6 +337,17 @@ def main(args):
                         m.reset_parameters()
 
             reset_parameters(model)
+
+    if args.dataset == "cifar":
+        pipeline.unet = model
+        pipeline.to(device)
+
+    elif args.dataset == "celeba":
+        pipeline = LDMPipeline(
+            unet=model,
+            vqvae=vqvae,
+            scheduler=pipeline_scheduler,
+        ).to(device)
 
     pipeline_dir = os.path.join(outdir, dataset, f"pruned/pipelines/{pruning_params}")
     os.makedirs(pipeline_dir, exist_ok=True)
@@ -422,12 +482,19 @@ def main(args):
             sampling_start_time = time.time()
 
             with torch.no_grad():
-                pipeline = DDIMPipeline(
-                    unet=model,
-                    scheduler=DDIMScheduler(
-                        num_train_timesteps=args.num_inference_steps
-                    ),
-                )
+                if args.dataset == "celeba":
+                    pipeline = LDMPipeline(
+                        unet=model,
+                        vqvae=vqvae,
+                        scheduler=pipeline_scheduler,
+                    ).to(device)
+                else:
+                    pipeline = DDIMPipeline(
+                        unet=model,
+                        scheduler=DDIMScheduler(
+                            num_train_timesteps=args.num_inference_steps
+                        ),
+                    )
 
                 samples = pipeline(
                     batch_size=config["n_samples"],
