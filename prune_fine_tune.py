@@ -498,6 +498,16 @@ def main(args):
                 print(info, flush=True)
                 steps_start_time = time.time()
 
+                wandb.log(
+                    {
+                        "Epoch": (epoch + 1),
+                        "loss": loss.detach().cpu().item(),
+                        "steps_time": steps_time,
+                        "gradient norms": grad_norm,
+                        "parameters norms": params_norm,
+                        "lr": lr_scheduler.get_last_lr()[0],
+                    }
+                )
             global_steps += 1
 
         # Generate samples for evaluation.
