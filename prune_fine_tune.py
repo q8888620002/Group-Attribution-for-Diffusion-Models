@@ -168,16 +168,6 @@ def main(args):
     outdir = args.outdir
     device = args.device
 
-    wandb.init(
-        project="Data Shapley for Diffusion",
-        notes=f"Experiment for pruning and fine-tuning.",
-        tags=[f"pruning and fine-tuning"],
-        config={
-            "epochs": epochs,
-            "batch_size": config["batch_size"],
-            "model": model.config._class_name,
-        },
-    )
     seed_everything(args.opt_seed, workers=True)
 
     if dataset == "cifar":
@@ -393,6 +383,18 @@ def main(args):
         num_training_steps=(len(train_dataloader) * epochs),
     )
     loss_fn = nn.MSELoss(reduction="mean")
+
+
+    wandb.init(
+        project="Data Shapley for Diffusion",
+        notes=f"Experiment for pruning and fine-tuning.",
+        tags=[f"pruning and fine-tuning"],
+        config={
+            "epochs": epochs,
+            "batch_size": config["batch_size"],
+            "model": model.config._class_name,
+        },
+    )
 
     ema_model.to(device)
     num_accumulation_steps = 64 // args.batch_size
