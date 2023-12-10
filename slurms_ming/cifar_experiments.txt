@@ -1,0 +1,10 @@
+--dataset cifar --device cuda:0 --load /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/0 --method retrain --excluded_class 0
+--dataset cifar --device cuda:0 --load /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/1 --method retrain --excluded_class 1
+--dataset cifar --device cuda:0 --load /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/2 --method retrain --excluded_class 2
+--dataset cifar --device cuda:0 --load /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/3 --method retrain --excluded_class 3
+--dataset cifar --device cuda:0 --load /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/4 --method retrain --excluded_class 4
+--dataset cifar --device cuda:0 --load /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/5 --method retrain --excluded_class 5
+--dataset cifar --device cuda:0 --load /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/6 --method retrain --excluded_class 6
+--dataset cifar --device cuda:0 --load /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/7 --method retrain --excluded_class 7
+--dataset cifar --device cuda:0 --load /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/8 --method retrain --excluded_class 8
+--dataset cifar --device cuda:0 --load /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/9 --method retrain --excluded_class 9

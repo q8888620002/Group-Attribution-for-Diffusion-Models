@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader, Subset, Dataset
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
+from lightning.pytorch import seed_everything
 
 import constants
 
@@ -49,11 +50,16 @@ class CelebA(Dataset):
         self.train = train
 
         all_img_names = os.listdir(root)
-        train_size = int(0.8 * len(all_img_names))
+
+        seed_everything(42, workers=True)
+
+        shuffled_indices = torch.randperm(len(all_img_names))[len(all_img_names)]
+        train_size = 0.8*len(all_img_names)
+
         if train:
-            self.img_names = all_img_names[:train_size]
+            self.img_names = [all_img_names[i] for i in shuffled_indices[:train_size]]
         else:
-            self.img_names = all_img_names[train_size:]
+            self.img_names = [all_img_names[i] for i in shuffled_indices[train_size:]]
 
     def __len__(self):
         return len(self.img_names)

@@ -1,0 +1,85 @@
+--dataset cifar --device cuda:0 --load /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/5 --method retrain --excluded_class 5
+[rank: 0] Seed set to 42
+wandb: Currently logged in as: mingyulu (data_att). Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.16.1
+wandb: Run data is saved locally in /mmfs1/home/mingyulu/data_attribution/wandb/run-20231209_164734-ql61jol7
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run fanciful-sun-118
+wandb: ⭐️ View project at https://wandb.ai/data_att/Data%20Shapley%20for%20Diffusion
+wandb: 🚀 View run at https://wandb.ai/data_att/Data%20Shapley%20for%20Diffusion/runs/ql61jol7
+Running main_new.py with arguments
+	load=/gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/5
+	init=False
+	dataset=cifar
+	log_freq=20
+	excluded_class=5
+	method=retrain
+	opt_seed=42
+	device=cuda:0
+	outdir=/gscratch/aims/diffusion-attr/results_ming
+	db=None
+	exp_name=None
+	resume=False
+	lr_scheduler=constant
+	lr_warmup_steps=0
+	adam_beta1=0.9
+	adam_beta2=0.999
+	adam_weight_decay=0.0
+	adam_epsilon=1e-08
+	ema_inv_gamma=1.0
+	ema_power=0.75
+	ema_max_decay=0.9999
+	num_inference_steps=100
+	num_train_steps=1000
+Files already downloaded and verified
+Files already downloaded and verified
+Loading pruned/pretrained model from /gscratch/aims/diffusion-attr/results_ming/cifar/retrain/models/5
+Epoch[1/800], Step[20/352], steps_time: 11.075, loss: 0.02882, gradient norms: 0.06248, parameters norms: 254.08592, lr: 0.000100
+Epoch[1/800], Step[40/352], steps_time: 5.136, loss: 0.03019, gradient norms: 0.06444, parameters norms: 254.09883, lr: 0.000100
+Epoch[1/800], Step[60/352], steps_time: 5.141, loss: 0.01848, gradient norms: 0.07566, parameters norms: 254.11044, lr: 0.000100
+Epoch[1/800], Step[80/352], steps_time: 5.163, loss: 0.02518, gradient norms: 0.05977, parameters norms: 254.12123, lr: 0.000100
+Epoch[1/800], Step[100/352], steps_time: 5.174, loss: 0.02363, gradient norms: 0.02536, parameters norms: 254.13165, lr: 0.000100
+Epoch[1/800], Step[120/352], steps_time: 5.184, loss: 0.03914, gradient norms: 0.04791, parameters norms: 254.14204, lr: 0.000100
+Epoch[1/800], Step[140/352], steps_time: 5.372, loss: 0.03416, gradient norms: 0.02323, parameters norms: 254.15260, lr: 0.000100
+Epoch[1/800], Step[160/352], steps_time: 5.197, loss: 0.03648, gradient norms: 0.06423, parameters norms: 254.16267, lr: 0.000100
+Epoch[1/800], Step[180/352], steps_time: 5.210, loss: 0.03615, gradient norms: 0.06053, parameters norms: 254.17284, lr: 0.000100
+Epoch[1/800], Step[200/352], steps_time: 5.216, loss: 0.03584, gradient norms: 0.05817, parameters norms: 254.18352, lr: 0.000100
+Epoch[1/800], Step[220/352], steps_time: 5.220, loss: 0.02589, gradient norms: 0.03339, parameters norms: 254.19333, lr: 0.000100
+Epoch[1/800], Step[240/352], steps_time: 5.216, loss: 0.03378, gradient norms: 0.02928, parameters norms: 254.20329, lr: 0.000100
+Epoch[1/800], Step[260/352], steps_time: 5.218, loss: 0.02630, gradient norms: 0.04779, parameters norms: 254.21204, lr: 0.000100
+Epoch[1/800], Step[280/352], steps_time: 5.232, loss: 0.02559, gradient norms: 0.07030, parameters norms: 254.22159, lr: 0.000100
+Epoch[1/800], Step[300/352], steps_time: 5.229, loss: 0.03379, gradient norms: 0.07919, parameters norms: 254.23077, lr: 0.000100
+Epoch[1/800], Step[320/352], steps_time: 5.229, loss: 0.02699, gradient norms: 0.02887, parameters norms: 254.24094, lr: 0.000100
+Epoch[1/800], Step[340/352], steps_time: 5.224, loss: 0.02856, gradient norms: 0.02098, parameters norms: 254.25061, lr: 0.000100
+/mmfs1/gscratch/cse/mingyulu/gstratch/cse/mingyulu/miniconda3/envs/data_att/lib/python3.8/site-packages/torch/nn/modules/conv.py:456: UserWarning: Applied workaround for CuDNN issue, install nvrtc.so (Triggered internally at /opt/conda/conda-bld/pytorch_1695392020195/work/aten/src/ATen/native/cudnn/Conv_v8.cpp:80.)
+  return F.conv2d(input, weight, bias, self.stride,
+/mmfs1/gscratch/cse/mingyulu/gstratch/cse/mingyulu/miniconda3/envs/data_att/lib/python3.8/site-packages/transformers/deepspeed.py:23: FutureWarning: transformers.deepspeed module is deprecated and will be removed in a future version. Please import deepspeed modules directly from transformers.integrations
+  warnings.warn(
+Epoch[2/800], Step[20/352], steps_time: 5.439, loss: 0.02527, gradient norms: 0.07424, parameters norms: 254.26501, lr: 0.000100
+Epoch[2/800], Step[40/352], steps_time: 5.231, loss: 0.02073, gradient norms: 0.05761, parameters norms: 254.27330, lr: 0.000100
+Epoch[2/800], Step[60/352], steps_time: 5.226, loss: 0.03360, gradient norms: 0.02182, parameters norms: 254.28224, lr: 0.000100
+Epoch[2/800], Step[80/352], steps_time: 5.220, loss: 0.02464, gradient norms: 0.06263, parameters norms: 254.29076, lr: 0.000100
+Epoch[2/800], Step[100/352], steps_time: 5.216, loss: 0.03487, gradient norms: 0.03652, parameters norms: 254.29961, lr: 0.000100
+Epoch[2/800], Step[120/352], steps_time: 5.219, loss: 0.02576, gradient norms: 0.08618, parameters norms: 254.30833, lr: 0.000100
+Epoch[2/800], Step[140/352], steps_time: 5.219, loss: 0.02643, gradient norms: 0.05982, parameters norms: 254.31654, lr: 0.000100
+Epoch[2/800], Step[160/352], steps_time: 5.218, loss: 0.02837, gradient norms: 0.09492, parameters norms: 254.32597, lr: 0.000100
+Epoch[2/800], Step[180/352], steps_time: 5.210, loss: 0.02304, gradient norms: 0.01328, parameters norms: 254.33475, lr: 0.000100
+Epoch[2/800], Step[200/352], steps_time: 5.212, loss: 0.02487, gradient norms: 0.04159, parameters norms: 254.34357, lr: 0.000100
+Epoch[2/800], Step[220/352], steps_time: 5.216, loss: 0.02656, gradient norms: 0.05613, parameters norms: 254.35323, lr: 0.000100
+Epoch[2/800], Step[240/352], steps_time: 5.220, loss: 0.03642, gradient norms: 0.04062, parameters norms: 254.36214, lr: 0.000100
+Epoch[2/800], Step[260/352], steps_time: 5.219, loss: 0.02793, gradient norms: 0.09360, parameters norms: 254.37144, lr: 0.000100
+Epoch[2/800], Step[280/352], steps_time: 5.215, loss: 0.02610, gradient norms: 0.06308, parameters norms: 254.37950, lr: 0.000100
+Epoch[2/800], Step[300/352], steps_time: 5.213, loss: 0.02089, gradient norms: 0.07696, parameters norms: 254.38933, lr: 0.000100
+Epoch[2/800], Step[320/352], steps_time: 5.220, loss: 0.02651, gradient norms: 0.02744, parameters norms: 254.39754, lr: 0.000100
+Epoch[2/800], Step[340/352], steps_time: 5.221, loss: 0.02060, gradient norms: 0.05568, parameters norms: 254.40648, lr: 0.000100
+Epoch[3/800], Step[20/352], steps_time: 5.400, loss: 0.03262, gradient norms: 0.02901, parameters norms: 254.41997, lr: 0.000100
+Epoch[3/800], Step[40/352], steps_time: 5.207, loss: 0.03150, gradient norms: 0.06660, parameters norms: 254.42780, lr: 0.000100
+Epoch[3/800], Step[60/352], steps_time: 5.380, loss: 0.02959, gradient norms: 0.06314, parameters norms: 254.43556, lr: 0.000100
+Epoch[3/800], Step[80/352], steps_time: 5.213, loss: 0.02581, gradient norms: 0.07318, parameters norms: 254.44443, lr: 0.000100
+Epoch[3/800], Step[100/352], steps_time: 5.213, loss: 0.02922, gradient norms: 0.09271, parameters norms: 254.45299, lr: 0.000100
+Epoch[3/800], Step[120/352], steps_time: 5.210, loss: 0.02869, gradient norms: 0.03056, parameters norms: 254.46085, lr: 0.000100
+Epoch[3/800], Step[140/352], steps_time: 5.204, loss: 0.01944, gradient norms: 0.06207, parameters norms: 254.46890, lr: 0.000100
+Epoch[3/800], Step[160/352], steps_time: 5.207, loss: 0.03415, gradient norms: 0.08444, parameters norms: 254.47786, lr: 0.000100
+Epoch[3/800], Step[180/352], steps_time: 5.212, loss: 0.03316, gradient norms: 0.05728, parameters norms: 254.48573, lr: 0.000100
+Epoch[3/800], Step[200/352], steps_time: 5.211, loss: 0.03413, gradient norms: 0.03061, parameters norms: 254.49387, lr: 0.000100
+Epoch[3/800], Step[220/352], steps_time: 5.206, loss: 0.02411, gradient norms: 0.07200, parameters norms: 254.50266, lr: 0.000100
