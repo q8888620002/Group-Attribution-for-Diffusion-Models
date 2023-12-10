@@ -6,5 +6,9 @@ data/*
 mnist_data/*
 cfair_10/*
 constants.py
-train_diffuser.py
+generate_imgs.py
 pretrained/*
+eval/*
+wandb/*
+slurms_ming/*
+slurm/*

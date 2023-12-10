@@ -4,16 +4,17 @@ import glob
 import os
 import random
 
+import clip
 import numpy as np
 import torch
+from PIL import Image
 from scipy.linalg import sqrtm
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
 
 import constants
-import clip
 
 # Load CLIP model and transformation outside of the function for efficiency
 # device = "cuda:2" if torch.cuda.is_available() else "cpu"
@@ -35,10 +36,50 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
 
         super().__init__(model, device, ema_avg, use_buffers=True)
 
+
+class CelebA(Dataset):
+    """
+    DataLoader for CelebA 256 x 256. Note that there's no label for this one.
+
+    Return_
+        3x256x256 Celeb images, and -1, pseudo-label
+    """
+
+    def __init__(self, root, train=True, download=False, transform=None):
+        self.root = root
+        self.transform = transform
+        self.train = train
+
+        all_img_names = os.listdir(root)
+
+        rng = np.random.RandomState(42)
+        shuffled_indices = rng.permutation([i for i in range(len(all_img_names))])
+
+        train_size = int(0.8 * len(all_img_names))
+
+        if train:
+            self.img_names = [all_img_names[i] for i in shuffled_indices[:train_size]]
+        else:
+            self.img_names = [all_img_names[i] for i in shuffled_indices[train_size:]]
+
+    def __len__(self):
+        """Return the number of dataset"""
+        return len(self.img_names)
+
+    def __getitem__(self, idx):
+        """Iterate dataloader"""
+        img_path = os.path.join(self.root, self.img_names[idx])
+        image = Image.open(img_path).convert("RGB")
+        if self.transform:
+            image = self.transform(image)
+
+        return image, -1
+
+
 def create_dataloaders(
     dataset_name: str,
     batch_size: int,
-    num_workers: int = 4,
+    num_workers: int = 1,
     excluded_class: int = None,
     unlearning: bool = False,
     return_excluded: bool = False,
@@ -91,6 +132,18 @@ def create_dataloaders(
         )
         DatasetClass = MNIST
         root_dir = os.path.join(dataset_dir, "mnist")
+
+    elif dataset_name == "celeba":
+        preprocess = transforms.Compose(
+            [
+                transforms.Resize((256, 256)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.5], [0.5]),  # normalize to [-1,1]
+            ]
+        )
+        DatasetClass = CelebA
+        root_dir = os.path.join(dataset_dir, "celeba/celeba_hq_256")
+
     else:
         raise ValueError(f"Unknown dataset {dataset_name}, choose 'cifar' or 'mnist'.")
 
@@ -142,7 +195,7 @@ def create_dataloaders(
 
         remaining_dataset = Subset(train_dataset, remaining_indices)
         ablated_dataset = Subset(train_dataset, ablated_indices)
-        
+
         # Return dataloaders for unlearning
         return (
             DataLoader(
@@ -180,6 +233,7 @@ def get_max_step_file(folder_path):
         files, key=lambda x: int(os.path.basename(x).split("_")[1].split(".")[0])
     )
     return max_step_file
+
 
 def get_max_steps(folder_path):
     """Get maximum number of training steps for results in a folder."""
