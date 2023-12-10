@@ -52,9 +52,8 @@ class CelebA(Dataset):
 
         all_img_names = os.listdir(root)
 
-        np.random.RandomState(42)
-
-        shuffled_indices = np.random.permutation([i for i in range(len(all_img_names))])
+        rng = np.random.RandomState(42)
+        shuffled_indices = rng.permutation([i for i in range(len(all_img_names))])
 
         train_size = int(0.8 * len(all_img_names))
 

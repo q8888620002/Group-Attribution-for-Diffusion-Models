@@ -21,7 +21,8 @@ from diffusers.models.resnet import Downsample2D, Upsample2D
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 
-# from lightning.pytorch import seed_everything
+from lightning.pytorch import seed_everything
+import torchvision
 from torchvision.utils import save_image
 from tqdm import tqdm
 
@@ -161,7 +162,7 @@ def main(args):
     outdir = args.outdir
     device = args.device
 
-    # seed_everything(args.opt_seed, workers=True)
+    seed_everything(args.opt_seed, workers=True)
 
     if dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
