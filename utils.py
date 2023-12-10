@@ -126,8 +126,9 @@ def create_dataloaders(
     elif dataset_name == "mnist":
         preprocess = transforms.Compose(
             [
-                transforms.ToTensor(),  # normalize to [0,1]
-                transforms.Normalize([0.5], [0.5]),  # normalize to [-1,1]
+                transforms.Resize((32, 32)),  # Resize to 32x32 for diffusers UNet.
+                transforms.ToTensor(),  # Normalize to [0,1].
+                transforms.Normalize([0.5], [0.5]),  # Normalize to [-1,1].
             ]
         )
         DatasetClass = MNIST
