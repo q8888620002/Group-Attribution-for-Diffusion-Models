@@ -10,3 +10,4 @@ generate_imgs.py
 pretrained/*
 eval/*
 wandb/*
+slurms_ming/*
