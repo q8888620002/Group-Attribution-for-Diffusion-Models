@@ -24,11 +24,14 @@ from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
 import torchvision
 from torchvision.utils import save_image
+import wandb
+
 from tqdm import tqdm
 
 import constants
 from ddpm_config import DDPMConfig
 from utils import create_dataloaders
+
 
 
 def parse_args():
@@ -76,6 +79,13 @@ def parse_args():
     )
 
     # fine-tuning params
+
+    parser.add_argument(
+        "grad_accum",
+        default= False,
+        action="store_true",
+        help ="whether to use gradient accumulation."
+    )
     parser.add_argument(
         "--dropout", type=float, default=0.1, help="The dropout rate for fine-tuning."
     )
@@ -90,9 +100,17 @@ def parse_args():
         ),
     )
 
-    parser.add_argument("--num_inference_steps", type=int, default=100)
+    parser.add_argument(
+        "--num_inference_steps",
+        type=int,
+        default=100
+    )
 
-    parser.add_argument("--num_train_steps", type=int, default=1000)
+    parser.add_argument(
+        "--num_train_steps",
+        type=int,
+        default=1000
+    )
 
     parser.add_argument(
         "--lr_warmup_steps",
@@ -146,7 +164,6 @@ def parse_args():
 
     return parser.parse_args()
 
-
 def print_args(args):
     """Print script name and args."""
     print(f"Running {sys.argv[0]} with arguments")
@@ -162,6 +179,16 @@ def main(args):
     outdir = args.outdir
     device = args.device
 
+    wandb.init(
+        project="Data Shapley for Diffusion",
+        notes=f"Experiment for pruning and fine-tuning.",
+        tags=[f"pruning and fine-tuning"],
+        config={
+            "epochs": epochs,
+            "batch_size": config["batch_size"],
+            "model": model.config._class_name
+        }
+    )
     seed_everything(args.opt_seed, workers=True)
 
     if dataset == "cifar":
@@ -319,6 +346,9 @@ def main(args):
         pipeline.to(device)
 
     elif args.dataset == "celeba":
+        for m in vqvae.modules():
+            m.requires_grad = False
+
         pipeline = LDMPipeline(
             unet=model,
             vqvae=vqvae,
@@ -373,10 +403,10 @@ def main(args):
         num_warmup_steps=args.lr_warmup_steps,
         num_training_steps=(len(train_dataloader) * epochs),
     )
+    loss_fn = nn.MSELoss(reduction="mean")
 
     ema_model.to(device)
-
-    loss_fn = nn.MSELoss(reduction="mean")
+    num_accumulation_steps = 64 //args.batch_size
 
     for epoch in range(start_epoch, epochs):
 
@@ -386,9 +416,11 @@ def main(args):
 
             model.train()
 
-            optimizer.zero_grad()
-
             image = image.to(device)
+
+            if isinstance(pipeline, LDMPipeline):
+                image = vqvae.encode(image, False)[0]
+
             noise = torch.randn_like(image).to(device)
             timesteps = torch.randint(
                 low=0,
@@ -407,27 +439,60 @@ def main(args):
             noisy_images = pipeline_scheduler.add_noise(image, noise, timesteps)
             eps = model(noisy_images, timesteps).sample
 
+
             loss = loss_fn(eps, noise)
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-            lr_scheduler.step()
 
-            ema_model.step(model.parameters())
+            if args.grad_accum:
+                # Gradient accumulation
+                loss = loss / num_accumulation_steps
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-            grads = [
-                param.grad.detach().flatten()
-                for param in model.parameters()
-                if param.grad is not None
-            ]
-            grad_norm = torch.cat(grads).norm()
+                if ((j + 1) % num_accumulation_steps == 0) or (j + 1 == len(train_dataloader)):
+                    optimizer.step()
+                    lr_scheduler.step()
+                    ema_model.step(model.parameters())
 
-            params = [
-                param.data.detach().flatten()
-                for param in model.parameters()
-                if param.data is not None
-            ]
-            params_norm = torch.cat(params).norm()
+                    grads = [
+                        param.grad.detach().flatten()
+                        for param in model.parameters()
+                        if param.grad is not None
+                    ]
+                    optimizer.zero_grad()
+
+                    grad_norm = torch.cat(grads).norm()
+
+                    params = [
+                        param.data.detach().flatten()
+                        for param in model.parameters()
+                        if param.data is not None
+                    ]
+                    params_norm = torch.cat(params).norm()
+
+            else:
+
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                lr_scheduler.step()
+
+                ema_model.step(model.parameters())
+
+                grads = [
+                    param.grad.detach().flatten()
+                    for param in model.parameters()
+                    if param.grad is not None
+                ]
+                optimizer.zero_grad()
+
+                grad_norm = torch.cat(grads).norm()
+
+                params = [
+                    param.data.detach().flatten()
+                    for param in model.parameters()
+                    if param.data is not None
+                ]
+                params_norm = torch.cat(params).norm()
 
             if (j + 1) % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time

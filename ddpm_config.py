@@ -81,7 +81,7 @@ class DDPMConfig:
     celeb_config = {
         "dataset": "celeba",
         "image_size": 32,
-        "batch_size": 32,
+        "batch_size": 64,
         "mean": [0.5, 0.5, 0.5],
         "std": [0.5, 0.5, 0.5],
         "lr": 1e-4,
