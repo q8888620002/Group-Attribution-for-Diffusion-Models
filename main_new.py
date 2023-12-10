@@ -20,6 +20,7 @@ from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
 from torchvision.utils import save_image
+from tqdm import tqdm
 
 import constants
 from ddpm_config import DDPMConfig
@@ -285,7 +286,7 @@ def main(args):
         )
         frozen_unet = pipeline_frozen.unet.to(device)
 
-    for epoch in range(start_epoch, epochs):
+    for epoch in tqdm(range(start_epoch, epochs)):
 
         steps_start_time = time.time()
 
