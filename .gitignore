@@ -11,3 +11,4 @@ pretrained/*
 eval/*
 wandb/*
 slurms_ming/*
+slurm/*

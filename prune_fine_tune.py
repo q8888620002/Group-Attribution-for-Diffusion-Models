@@ -1,32 +1,27 @@
-""" Pruning and fine-tuning diffusion models """
-
+"""Pruning and fine-tuning diffusion models"""
 import argparse
 import math
 import os
-import random
 import sys
 import time
-from glob import glob
 
 import torch
 import torch.nn as nn
 import torch_pruning as tp
-import torchvision
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
     DDPMPipeline,
-    DDPMScheduler,
-    UNet2DModel,
     LDMPipeline,
-    VQModel
+    UNet2DModel,
+    VQModel,
 )
-from diffusers.models.resnet import Downsample2D, Upsample2D
 from diffusers.models.attention import Attention
+from diffusers.models.resnet import Downsample2D, Upsample2D
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
+
 # from lightning.pytorch import seed_everything
-from PIL import Image
 from torchvision.utils import save_image
 from tqdm import tqdm
 
@@ -36,6 +31,7 @@ from utils import create_dataloaders
 
 
 def parse_args():
+    """Parsing arguments"""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--dataset",
@@ -44,21 +40,10 @@ def parse_args():
         choices=["mnist", "cifar", "celeba"],
         default="mnist",
     )
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=128
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="cuda:0"
-    )
-    parser.add_argument(
-        "--outdir",
-        type=str,
-        help="output parent directory",
-        default=constants.OUTDIR
+        "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
 
     parser.add_argument(
@@ -75,13 +60,9 @@ def parse_args():
         default=20,
     )
 
-    ## Pruning params
+    # Pruning params
 
-    parser.add_argument(
-        "--pruning_ratio",
-        type=float,
-        default=0.3
-    )
+    parser.add_argument("--pruning_ratio", type=float, default=0.3)
 
     parser.add_argument(
         "--pruner",
@@ -102,22 +83,15 @@ def parse_args():
         type=str,
         default="constant",
         help=(
-            'The scheduler type to use. Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial",'
+            "The scheduler type to use."
+            'Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial",'
             ' "constant", "constant_with_warmup"]'
         ),
     )
 
-    parser.add_argument(
-        "--num_inference_steps",
-        type=int,
-        default=100
-    )
+    parser.add_argument("--num_inference_steps", type=int, default=100)
 
-    parser.add_argument(
-        "--num_train_steps",
-        type=int,
-        default=1000
-    )
+    parser.add_argument("--num_train_steps", type=int, default=1000)
 
     parser.add_argument(
         "--lr_warmup_steps",
@@ -125,6 +99,7 @@ def parse_args():
         default=0,
         help="Number of steps for the warmup in the lr scheduler.",
     )
+
     parser.add_argument(
         "--adam_beta1",
         type=float,
@@ -179,7 +154,7 @@ def print_args(args):
 
 
 def main(args):
-
+    """Main function for pruning and fine-tuning."""
     # loading images for gradient-based pruning
     batch_size = args.batch_size
     dataset = args.dataset
@@ -207,7 +182,6 @@ def main(args):
             "sample": torch.randn(1, 3, 256, 256).to(device),
             "timestep": torch.ones((1,)).long().to(device),
         }
-
 
     (train_dataloader, _) = create_dataloaders(
         dataset_name=config["dataset"],
@@ -271,7 +245,7 @@ def main(args):
 
         if args.dataset == "celeba":
 
-            ## Prunig attention for celeba
+            # Prunig attention for celeba
 
             for m in model.modules():
                 if isinstance(m, Attention):
@@ -311,7 +285,8 @@ def main(args):
                     if loss > loss_max:
                         loss_max = loss
                     if loss < loss_max * args.thr:
-                        break  # taylor expansion over pruned timesteps ( L_t / L_max > thr )
+                        # taylor expansion over pruned timesteps ( L_t / L_max > thr )
+                        break
 
         for g in pruner.step(interactive=True):
             g.prune()
@@ -365,7 +340,7 @@ def main(args):
 
     print("==================== fine-tuning on pruned model ====================")
 
-    ## Set unet dropout rate
+    # Set unet dropout rate
 
     for m in model.modules():
         if isinstance(m, torch.nn.Dropout):
@@ -551,6 +526,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+    """ """
     args = parse_args()
     print_args(args)
     main(args)
