@@ -9,7 +9,6 @@ import time
 
 import torch
 import torch.nn as nn
-import wandb
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
@@ -24,6 +23,7 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 import constants
+import wandb
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
 from utils import create_dataloaders, get_max_steps
@@ -390,7 +390,7 @@ def main(args):
             lr_scheduler.step()
             ema_model.step(model.parameters())
 
-            ## check gradient norm & params norm
+            # check gradient norm & params norm
 
             grads = [
                 param.grad.detach().flatten()
@@ -460,7 +460,7 @@ def main(args):
 
             if args.dataset == "mnist" and args.excluded_class is not None:
                 with torch.no_grad():
-                    outs = classifier(samples)[0]
+                    outs = classifier(samples.to(device))[0]
                     preds = outs.argmax(dim=1)
                     mean_excluded_prob = outs.softmax(dim=1)[
                         :, args.excluded_class
