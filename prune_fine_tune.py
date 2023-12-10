@@ -20,17 +20,14 @@ from diffusers.models.attention import Attention
 from diffusers.models.resnet import Downsample2D, Upsample2D
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
-
 from lightning.pytorch import seed_everything
 from torchvision.utils import save_image
-import wandb
-
 from tqdm import tqdm
 
 import constants
+import wandb
 from ddpm_config import DDPMConfig
 from utils import create_dataloaders
-
 
 
 def parse_args():
@@ -81,9 +78,9 @@ def parse_args():
 
     parser.add_argument(
         "grad_accum",
-        default= False,
+        default=False,
         action="store_true",
-        help ="whether to use gradient accumulation."
+        help="whether to use gradient accumulation.",
     )
     parser.add_argument(
         "--dropout", type=float, default=0.1, help="The dropout rate for fine-tuning."
@@ -99,17 +96,9 @@ def parse_args():
         ),
     )
 
-    parser.add_argument(
-        "--num_inference_steps",
-        type=int,
-        default=100
-    )
+    parser.add_argument("--num_inference_steps", type=int, default=100)
 
-    parser.add_argument(
-        "--num_train_steps",
-        type=int,
-        default=1000
-    )
+    parser.add_argument("--num_train_steps", type=int, default=1000)
 
     parser.add_argument(
         "--lr_warmup_steps",
@@ -163,6 +152,7 @@ def parse_args():
 
     return parser.parse_args()
 
+
 def print_args(args):
     """Print script name and args."""
     print(f"Running {sys.argv[0]} with arguments")
@@ -185,8 +175,8 @@ def main(args):
         config={
             "epochs": epochs,
             "batch_size": config["batch_size"],
-            "model": model.config._class_name
-        }
+            "model": model.config._class_name,
+        },
     )
     seed_everything(args.opt_seed, workers=True)
 
@@ -405,7 +395,7 @@ def main(args):
     loss_fn = nn.MSELoss(reduction="mean")
 
     ema_model.to(device)
-    num_accumulation_steps = 64 //args.batch_size
+    num_accumulation_steps = 64 // args.batch_size
 
     for epoch in range(start_epoch, epochs):
 
@@ -438,7 +428,6 @@ def main(args):
             noisy_images = pipeline_scheduler.add_noise(image, noise, timesteps)
             eps = model(noisy_images, timesteps).sample
 
-
             loss = loss_fn(eps, noise)
 
             if args.grad_accum:
@@ -447,7 +436,9 @@ def main(args):
                 loss.backward()
                 nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-                if ((j + 1) % num_accumulation_steps == 0) or (j + 1 == len(train_dataloader)):
+                if ((j + 1) % num_accumulation_steps == 0) or (
+                    j + 1 == len(train_dataloader)
+                ):
                     optimizer.step()
                     lr_scheduler.step()
                     ema_model.step(model.parameters())
