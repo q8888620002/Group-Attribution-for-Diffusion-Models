@@ -22,7 +22,6 @@ from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 
 from lightning.pytorch import seed_everything
-import torchvision
 from torchvision.utils import save_image
 import wandb
 
