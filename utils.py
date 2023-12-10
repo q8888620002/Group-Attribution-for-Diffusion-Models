@@ -54,7 +54,7 @@ class CelebA(Dataset):
 
         np.random.RandomState(42)
 
-        shuffled_indices = torch.randperm([i for i in len(all_img_names)])
+        shuffled_indices = np.random.permutation([i for i in len(all_img_names)])
 
         train_size = 0.8 * len(all_img_names)
 
