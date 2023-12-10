@@ -54,9 +54,9 @@ class CelebA(Dataset):
 
         np.random.RandomState(42)
 
-        shuffled_indices = np.random.permutation([i for i in len(all_img_names)])
+        shuffled_indices = np.random.permutation([i for i in range(len(all_img_names))])
 
-        train_size = 0.8 * len(all_img_names)
+        train_size = int(0.8 * len(all_img_names))
 
         if train:
             self.img_names = [all_img_names[i] for i in shuffled_indices[:train_size]]
