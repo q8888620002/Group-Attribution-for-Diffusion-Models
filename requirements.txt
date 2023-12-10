@@ -3,6 +3,7 @@ torchvision==0.16.1
 lightning==2.1.2
 transformers==4.35.2
 diffusers==0.24.0
+torch_pruning
 tqdm
 argparse
 pre-commit

@@ -9,6 +9,7 @@ import time
 
 import torch
 import torch.nn as nn
+import wandb
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
@@ -27,6 +28,8 @@ from ddpm_config import DDPMConfig
 from diffusion.models import CNN
 from utils import create_dataloaders, get_max_steps
 
+# Wandb is for monitoring retrain/unlearn loss https://wandb.ai/
+
 
 def parse_args():
     """Parse command line arguments."""
@@ -35,6 +38,14 @@ def parse_args():
     parser.add_argument(
         "--load", type=str, help="path for loading pre-trained model", default=None
     )
+
+    parser.add_argument(
+        "--init",
+        action="store_true",
+        help="whether to initialize with a new model.",
+        default=False,
+    )
+
     parser.add_argument(
         "--dataset",
         type=str,
@@ -238,6 +249,31 @@ def main(args):
             model_cls=UNet2DModel,
             model_config=model.config,
         )
+
+        global_steps = pretrained_steps
+
+        if args.init:
+
+            print(
+                "initialized a new model from pruned/pretrained at {}.".format(
+                    args.load
+                )
+            )
+
+            for m in model.modules():
+                if hasattr(m, "reset_parameters"):
+                    m.reset_parameters()
+
+            ema_model = EMAModel(
+                model.parameters(),
+                decay=args.ema_max_decay,
+                use_ema_warmup=False,
+                inv_gamma=args.ema_inv_gamma,
+                power=args.ema_power,
+                model_cls=UNet2DModel,
+                model_config=model.config,
+            )
+
     else:
         # initializing standard model from scratch.
 
@@ -285,6 +321,17 @@ def main(args):
             os.path.join(args.outdir, "pretrained_models/cifar")
         )
         frozen_unet = pipeline_frozen.unet.to(device)
+
+    wandb.init(
+        project="Data Shapley for Diffusion",
+        notes=f"Experiment for {args.method}:{args.dataset}",
+        tags=[f"{args.method}"],
+        config={
+            "epochs": epochs,
+            "batch_size": config["batch_size"],
+            "model": model.config._class_name,
+        },
+    )
 
     for epoch in tqdm(range(start_epoch, epochs)):
 
@@ -343,16 +390,44 @@ def main(args):
             lr_scheduler.step()
             ema_model.step(model.parameters())
 
+            ## check gradient norm & params norm
+
+            grads = [
+                param.grad.detach().flatten()
+                for param in model.parameters()
+                if param.grad is not None
+            ]
+            grad_norm = torch.cat(grads).norm()
+
+            params = [
+                param.data.detach().flatten()
+                for param in model.parameters()
+                if param.data is not None
+            ]
+            params_norm = torch.cat(params).norm()
+
             if (j + 1) % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{len(train_dataloader)}]"
                 info += f", steps_time: {steps_time:.3f}"
                 info += f", loss: {loss.detach().cpu().item():.5f}"
+                info += f", gradient norms: {grad_norm:.5f}"
+                info += f", parameters norms: {params_norm:.5f}"
                 info += f", lr: {lr_scheduler.get_last_lr()[0]:.6f}"
                 print(info, flush=True)
                 steps_start_time = time.time()
 
+                wandb.log(
+                    {
+                        "Epoch": (epoch + 1),
+                        "loss": loss.detach().cpu().item(),
+                        "steps_time": steps_time,
+                        "gradient norms": grad_norm,
+                        "parameters norms": params_norm,
+                        "lr": lr_scheduler.get_last_lr()[0],
+                    }
+                )
             global_steps += 1
 
         # Generate samples for evaluation.
