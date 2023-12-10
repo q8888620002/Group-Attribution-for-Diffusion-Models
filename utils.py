@@ -13,7 +13,6 @@ from torch.utils.data import DataLoader, Subset, Dataset
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
-from lightning.pytorch import seed_everything
 
 import constants
 
@@ -51,9 +50,10 @@ class CelebA(Dataset):
 
         all_img_names = os.listdir(root)
 
-        seed_everything(42, workers=True)
+        np.random.RandomState(42)
 
-        shuffled_indices = torch.randperm(len(all_img_names))[len(all_img_names)]
+        shuffled_indices = torch.randperm([i for i in len(all_img_names)])
+
         train_size = 0.8*len(all_img_names)
 
         if train:
@@ -62,9 +62,11 @@ class CelebA(Dataset):
             self.img_names = [all_img_names[i] for i in shuffled_indices[train_size:]]
 
     def __len__(self):
+        """Return the number of dataset"""
         return len(self.img_names)
 
     def __getitem__(self, idx):
+        """Iterate dataloader"""
         img_path = os.path.join(self.root, self.img_names[idx])
         image = Image.open(img_path).convert('RGB')
         if self.transform:
