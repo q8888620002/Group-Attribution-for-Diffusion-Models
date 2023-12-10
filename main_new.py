@@ -20,16 +20,15 @@ from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
 from torchvision.utils import save_image
+from tqdm import tqdm
 
 import constants
-
-# Wandb is for monitoring retrain/unlearn loss https://wandb.ai/
-
 import wandb
-
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
 from utils import create_dataloaders, get_max_steps
+
+# Wandb is for monitoring retrain/unlearn loss https://wandb.ai/
 
 
 def parse_args():
@@ -330,11 +329,11 @@ def main(args):
         config={
             "epochs": epochs,
             "batch_size": config["batch_size"],
-            "model": model.config._class_name
-        }
+            "model": model.config._class_name,
+        },
     )
 
-    for epoch in range(start_epoch, epochs):
+    for epoch in tqdm(range(start_epoch, epochs)):
 
         steps_start_time = time.time()
 
@@ -391,7 +390,7 @@ def main(args):
             lr_scheduler.step()
             ema_model.step(model.parameters())
 
-            ## check gradient norm & params norm
+            # check gradient norm & params norm
 
             grads = [
                 param.grad.detach().flatten()
@@ -461,7 +460,7 @@ def main(args):
 
             if args.dataset == "mnist" and args.excluded_class is not None:
                 with torch.no_grad():
-                    outs = classifier(samples)[0]
+                    outs = classifier(samples.to(device))[0]
                     preds = outs.argmax(dim=1)
                     mean_excluded_prob = outs.softmax(dim=1)[
                         :, args.excluded_class

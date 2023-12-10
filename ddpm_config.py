@@ -2,6 +2,7 @@
 
 
 class DDPMConfig:
+    """DDPM configurations."""
 
     # CIFAR specific configurations
 
@@ -93,32 +94,51 @@ class DDPMConfig:
     }
 
     # MNIST specific configurations
+    # Reference: https://colab.research.google.com/github/st-howard/blog-notebooks/blob/
+    # main/MNIST-Diffusion/Diffusion%20Digits%20-%20Generating%20MNIST%20Digits%20
+    # from%20noise%20with%20HuggingFace%20Diffusers.ipynb
 
     mnist_config = {
         "dataset": "mnist",
         "image_size": 28,
         "mean": [0.5],
         "std": [0.5],
-        # Unet params
-        "timesteps": 1000,
-        "base_dim": 64,
-        "channel_mult": [1, 2],
-        "in_channels": 1,
-        "out_channels": 1,
-        "attn": False,
-        "attn_layer": [2],
-        "num_res_blocks": 2,
-        "dropout": 0.15,
+        # UNet parameters.
+        "unet_config": {
+            "_class_name": "UNet2DModel",
+            "_diffusers_version": "0.24.0",
+            "sample_size": 32,
+            "in_channels": 1,
+            "out_channels": 1,
+            "layers_per_block": 2,
+            "block_out_channels": [128, 128, 256, 512],
+            "down_block_types": [
+                "DownBlock2D",
+                "DownBlock2D",
+                "AttnDownBlock2D",
+                "DownBlock2D",
+            ],
+            "up_block_types": [
+                "UpBlock2D",
+                "AttnUpBlock2D",
+                "UpBlock2D",
+                "UpBlock2D",
+            ],
+        },
         "trained_model": (
             "/projects/leelab/mingyulu/data_att/results/mnist/"
             "retrain/models/full/steps_00065660.pt"
         ),
+        # Noise scheduler.
+        "scheduler_config": {
+            "_class_name": "DDPMScheduler",
+            "_diffusers_version": "0.24.0",
+            "num_train_timesteps": 1000,
+        },
         # Training params
         "lr": 1e-3,
         "batch_size": 64,
         "epochs": {"retrain": 100, "ga": 5, "gd": 10, "esd": 100},
-        "model_ema_steps": 10,
-        "model_ema_decay": 0.995,
         "ckpt_freq": {"retrain": 2, "ga": 1, "gd": 1, "esd": 20},
         "sample_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 20},
         "n_samples": 500,
