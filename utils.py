@@ -2,14 +2,14 @@
 
 import glob
 import os
-import random
+from typing import Tuple
 
 import clip
 import numpy as np
 import torch
 from PIL import Image
 from scipy.linalg import sqrtm
-from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
@@ -45,7 +45,7 @@ class CelebA(Dataset):
         3x256x256 Celeb images, and -1, pseudo-label
     """
 
-    def __init__(self, root, train=True, download=False, transform=None):
+    def __init__(self, root, train=True, transform=None):
         self.root = root
         self.transform = transform
         self.train = train
@@ -76,53 +76,38 @@ class CelebA(Dataset):
         return image, -1
 
 
-def create_dataloaders(
+def create_dataset(
     dataset_name: str,
-    batch_size: int,
-    num_workers: int = 1,
-    excluded_class: int = None,
-    unlearning: bool = False,
-    return_excluded: bool = False,
+    train: bool,
     dataset_dir: str = constants.DATASET_DIR,
-):
+) -> torch.utils.data.Dataset:
     """
-    Create dataloaders for CIFAR10 and MNIST datasets with options for excluding
-    specific classes and creating subsets for unlearning.
+    Create a PyTorch Dataset corresponding to a dataset.
 
     Args:
     ----
-        dataset_name (str): Name of the dataset ('cifar' or 'mnist').
-        batch_size (int): Batch size for the dataloaders.
-        image_size (int): Image size for resizing (used for MNIST).
-        num_workers (int): Number of workers for dataloaders.
-        excluded_class (int, optional): Class to be excluded (for ablation).
-        unlearning (bool, optional): Flag to create subsets for unlearning.
-        return_excluded (bool, optional): Flag to return the exlcuded dataset instead of
-            the remaining dataset when unlearning is set to False.
-        dataset_dir (str, optional): Parent directory for all the datasets.
+        dataset_name: Name of the dataset.
+        train: Whether to return the training dataset or the test set.
+        dataset_dir: Parent directory for all the datasets.
 
     Return:
     ------
-        Tuple[DataLoader, DataLoader]: Train and test dataloaders.
+        A PyTorch Dataset.
     """
-    assert (not unlearning) or (
-        not return_excluded
-    ), "only one of [unlearning, return_exlcuded] can be set to True!"
-
     if dataset_name == "cifar":
         preprocess = transforms.Compose(
             [
                 transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),  # normalize to [0,1]
+                transforms.ToTensor(),  # Normalize to [0,1].
                 transforms.Normalize(
                     (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
-                )  # normalize to [-1,1]
-                # transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+                ),  # Normalize to [-1,1].
             ]
         )
-        DatasetClass = CIFAR10
         root_dir = os.path.join(dataset_dir, "cifar")
-
+        dataset = CIFAR10(
+            root=root_dir, train=train, download=True, transform=preprocess
+        )
     elif dataset_name == "mnist":
         preprocess = transforms.Compose(
             [
@@ -131,97 +116,138 @@ def create_dataloaders(
                 transforms.Normalize([0.5], [0.5]),  # Normalize to [-1,1].
             ]
         )
-        DatasetClass = MNIST
         root_dir = os.path.join(dataset_dir, "mnist")
-
+        dataset = MNIST(root=root_dir, train=train, download=True, transform=preprocess)
     elif dataset_name == "celeba":
         preprocess = transforms.Compose(
             [
                 transforms.Resize((256, 256)),
                 transforms.ToTensor(),
-                transforms.Normalize([0.5], [0.5]),  # normalize to [-1,1]
+                transforms.Normalize([0.5], [0.5]),  # Normalize to [-1,1].
             ]
         )
-        DatasetClass = CelebA
         root_dir = os.path.join(dataset_dir, "celeba/celeba_hq_256")
-
+        dataset = CelebA(root=root_dir, train=train, transform=preprocess)
     else:
-        raise ValueError(f"Unknown dataset {dataset_name}, choose 'cifar' or 'mnist'.")
-
-    train_dataset = DatasetClass(
-        root=root_dir, train=True, download=True, transform=preprocess
-    )
-    test_dataset = DatasetClass(
-        root=root_dir, train=False, download=True, transform=preprocess
-    )
-
-    # Exclude specified class if needed
-    if not unlearning and excluded_class is not None:
-        if return_excluded:
-            train_indices = [
-                i
-                for i, (_, label) in enumerate(train_dataset)
-                if label == excluded_class
-            ]
-            test_indices = [
-                i
-                for i, (_, label) in enumerate(test_dataset)
-                if label == excluded_class
-            ]
-        else:
-            train_indices = [
-                i
-                for i, (_, label) in enumerate(train_dataset)
-                if label != excluded_class
-            ]
-            test_indices = [
-                i
-                for i, (_, label) in enumerate(test_dataset)
-                if label != excluded_class
-            ]
-
-        train_dataset = Subset(train_dataset, train_indices)
-        test_dataset = Subset(test_dataset, test_indices)
-
-    # Handle unlearning subsets if needed
-    if unlearning and excluded_class is not None:
-        ablated_indices = [
-            i for i, (_, label) in enumerate(train_dataset) if label == excluded_class
-        ]
-        remaining_indices = [
-            i for i, (_, label) in enumerate(train_dataset) if label != excluded_class
-        ]
-
-        remaining_indices = random.sample(remaining_indices, len(ablated_indices))
-
-        remaining_dataset = Subset(train_dataset, remaining_indices)
-        ablated_dataset = Subset(train_dataset, ablated_indices)
-
-        # Return dataloaders for unlearning
-        return (
-            DataLoader(
-                remaining_dataset,
-                batch_size=batch_size,
-                shuffle=True,
-                num_workers=num_workers,
-            ),
-            DataLoader(
-                ablated_dataset,
-                batch_size=batch_size,
-                shuffle=True,
-                num_workers=num_workers,
-            ),
+        raise ValueError(
+            f"dataset_name={dataset_name} should be one of ['cifar', 'mnist', 'celeba']"
         )
+    return dataset
 
-    # Regular dataloaders
-    train_loader = DataLoader(
-        train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
-    )
-    test_loader = DataLoader(
-        test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
-    )
 
-    return (train_loader, test_loader)
+def remove_data_by_class(
+    dataset: torch.utils.data.Dataset, excluded_class: int
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Split a PyTorch Dataset into indices with the remaining and removed data, where
+    data corresponding to a class are removed.
+
+    Args:
+    ----
+        dataset: The PyTorch Dataset to split.
+        excluded_class: The class to remove.
+
+    Returns
+    -------
+        A numpy array with the remaining indices, and another numpy array with the
+        indices corresponding to the removed data.
+    """
+    removed_idx = [i for i, (_, label) in enumerate(dataset) if label == excluded_class]
+    removed_idx = np.array(removed_idx)
+    remaining_idx = np.setdiff1d(np.arange(len(dataset)), removed_idx)
+    return remaining_idx, removed_idx
+
+
+def remove_data_by_uniform(
+    dataset: torch.utils.data.Dataset, seed: int = 0
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Split a PyTorch Dataset into indices with the remaining and removed data, where each
+    data point has a 0.5 probability of being removed.
+
+    Args:
+    ----
+        dataset: The PyTorch Dataset to split.
+        seed: Random seed for sampling which data points are selected to keep.
+
+    Returns
+    -------
+        A numpy array with the remaining indices, and another numpy array with the
+        indices corresponding to the removed data.
+    """
+    rng = np.random.RandomState(seed)
+    selected = rng.normal(size=len(dataset)) > 0
+    all_idx = np.arange(len(dataset))
+    return all_idx[selected], all_idx[~selected]
+
+
+def remove_data_by_datamodel(
+    dataset: torch.utils.data.Dataset, alpha: float = 0.5, seed: int = 0
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Split a PyTorch Dataset into indices with the remaining and removed data, where
+    the remaining dataset is an `alpha` proportion of the full dataset.
+
+    Args:
+    ----
+        dataset: The PyTorch Dataset to split.
+        alpha: The proportion of the full dataset to keep in the remaining set.
+        seed: Random seed for sampling which data points are selected to keep.
+
+    Returns
+    -------
+        A numpy array with the remaining indices, and another numpy array with the
+        indices corresponding to the removed data.
+    """
+    rng = np.random.RandomState(seed)
+    dataset_size = len(dataset)
+    num_selected = int(alpha * dataset_size)
+    selected = np.argsort(rng.normal(size=dataset_size))[:num_selected]
+    all_idx = np.arange(dataset_size)
+    remaining_idx = all_idx[selected]
+    removed_idx = np.setdiff1d(all_idx, remaining_idx)
+    return remaining_idx, removed_idx
+
+
+def remove_data_by_shapley(
+    dataset: torch.utils.data.Dataset, seed: int = 0
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Split a PyTorch Dataset into indices with the remaining and removed data, where
+    the remaining dataset is drawn from the Shapley kernel distribution.
+
+    Reference: https://captum.ai/api/kernel_shap.html#captum.attr.KernelShap.
+    kernel_shap_perturb_generator
+
+    Args:
+    ----
+        dataset: The PyTorch Dataset to split.
+        seed: Random seed for sampling which data points are selected to keep.
+
+    Returns
+    -------
+        A numpy array with the remaining indices, and another numpy array with the
+        indices corresponding to the removed data.
+    """
+    rng = np.random.RandomState(seed)
+    dataset_size = len(dataset)
+
+    # First sample the remaining set size.
+    possible_remaining_sizes = np.arange(1, dataset_size)
+    remaining_size_probs = (dataset_size - 1) / (
+        possible_remaining_sizes * (dataset_size - possible_remaining_sizes)
+    )
+    remaining_size_probs /= remaining_size_probs.sum()
+    remaining_size = rng.choice(
+        possible_remaining_sizes, size=1, p=remaining_size_probs
+    )[0]
+
+    # Then sample uniformly given the remaining set size.
+    selected = np.argsort(rng.normal(size=dataset_size))[:remaining_size]
+    all_idx = np.arange(dataset_size)
+    remaining_idx = all_idx[selected]
+    removed_idx = np.setdiff1d(all_idx, remaining_idx)
+    return remaining_idx, removed_idx
 
 
 def get_max_step_file(folder_path):
