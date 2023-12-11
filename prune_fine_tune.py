@@ -20,15 +20,14 @@ from diffusers.models.attention import Attention
 from diffusers.models.resnet import Downsample2D, Upsample2D
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
-
 from lightning.pytorch import seed_everything
-import torchvision
+from torch.utils.data import DataLoader
 from torchvision.utils import save_image
 from tqdm import tqdm
 
 import constants
 from ddpm_config import DDPMConfig
-from utils import create_dataloaders
+from utils import create_dataset
 
 
 def parse_args():
@@ -184,12 +183,12 @@ def main(args):
             "timestep": torch.ones((1,)).long().to(device),
         }
 
-    (train_dataloader, _) = create_dataloaders(
-        dataset_name=config["dataset"],
+    train_dataset = create_dataset(dataset_name=config["dataset"], train=True)
+    train_dataloader = DataLoader(
+        train_dataset,
+        shuffle=True,
         batch_size=batch_size,
-        excluded_class=None,
-        unlearning=False,
-        return_excluded=False,
+        num_workers=4,
     )
 
     clean_images = next(iter(train_dataloader))
