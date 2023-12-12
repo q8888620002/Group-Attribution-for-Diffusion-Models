@@ -224,15 +224,32 @@ def main(args):
     else:
         raise ValueError(f"dataset={args.dataset} is not one of ['cifar', 'mnist']")
 
-    excluded_class = "full" if args.excluded_class is None else args.excluded_class
+    removal_dir = "full"
+    if args.excluded_class is not None:
+        removal_dir = f"excluded_{args.excluded_class}"
+    if args.removal_dist is not None:
+        removal_dir = f"{args.removal_dist}"
+        if args.removal_dist == "datamodel":
+            removal_dir += f"_alpha={args.datamodel_alpha}"
+        removal_dir += f"_seed={args.removal_seed}"
+
     model_outdir = os.path.join(
         args.outdir,
         args.dataset,
         args.method,
         "models",
-        f"{excluded_class}",
+        removal_dir,
     )
     os.makedirs(model_outdir, exist_ok=True)
+
+    sample_outdir = os.path.join(
+        args.outdir,
+        args.dataset,
+        args.method,
+        "samples",
+        removal_dir,
+    )
+    os.makedirs(sample_outdir, exist_ok=True)
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
     full_num_epoch_steps = math.ceil(len(train_dataset) / config["batch_size"])
@@ -552,15 +569,6 @@ def main(args):
                     with open(args.db, "a+") as f:
                         f.write(json.dumps(info_dict) + "\n")
                 print(f"Results saved to the database at {args.db}")
-
-            sample_outdir = os.path.join(
-                args.outdir,
-                args.dataset,
-                args.method,
-                "samples",
-                f"{excluded_class}",
-            )
-            os.makedirs(sample_outdir, exist_ok=True)
 
             if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
                 samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
