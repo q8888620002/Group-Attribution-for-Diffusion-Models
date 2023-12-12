@@ -3,9 +3,10 @@
 import torch
 from lightning.pytorch import seed_everything
 from torch import nn, optim
+from torch.utils.data import DataLoader
 
 from diffusion.models import CNN
-from utils import create_dataloaders
+from utils import create_dataset
 
 
 def evaluate_acc(model, dataloader, device):
@@ -28,11 +29,27 @@ def evaluate_acc(model, dataloader, device):
 if __name__ == "__main__":
     seed_everything(42, workers=True)
     num_epochs = 10
-    train_dataloader, test_dataloader = create_dataloaders(
+    train_dataset = create_dataset(
         dataset_name="mnist",
+        train=True,
+    )
+    test_dataset = create_dataset(
+        dataset_name="mnist",
+        train=False,
+    )
+    train_dataloader = DataLoader(
+        train_dataset,
         batch_size=128,
         num_workers=4,
+        shuffle=True,
     )
+    test_dataloader = DataLoader(
+        test_dataset,
+        batch_size=128,
+        num_workers=4,
+        shuffle=False,
+    )
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     cnn = CNN().to(device)
 
