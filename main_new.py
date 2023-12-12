@@ -8,27 +8,27 @@ import sys
 import time
 
 import numpy as np
+import pynvml
 import torch
 import torch.nn as nn
+from accelerate import Accelerator
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
     DDPMPipeline,
-    LDMPipeline,
     DDPMScheduler,
+    LDMPipeline,
     UNet2DModel,
-    VQModel
+    VQModel,
 )
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
-from accelerate import Accelerator
 from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
 from tqdm import tqdm
 
 import constants
-import pynvml
 import wandb  # wandb for monitoring loss https://wandb.ai/
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
@@ -41,11 +41,14 @@ from utils import (
     remove_data_by_uniform,
 )
 
+
 def get_memory_free_MiB(gpu_index):
+    """Method for monitoring GPU usage. Debugging"""
     pynvml.nvmlInit()
     handle = pynvml.nvmlDeviceGetHandleByIndex(int(gpu_index))
     mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
     return mem_info.free // 1024 ** 2
+
 
 def parse_args():
     """Parse command line arguments."""
@@ -257,7 +260,9 @@ def main(args):
         )
         classifier.eval()
     else:
-        raise ValueError(f"dataset={args.dataset} is not one of ['cifar', 'mnist', 'celeba']")
+        raise ValueError(
+            f"dataset={args.dataset} is not one of ['cifar', 'mnist', 'celeba']"
+        )
 
     removal_dir = "full"
     if args.excluded_class is not None:
@@ -410,7 +415,7 @@ def main(args):
 
     print(get_memory_free_MiB(0))
 
-    ## Freeze vqvae
+    # Freeze vqvae
 
     if args.dataset == "celeba":
         # init and freeze VQVAE.
@@ -427,8 +432,7 @@ def main(args):
         print(get_memory_free_MiB(0))
     else:
         pipeline = DDPMPipeline(
-            unet=model,
-            scheduler=DDPMScheduler(**config["scheduler_config"])
+            unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
         )
     pipeline_scheduler = pipeline.scheduler
 
@@ -463,13 +467,19 @@ def main(args):
         tags=[f"{args.method}"],
         config={
             "epochs": epochs,
-            "batch_size": config["batch_size"]*args.gradient_accumulation_steps,
+            "batch_size": config["batch_size"] * args.gradient_accumulation_steps,
             "model": model.config._class_name,
         },
     )
 
-    remaining_dataloader,removed_dataloader, model, optimizer, pipeline_scheduler = accelerator.prepare(
-            remaining_dataloader, removed_dataloader, model, optimizer, pipeline_scheduler
+    (
+        remaining_dataloader,
+        removed_dataloader,
+        model,
+        optimizer,
+        pipeline_scheduler,
+    ) = accelerator.prepare(
+        remaining_dataloader, removed_dataloader, model, optimizer, pipeline_scheduler
     )
 
     for epoch in tqdm(range(start_epoch, epochs)):
@@ -549,7 +559,7 @@ def main(args):
             ]
             params_norm = torch.cat(params).norm()
 
-            if (j + 1)/args.gradient_accumulation_steps % args.log_freq == 0:
+            if (j + 1) / args.gradient_accumulation_steps % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{num_epoch_steps}]"
@@ -596,7 +606,9 @@ def main(args):
                 else:
                     pipeline = DDIMPipeline(
                         unet=model,
-                        scheduler=DDIMScheduler(num_train_timesteps=args.num_train_steps),
+                        scheduler=DDIMScheduler(
+                            num_train_timesteps=args.num_train_steps
+                        ),
                     )
 
                 samples = pipeline(
