@@ -326,7 +326,7 @@ def main(args):
         pipeline.to(device)
 
     elif args.dataset == "celeba":
-        for param in vqvae.features.parameters():
+        for param in vqvae.parameters():
             param.requires_grad = False
 
         pipeline = LDMPipeline(
