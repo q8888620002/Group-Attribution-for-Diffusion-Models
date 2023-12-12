@@ -201,11 +201,13 @@ def remove_data_by_datamodel(
     """
     rng = np.random.RandomState(seed)
     dataset_size = len(dataset)
-    num_selected = int(alpha * dataset_size)
-    selected = np.argsort(rng.normal(size=dataset_size))[:num_selected]
     all_idx = np.arange(dataset_size)
-    remaining_idx = all_idx[selected]
-    removed_idx = np.setdiff1d(all_idx, remaining_idx)
+
+    num_selected = int(alpha * dataset_size)
+    rng.shuffle(all_idx)  # Shuffle in place.
+
+    remaining_idx = all_idx[:num_selected]
+    removed_idx = all_idx[num_selected:]
     return remaining_idx, removed_idx
 
 
@@ -214,10 +216,11 @@ def remove_data_by_shapley(
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Split a PyTorch Dataset into indices with the remaining and removed data, where
-    the remaining dataset is drawn from the Shapley kernel distribution.
+    the remaining dataset is drawn from the Shapley kernel distribution, which has the
+    probability mass function: p(S) = (n - 1) / (|S| * (n - |S|) * (n choose |S|)).
 
     Reference: https://captum.ai/api/kernel_shap.html#captum.attr.KernelShap.
-    kernel_shap_perturb_generator
+    kernel_shap_perturb_generator.
 
     Args:
     ----
@@ -233,6 +236,7 @@ def remove_data_by_shapley(
     dataset_size = len(dataset)
 
     # First sample the remaining set size.
+    # This corresponds to the term: (n - 1) / (|S| * (n - |S|)).
     possible_remaining_sizes = np.arange(1, dataset_size)
     remaining_size_probs = (dataset_size - 1) / (
         possible_remaining_sizes * (dataset_size - possible_remaining_sizes)
@@ -243,10 +247,11 @@ def remove_data_by_shapley(
     )[0]
 
     # Then sample uniformly given the remaining set size.
-    selected = np.argsort(rng.normal(size=dataset_size))[:remaining_size]
+    # This corresponds to the term: 1 / (n choose |S|).
     all_idx = np.arange(dataset_size)
-    remaining_idx = all_idx[selected]
-    removed_idx = np.setdiff1d(all_idx, remaining_idx)
+    rng.shuffle(all_idx)  # Shuffle in place.
+    remaining_idx = all_idx[:remaining_size]
+    removed_idx = all_idx[remaining_size:]
     return remaining_idx, removed_idx
 
 
