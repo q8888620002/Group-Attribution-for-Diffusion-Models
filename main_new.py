@@ -235,6 +235,8 @@ def main(args):
     os.makedirs(model_outdir, exist_ok=True)
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
+    full_num_epoch_steps = math.ceil(len(train_dataset) / config["batch_size"])
+
     if args.excluded_class is not None:
         remaining_idx, removed_idx = remove_data_by_class(
             train_dataset, excluded_class=args.excluded_class
@@ -372,8 +374,8 @@ def main(args):
         args.lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps,
-        num_training_steps=num_epoch_steps * epochs,
-    )
+        num_training_steps=full_num_epoch_steps * epochs,
+    )  # Use the learning rate scheduler for training with the entire training set.
 
     loss_fn = nn.MSELoss(reduction="mean")
 
