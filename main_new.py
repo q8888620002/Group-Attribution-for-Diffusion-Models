@@ -7,6 +7,7 @@ import os
 import sys
 import time
 
+import numpy as np
 import torch
 import torch.nn as nn
 from diffusers import (
@@ -19,16 +20,22 @@ from diffusers import (
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
+from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
 from tqdm import tqdm
 
 import constants
-import wandb
+import wandb  # wandb for monitoring loss https://wandb.ai/
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
-from utils import create_dataloaders, get_max_steps
-
-# Wandb is for monitoring retrain/unlearn loss https://wandb.ai/
+from utils import (
+    create_dataset,
+    get_max_steps,
+    remove_data_by_class,
+    remove_data_by_datamodel,
+    remove_data_by_shapley,
+    remove_data_by_uniform,
+)
 
 
 def parse_args():
@@ -64,6 +71,24 @@ def parse_args():
         type=int,
         help="dataset class to exclude for class-wise data removal",
         default=None,
+    )
+    parser.add_argument(
+        "--removal_dist",
+        type=str,
+        help="distribution for removing data",
+        default=None,
+    )
+    parser.add_argument(
+        "--datamodel_alpha",
+        type=float,
+        help="proportion of full dataset to keep in the datamodel distribution",
+        default=0.5,
+    )
+    parser.add_argument(
+        "--removal_seed",
+        type=int,
+        help="random seed for sampling from the removal distribution",
+        default=0,
     )
     parser.add_argument(
         "--method",
@@ -199,32 +224,89 @@ def main(args):
     else:
         raise ValueError(f"dataset={args.dataset} is not one of ['cifar', 'mnist']")
 
-    excluded_class = "full" if args.excluded_class is None else args.excluded_class
+    removal_dir = "full"
+    if args.excluded_class is not None:
+        removal_dir = f"excluded_{args.excluded_class}"
+    if args.removal_dist is not None:
+        removal_dir = f"{args.removal_dist}"
+        if args.removal_dist == "datamodel":
+            removal_dir += f"_alpha={args.datamodel_alpha}"
+        removal_dir += f"_seed={args.removal_seed}"
+
     model_outdir = os.path.join(
         args.outdir,
         args.dataset,
         args.method,
         "models",
-        f"{excluded_class}",
+        removal_dir,
     )
     os.makedirs(model_outdir, exist_ok=True)
 
+    sample_outdir = os.path.join(
+        args.outdir,
+        args.dataset,
+        args.method,
+        "samples",
+        removal_dir,
+    )
+    os.makedirs(sample_outdir, exist_ok=True)
+
+    train_dataset = create_dataset(dataset_name=args.dataset, train=True)
+    full_num_epoch_steps = math.ceil(len(train_dataset) / config["batch_size"])
+
+    if args.excluded_class is not None:
+        remaining_idx, removed_idx = remove_data_by_class(
+            train_dataset, excluded_class=args.excluded_class
+        )
+    elif args.removal_dist is not None:
+        if args.removal_dist == "uniform":
+            remaining_idx, removed_idx = remove_data_by_uniform(
+                train_dataset, seed=args.removal_seed
+            )
+        elif args.removal_dist == "datamodel":
+            remaining_idx, removed_idx = remove_data_by_datamodel(
+                train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed
+            )
+        elif args.removal_dist == "shapley":
+            remaining_idx, removed_idx = remove_data_by_shapley(
+                train_dataset, seed=args.removal_seed
+            )
+        else:
+            raise NotImplementedError
+    else:
+        remaining_idx = np.arange(len(train_dataset))
+        removed_idx = np.array([], dtype=int)
+
+    if args.method == "ga":
+        # Gradient ascent trains on the removed images.
+        remaining_idx, removed_idx = removed_idx, remaining_idx
+
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
-
-    (train_dataloader, forget_dataloader) = create_dataloaders(
-        dataset_name=config["dataset"],
+    remaining_dataloader = DataLoader(
+        Subset(train_dataset, remaining_idx),
         batch_size=config["batch_size"],
-        excluded_class=args.excluded_class,
-        unlearning=(args.method != "retrain"),
-        return_excluded=(args.method == "ga"),
-    )  # TODO: Make sure that this is right.
-
-    if args.method == "retrain":
-        forget_dataloader = train_dataloader
+        shuffle=True,
+        num_workers=4,
+    )
+    if args.method == "esd":
+        # Only esd requires the removed data loader.
+        # Note that each epoch will iterate though the data loader with the smaller
+        # number of steps.
+        removed_dataloader = DataLoader(
+            Subset(train_dataset, removed_idx),
+            batch_size=config["batch_size"],
+            shuffle=True,
+            num_workers=4,
+        )
+        num_epoch_steps = min(len(remaining_dataloader), len(removed_dataloader))
+    else:
+        # Hack to ensure that all the remaining data are used in each epoch.
+        removed_dataloader = remaining_dataloader
+        num_epoch_steps = len(remaining_dataloader)
 
     start_epoch = 0
     epochs = config["epochs"][args.method]
-    global_steps = start_epoch * len(train_dataloader)
+    global_steps = start_epoch * num_epoch_steps
 
     pretrained_steps = get_max_steps(args.load) if args.load else None
 
@@ -309,8 +391,8 @@ def main(args):
         args.lr_scheduler,
         optimizer=optimizer,
         num_warmup_steps=args.lr_warmup_steps,
-        num_training_steps=(len(train_dataloader) * epochs),
-    )
+        num_training_steps=full_num_epoch_steps * epochs,
+    )  # Use the learning rate scheduler for training with the entire training set.
 
     loss_fn = nn.MSELoss(reduction="mean")
 
@@ -338,7 +420,7 @@ def main(args):
         steps_start_time = time.time()
 
         for j, ((image_r, _), (image_f, _)) in enumerate(
-            zip(train_dataloader, forget_dataloader)
+            zip(remaining_dataloader, removed_dataloader)
         ):
 
             model.train()
@@ -409,7 +491,7 @@ def main(args):
             if (j + 1) % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
-                info += f", Step[{j + 1}/{len(train_dataloader)}]"
+                info += f", Step[{j + 1}/{num_epoch_steps}]"
                 info += f", steps_time: {steps_time:.3f}"
                 info += f", loss: {loss.detach().cpu().item():.5f}"
                 info += f", gradient norms: {grad_norm:.5f}"
@@ -487,15 +569,6 @@ def main(args):
                     with open(args.db, "a+") as f:
                         f.write(json.dumps(info_dict) + "\n")
                 print(f"Results saved to the database at {args.db}")
-
-            sample_outdir = os.path.join(
-                args.outdir,
-                args.dataset,
-                args.method,
-                "samples",
-                f"{excluded_class}",
-            )
-            os.makedirs(sample_outdir, exist_ok=True)
 
             if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
                 samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
