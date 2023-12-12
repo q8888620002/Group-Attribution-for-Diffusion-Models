@@ -185,7 +185,7 @@ def main(args):
             "timestep": torch.ones((1,)).long().to(device),
         }
     elif dataset == "celeba":
-        config = {**DDPMConfig.celeb_config}
+        config = {**DDPMConfig.celeba_config}
         example_inputs = {
             "sample": torch.randn(1, 3, 256, 256).to(device),
             "timestep": torch.ones((1,)).long().to(device),
@@ -326,8 +326,8 @@ def main(args):
         pipeline.to(device)
 
     elif args.dataset == "celeba":
-        for m in vqvae.modules():
-            m.requires_grad = False
+        for param in vqvae.features.parameters():
+            param.requires_grad = False
 
         pipeline = LDMPipeline(
             unet=model,

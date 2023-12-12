@@ -14,17 +14,21 @@ from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
     DDPMPipeline,
+    LDMPipeline,
     DDPMScheduler,
     UNet2DModel,
+    VQModel
 )
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
+from accelerate import Accelerator
 from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
 from tqdm import tqdm
 
 import constants
+import pynvml
 import wandb  # wandb for monitoring loss https://wandb.ai/
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
@@ -37,6 +41,11 @@ from utils import (
     remove_data_by_uniform,
 )
 
+def get_memory_free_MiB(gpu_index):
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(int(gpu_index))
+    mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    return mem_info.free // 1024 ** 2
 
 def parse_args():
     """Parse command line arguments."""
@@ -57,7 +66,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar"],
+        choices=["mnist", "cifar", "celeba"],
         default="mnist",
     )
     parser.add_argument(
@@ -143,6 +152,23 @@ def parse_args():
         help="number of warmup steps in the learning rate scheduler",
     )
     parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        default=1,
+        help="Number of updates steps to accumulate before performing a backward/update pass.",
+    )
+    parser.add_argument(
+        "--mixed_precision",
+        type=str,
+        default="no",
+        choices=["no", "fp16", "bf16"],
+        help=(
+            "Whether to use mixed precision. Choose"
+            "between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >= 1.10."
+            "and an Nvidia Ampere GPU."
+        ),
+    )
+    parser.add_argument(
         "--adam_beta1",
         type=float,
         default=0.9,
@@ -211,9 +237,18 @@ def print_args(args):
 def main(args):
     """Main function for training or unlearning."""
     device = args.device
+    accelerator = Accelerator(
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        mixed_precision=args.mixed_precision,
+    )
+    print(get_memory_free_MiB(0))
+    # import ipdb;ipdb.set_trace()
+    device = accelerator.device
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
+    elif args.dataset == "celeba":
+        config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
         config = {**DDPMConfig.mnist_config}
         classifier = CNN().to(device)
@@ -222,7 +257,7 @@ def main(args):
         )
         classifier.eval()
     else:
-        raise ValueError(f"dataset={args.dataset} is not one of ['cifar', 'mnist']")
+        raise ValueError(f"dataset={args.dataset} is not one of ['cifar', 'mnist', 'celeba']")
 
     removal_dir = "full"
     if args.excluded_class is not None:
@@ -373,10 +408,28 @@ def main(args):
             model_config=model.config,
         )
 
-    pipeline = DDPMPipeline(
-        unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
-    )
+    print(get_memory_free_MiB(0))
 
+    ## Freeze vqvae
+
+    if args.dataset == "celeba":
+        # init and freeze VQVAE.
+        vqvae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae")
+
+        for param in vqvae.parameters():
+            param.requires_grad = False
+
+        pipeline = LDMPipeline(
+            unet=model,
+            vqvae=vqvae,
+            scheduler=DDIMScheduler(**config["scheduler_config"]),
+        ).to(device)
+        print(get_memory_free_MiB(0))
+    else:
+        pipeline = DDPMPipeline(
+            unet=model,
+            scheduler=DDPMScheduler(**config["scheduler_config"])
+        )
     pipeline_scheduler = pipeline.scheduler
 
     optimizer = torch.optim.Adam(
@@ -390,7 +443,7 @@ def main(args):
     lr_scheduler = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
-        num_warmup_steps=args.lr_warmup_steps,
+        num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
         num_training_steps=full_num_epoch_steps * epochs,
     )  # Use the learning rate scheduler for training with the entire training set.
 
@@ -410,9 +463,13 @@ def main(args):
         tags=[f"{args.method}"],
         config={
             "epochs": epochs,
-            "batch_size": config["batch_size"],
+            "batch_size": config["batch_size"]*args.gradient_accumulation_steps,
             "model": model.config._class_name,
         },
+    )
+
+    remaining_dataloader,removed_dataloader, model, optimizer, pipeline_scheduler = accelerator.prepare(
+            remaining_dataloader, removed_dataloader, model, optimizer, pipeline_scheduler
     )
 
     for epoch in tqdm(range(start_epoch, epochs)):
@@ -427,6 +484,10 @@ def main(args):
             optimizer.zero_grad()
 
             image_r = image_r.to(device)
+
+            if isinstance(pipeline, LDMPipeline):
+                image_r = vqvae.encode(image_r, False)[0]
+
             noise = torch.randn_like(image_r).to(device)
             timesteps = torch.randint(
                 0,
@@ -444,7 +505,8 @@ def main(args):
 
             noisy_images_r = pipeline_scheduler.add_noise(image_r, noise, timesteps)
 
-            eps_r = model(noisy_images_r, timesteps).sample
+            with accelerator.accumulate(model):
+                eps_r = model(noisy_images_r, timesteps).sample
 
             loss = loss_fn(eps_r, noise)
 
@@ -466,8 +528,7 @@ def main(args):
 
                 loss += loss_fn(eps_r, (eps_r_frozen - 1e-4 * eps_f_frozen))
 
-            loss.backward()
-
+            accelerator.backward(loss)
             optimizer.step()
             lr_scheduler.step()
             ema_model.step(model.parameters())
@@ -488,7 +549,7 @@ def main(args):
             ]
             params_norm = torch.cat(params).norm()
 
-            if (j + 1) % args.log_freq == 0:
+            if (j + 1)/args.gradient_accumulation_steps % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{num_epoch_steps}]"
@@ -525,10 +586,18 @@ def main(args):
             sampling_start_time = time.time()
 
             with torch.no_grad():
-                pipeline = DDIMPipeline(
-                    unet=model,
-                    scheduler=DDIMScheduler(num_train_timesteps=args.num_train_steps),
-                )
+
+                if args.dataset == "celeba":
+                    pipeline = LDMPipeline(
+                        unet=model,
+                        vqvae=vqvae,
+                        scheduler=pipeline_scheduler,
+                    ).to(device)
+                else:
+                    pipeline = DDIMPipeline(
+                        unet=model,
+                        scheduler=DDIMScheduler(num_train_timesteps=args.num_train_steps),
+                    )
 
                 samples = pipeline(
                     batch_size=config["n_samples"],
