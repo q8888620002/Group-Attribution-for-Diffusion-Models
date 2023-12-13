@@ -79,12 +79,6 @@ def parse_args():
     # fine-tuning params
 
     parser.add_argument(
-        "grad_accum",
-        default=False,
-        action="store_true",
-        help="whether to use gradient accumulation.",
-    )
-    parser.add_argument(
         "--dropout", type=float, default=0.1, help="The dropout rate for fine-tuning."
     )
     parser.add_argument(
@@ -423,13 +417,12 @@ def main(args):
     device = accelerator.device
 
     (
-        remaining_dataloader,
-        removed_dataloader,
+        train_dataloader,
         model,
         optimizer,
         pipeline_scheduler,
     ) = accelerator.prepare(
-        remaining_dataloader, removed_dataloader, model, optimizer, pipeline_scheduler
+        train_dataloader, model, optimizer, pipeline_scheduler
     )
 
     for epoch in range(start_epoch, epochs):

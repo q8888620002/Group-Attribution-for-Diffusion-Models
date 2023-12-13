@@ -427,8 +427,7 @@ def main(args):
 
     else:
         pipeline = DDPMPipeline(
-            unet=model,
-            scheduler=DDPMScheduler(**config["scheduler_config"])
+            unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
         ).to(device)
 
     pipeline_scheduler = pipeline.scheduler
@@ -465,7 +464,7 @@ def main(args):
         config={
             "epochs": epochs,
             "batch_size": config["batch_size"],
-            "gradient_accumulation_steps":  args.gradient_accumulation_steps,
+            "gradient_accumulation_steps": args.gradient_accumulation_steps,
             "model": model.config._class_name,
         },
     )
@@ -525,7 +524,9 @@ def main(args):
                     image_f = image_f.to(device)
 
                     with torch.no_grad():
-                        noisy_images_f = pipeline_scheduler.add_noise(image_f, noise, timesteps)
+                        noisy_images_f = pipeline_scheduler.add_noise(
+                            image_f, noise, timesteps
+                        )
                         eps_r_frozen = frozen_unet(noisy_images_r, timesteps).sample
                         eps_f_frozen = frozen_unet(noisy_images_f, timesteps).sample
                     loss += loss_fn(eps_r, (eps_r_frozen - 1e-4 * eps_f_frozen))
@@ -599,7 +600,7 @@ def main(args):
                         unet=model,
                         scheduler=DDIMScheduler(
                             num_train_timesteps=args.num_train_steps
-                        )
+                        ),
                     )
 
                 samples = pipeline(
