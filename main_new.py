@@ -239,13 +239,10 @@ def print_args(args):
 
 def main(args):
     """Main function for training or unlearning."""
-    device = args.device
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
     )
-    print(get_memory_free_MiB(0))
-    # import ipdb;ipdb.set_trace()
     device = accelerator.device
 
     if args.dataset == "cifar":
@@ -401,7 +398,7 @@ def main(args):
 
         print(f"Initializing model from scratch for {args.dataset}")
 
-        model = UNet2DModel(**config["unet_config"]).to(device)
+        model = UNet2DModel(**config["unet_config"])
 
         ema_model = EMAModel(
             model.parameters(),
@@ -412,9 +409,7 @@ def main(args):
             model_cls=UNet2DModel,
             model_config=model.config,
         )
-
-    print(get_memory_free_MiB(0))
-
+    ema_model.to(device)
     # Freeze vqvae
 
     if args.dataset == "celeba":
@@ -429,11 +424,13 @@ def main(args):
             vqvae=vqvae,
             scheduler=DDIMScheduler(**config["scheduler_config"]),
         ).to(device)
-        print(get_memory_free_MiB(0))
+
     else:
         pipeline = DDPMPipeline(
-            unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
-        )
+            unet=model,
+            scheduler=DDPMScheduler(**config["scheduler_config"])
+        ).to(device)
+
     pipeline_scheduler = pipeline.scheduler
 
     optimizer = torch.optim.Adam(
@@ -447,7 +444,7 @@ def main(args):
     lr_scheduler = get_scheduler(
         args.lr_scheduler,
         optimizer=optimizer,
-        num_warmup_steps=args.lr_warmup_steps * args.gradient_accumulation_steps,
+        num_warmup_steps=args.lr_warmup_steps,
         num_training_steps=full_num_epoch_steps * epochs,
     )  # Use the learning rate scheduler for training with the entire training set.
 
@@ -467,7 +464,8 @@ def main(args):
         tags=[f"{args.method}"],
         config={
             "epochs": epochs,
-            "batch_size": config["batch_size"] * args.gradient_accumulation_steps,
+            "batch_size": config["batch_size"],
+            "gradient_accumulation_steps":  args.gradient_accumulation_steps,
             "model": model.config._class_name,
         },
     )
@@ -517,31 +515,25 @@ def main(args):
 
             with accelerator.accumulate(model):
                 eps_r = model(noisy_images_r, timesteps).sample
+                loss = loss_fn(eps_r, noise)
 
-            loss = loss_fn(eps_r, noise)
+                if args.method == "ga":
+                    loss *= -1.0
 
-            if args.method == "ga":
-                loss *= -1.0
+                elif args.method == "esd":
 
-            elif args.method == "esd":
+                    image_f = image_f.to(device)
 
-                image_f = image_f.to(device)
+                    with torch.no_grad():
+                        noisy_images_f = pipeline_scheduler.add_noise(image_f, noise, timesteps)
+                        eps_r_frozen = frozen_unet(noisy_images_r, timesteps).sample
+                        eps_f_frozen = frozen_unet(noisy_images_f, timesteps).sample
+                    loss += loss_fn(eps_r, (eps_r_frozen - 1e-4 * eps_f_frozen))
 
-                with torch.no_grad():
-
-                    noisy_images_f = pipeline_scheduler.add_noise(
-                        image_f, noise, timesteps
-                    )
-
-                    eps_r_frozen = frozen_unet(noisy_images_r, timesteps).sample
-                    eps_f_frozen = frozen_unet(noisy_images_f, timesteps).sample
-
-                loss += loss_fn(eps_r, (eps_r_frozen - 1e-4 * eps_f_frozen))
-
-            accelerator.backward(loss)
-            optimizer.step()
-            lr_scheduler.step()
-            ema_model.step(model.parameters())
+                accelerator.backward(loss)
+                optimizer.step()
+                lr_scheduler.step()
+                ema_model.step(model.parameters())
 
             # check gradient norm & params norm
 
@@ -588,8 +580,7 @@ def main(args):
             epoch + 1
         ) == epochs:
 
-            model.eval()
-
+            model = accelerator.unwrap_model(model).eval()
             ema_model.store(model.parameters())
             ema_model.copy_to(model.parameters())
 
@@ -608,7 +599,7 @@ def main(args):
                         unet=model,
                         scheduler=DDIMScheduler(
                             num_train_timesteps=args.num_train_steps
-                        ),
+                        )
                     )
 
                 samples = pipeline(
@@ -618,6 +609,7 @@ def main(args):
                 ).images
 
                 samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
+                ema_model.restore(model.parameters())
 
             sampling_time = time.time() - sampling_start_time
 
@@ -662,9 +654,9 @@ def main(args):
 
         # Checkpoints for training.
         if (epoch + 1) % config["ckpt_freq"][args.method] == 0 or (epoch + 1) == epochs:
-
-            model.eval()
+            model = accelerator.unwrap_model(model).eval()
             model.zero_grad()
+
             torch.save(
                 model, os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt")
             )

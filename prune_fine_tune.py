@@ -17,6 +17,7 @@ from diffusers import (
     VQModel,
 )
 from diffusers.models.attention import Attention
+from accelerate import Accelerator
 from diffusers.models.resnet import Downsample2D, Upsample2D
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
@@ -96,7 +97,23 @@ def parse_args():
             ' "constant", "constant_with_warmup"]'
         ),
     )
-
+    parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        default=1,
+        help="Number of updates steps to accumulate before performing a backward/update pass.",
+    )
+    parser.add_argument(
+        "--mixed_precision",
+        type=str,
+        default="no",
+        choices=["no", "fp16", "bf16"],
+        help=(
+            "Whether to use mixed precision. Choose"
+            "between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >= 1.10."
+            "and an Nvidia Ampere GPU."
+        ),
+    )
     parser.add_argument("--num_inference_steps", type=int, default=100)
 
     parser.add_argument("--num_train_steps", type=int, default=1000)
@@ -397,7 +414,23 @@ def main(args):
     )
 
     ema_model.to(device)
-    num_accumulation_steps = 64 // args.batch_size
+
+    # Init accelerator
+    accelerator = Accelerator(
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        mixed_precision=args.mixed_precision,
+    )
+    device = accelerator.device
+
+    (
+        remaining_dataloader,
+        removed_dataloader,
+        model,
+        optimizer,
+        pipeline_scheduler,
+    ) = accelerator.prepare(
+        remaining_dataloader, removed_dataloader, model, optimizer, pipeline_scheduler
+    )
 
     for epoch in range(start_epoch, epochs):
 
@@ -428,63 +461,34 @@ def main(args):
             )[: len(image)]
 
             noisy_images = pipeline_scheduler.add_noise(image, noise, timesteps)
-            eps = model(noisy_images, timesteps).sample
 
-            loss = loss_fn(eps, noise)
+            with accelerator.accumulate(model):
 
-            if args.grad_accum:
-                # Gradient accumulation
-                loss = loss / num_accumulation_steps
-                loss.backward()
-                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-
-                if ((j + 1) % num_accumulation_steps == 0) or (
-                    j + 1 == len(train_dataloader)
-                ):
-                    optimizer.step()
-                    lr_scheduler.step()
-                    ema_model.step(model.parameters())
-
-                    grads = [
-                        param.grad.detach().flatten()
-                        for param in model.parameters()
-                        if param.grad is not None
-                    ]
-                    optimizer.zero_grad()
-
-                    grad_norm = torch.cat(grads).norm()
-
-                    params = [
-                        param.data.detach().flatten()
-                        for param in model.parameters()
-                        if param.data is not None
-                    ]
-                    params_norm = torch.cat(params).norm()
-
-            else:
-
-                loss.backward()
+                eps = model(noisy_images, timesteps).sample
+                loss = loss_fn(eps, noise)
+                accelerator.backward(loss)
                 nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 lr_scheduler.step()
-
                 ema_model.step(model.parameters())
 
-                grads = [
-                    param.grad.detach().flatten()
-                    for param in model.parameters()
-                    if param.grad is not None
-                ]
-                optimizer.zero_grad()
+            # Monitor gradient norm and params.
 
-                grad_norm = torch.cat(grads).norm()
+            grads = [
+                param.grad.detach().flatten()
+                for param in model.parameters()
+                if param.grad is not None
+            ]
+            optimizer.zero_grad()
 
-                params = [
-                    param.data.detach().flatten()
-                    for param in model.parameters()
-                    if param.data is not None
-                ]
-                params_norm = torch.cat(params).norm()
+            grad_norm = torch.cat(grads).norm()
+
+            params = [
+                param.data.detach().flatten()
+                for param in model.parameters()
+                if param.data is not None
+            ]
+            params_norm = torch.cat(params).norm()
 
             if (j + 1) % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
@@ -517,8 +521,7 @@ def main(args):
             or (epoch + 1) == epochs
         ):
 
-            model.eval()
-
+            model = accelerator.unwrap_model(model).eval()
             ema_model.store(model.parameters())
             ema_model.copy_to(model.parameters())
 
@@ -544,6 +547,7 @@ def main(args):
                     num_inference_steps=args.num_inference_steps,
                     output_type="numpy",
                 ).images
+                ema_model.restore(model.parameters())
 
             sampling_time = time.time() - sampling_start_time
 
@@ -568,7 +572,7 @@ def main(args):
         # Checkpoints for training.
         if (epoch + 1) % config["ckpt_freq"]["retrain"] == 0 or (epoch + 1) == epochs:
 
-            model.eval()
+            model = accelerator.unwrap_model(model).eval()
             model.zero_grad()
             torch.save(
                 model, os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt")
