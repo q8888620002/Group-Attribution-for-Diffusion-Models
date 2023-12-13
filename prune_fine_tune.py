@@ -8,6 +8,7 @@ import time
 import torch
 import torch.nn as nn
 import torch_pruning as tp
+from accelerate import Accelerator
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
@@ -17,7 +18,6 @@ from diffusers import (
     VQModel,
 )
 from diffusers.models.attention import Attention
-from accelerate import Accelerator
 from diffusers.models.resnet import Downsample2D, Upsample2D
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
@@ -421,9 +421,7 @@ def main(args):
         model,
         optimizer,
         pipeline_scheduler,
-    ) = accelerator.prepare(
-        train_dataloader, model, optimizer, pipeline_scheduler
-    )
+    ) = accelerator.prepare(train_dataloader, model, optimizer, pipeline_scheduler)
 
     for epoch in range(start_epoch, epochs):
 
@@ -456,34 +454,33 @@ def main(args):
             noisy_images = pipeline_scheduler.add_noise(image, noise, timesteps)
 
             with accelerator.accumulate(model):
-
+                optimizer.zero_grad()
                 eps = model(noisy_images, timesteps).sample
                 loss = loss_fn(eps, noise)
                 accelerator.backward(loss)
-                nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                accelerator.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 lr_scheduler.step()
                 ema_model.step(model.parameters())
 
-            # Monitor gradient norm and params.
+                # Monitor gradient norm and params.
 
-            grads = [
-                param.grad.detach().flatten()
-                for param in model.parameters()
-                if param.grad is not None
-            ]
-            optimizer.zero_grad()
+                grads = [
+                    param.grad.detach().flatten()
+                    for param in model.parameters()
+                    if param.grad is not None
+                ]
 
-            grad_norm = torch.cat(grads).norm()
+                grad_norm = torch.cat(grads).norm()
 
-            params = [
-                param.data.detach().flatten()
-                for param in model.parameters()
-                if param.data is not None
-            ]
-            params_norm = torch.cat(params).norm()
+                params = [
+                    param.data.detach().flatten()
+                    for param in model.parameters()
+                    if param.data is not None
+                ]
+                params_norm = torch.cat(params).norm()
 
-            if (j + 1) % args.log_freq == 0:
+            if (j + 1)/args.gradient_accumulation_steps % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{len(train_dataloader)}]"

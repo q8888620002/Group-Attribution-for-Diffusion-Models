@@ -488,7 +488,6 @@ def main(args):
         ):
 
             model.train()
-            optimizer.zero_grad()
 
             image_r = image_r.to(device)
 
@@ -513,6 +512,7 @@ def main(args):
             noisy_images_r = pipeline_scheduler.add_noise(image_r, noise, timesteps)
 
             with accelerator.accumulate(model):
+                optimizer.zero_grad()
                 eps_r = model(noisy_images_r, timesteps).sample
                 loss = loss_fn(eps_r, noise)
 
@@ -520,9 +520,7 @@ def main(args):
                     loss *= -1.0
 
                 elif args.method == "esd":
-
                     image_f = image_f.to(device)
-
                     with torch.no_grad():
                         noisy_images_f = pipeline_scheduler.add_noise(
                             image_f, noise, timesteps
@@ -532,25 +530,27 @@ def main(args):
                     loss += loss_fn(eps_r, (eps_r_frozen - 1e-4 * eps_f_frozen))
 
                 accelerator.backward(loss)
+                accelerator.clip_grad_norm_(model.parameters(), 1.0)
+
                 optimizer.step()
                 lr_scheduler.step()
                 ema_model.step(model.parameters())
 
-            # check gradient norm & params norm
+                # check gradient norm & params norm
 
-            grads = [
-                param.grad.detach().flatten()
-                for param in model.parameters()
-                if param.grad is not None
-            ]
-            grad_norm = torch.cat(grads).norm()
+                grads = [
+                    param.grad.detach().flatten()
+                    for param in model.parameters()
+                    if param.grad is not None
+                ]
+                grad_norm = torch.cat(grads).norm()
 
-            params = [
-                param.data.detach().flatten()
-                for param in model.parameters()
-                if param.data is not None
-            ]
-            params_norm = torch.cat(params).norm()
+                params = [
+                    param.data.detach().flatten()
+                    for param in model.parameters()
+                    if param.data is not None
+                ]
+                params_norm = torch.cat(params).norm()
 
             if (j + 1) / args.gradient_accumulation_steps % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
