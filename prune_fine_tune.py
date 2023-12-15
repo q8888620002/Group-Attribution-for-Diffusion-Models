@@ -421,7 +421,8 @@ def main(args):
         model,
         optimizer,
         pipeline_scheduler,
-    ) = accelerator.prepare(train_dataloader, model, optimizer, pipeline_scheduler)
+        lr_scheduler
+    ) = accelerator.prepare(train_dataloader, model, optimizer, pipeline_scheduler,lr_scheduler)
 
     for epoch in range(start_epoch, epochs):
 
@@ -461,8 +462,9 @@ def main(args):
                 accelerator.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
                 lr_scheduler.step()
-                ema_model.step(model.parameters())
 
+                if (j + 1) % args.gradient_accumulation_steps == 0:
+                    ema_model.step(model.parameters())
                 # Monitor gradient norm and params.
 
                 grads = [
@@ -556,8 +558,6 @@ def main(args):
                 os.path.join(sample_outdir, f"steps_{global_steps:0>8}.png"),
                 nrow=int(math.sqrt(config["n_samples"])),
             )
-
-            ema_model.restore(model.parameters())
 
         # Checkpoints for training.
         if (epoch + 1) % config["ckpt_freq"]["retrain"] == 0 or (epoch + 1) == epochs:

@@ -475,8 +475,9 @@ def main(args):
         model,
         optimizer,
         pipeline_scheduler,
+        lr_scheduler
     ) = accelerator.prepare(
-        remaining_dataloader, removed_dataloader, model, optimizer, pipeline_scheduler
+        remaining_dataloader, removed_dataloader, model, optimizer, pipeline_scheduler, lr_scheduler
     )
 
     for epoch in tqdm(range(start_epoch, epochs)):
@@ -534,7 +535,9 @@ def main(args):
 
                 optimizer.step()
                 lr_scheduler.step()
-                ema_model.step(model.parameters())
+
+                if (j + 1) % args.gradient_accumulation_steps == 0:
+                    ema_model.step(model.parameters())
 
                 # check gradient norm & params norm
 
