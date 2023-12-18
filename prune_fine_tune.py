@@ -206,7 +206,7 @@ def main(args):
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=True,
-        batch_size=batch_size,
+        batch_size=config["batch_size"],
         num_workers=4,
     )
 

@@ -323,7 +323,7 @@ def main(args):
         Subset(train_dataset, remaining_idx),
         batch_size=config["batch_size"],
         shuffle=True,
-        num_workers=4,
+        num_workers=1,
     )
     if args.method == "esd":
         # Only esd requires the removed data loader.
@@ -333,7 +333,7 @@ def main(args):
             Subset(train_dataset, removed_idx),
             batch_size=config["batch_size"],
             shuffle=True,
-            num_workers=4,
+            num_workers=1,
         )
         num_epoch_steps = min(len(remaining_dataloader), len(removed_dataloader))
     else:
@@ -345,46 +345,25 @@ def main(args):
     epochs = config["epochs"][args.method]
     global_steps = start_epoch * num_epoch_steps
 
-    pretrained_steps = get_max_steps(args.load) if args.load else None
+    if not args.init :
+        # check if there's existing checkpoint.
 
-    if pretrained_steps is not None:
-        # Loading model
-        print("Loading pruned/pretrained model from {}".format(args.load))
+        pretrained_steps = get_max_steps(args.load) if args.load else None
 
-        unet_out_dir = os.path.join(args.load, f"unet_steps_{pretrained_steps:0>8}.pt")
-        unet_ema_out_dir = os.path.join(
-            args.load, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
-        )
+        if pretrained_steps is not None:
+            # Loading and training model from an existing checkpoint.
+            print("Loading model from checkpoint at ".format(args.load))
 
-        model = torch.load(unet_out_dir, map_location=device)
-        ema_model = torch.load(unet_ema_out_dir, map_location=device)
-
-        ema_model = EMAModel(
-            ema_model.parameters(),
-            decay=args.ema_max_decay,
-            use_ema_warmup=False,
-            inv_gamma=args.ema_inv_gamma,
-            power=args.ema_power,
-            model_cls=UNet2DModel,
-            model_config=model.config,
-        )
-
-        global_steps = pretrained_steps
-
-        if args.init:
-
-            print(
-                "initialized a new model from pruned/pretrained at {}.".format(
-                    args.load
-                )
+            unet_out_dir = os.path.join(args.load, f"unet_steps_{pretrained_steps:0>8}.pt")
+            unet_ema_out_dir = os.path.join(
+                args.load, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
             )
 
-            for m in model.modules():
-                if hasattr(m, "reset_parameters"):
-                    m.reset_parameters()
+            model = torch.load(unet_out_dir, map_location=device)
+            ema_model = torch.load(unet_ema_out_dir, map_location=device)
 
             ema_model = EMAModel(
-                model.parameters(),
+                ema_model.parameters(),
                 decay=args.ema_max_decay,
                 use_ema_warmup=False,
                 inv_gamma=args.ema_inv_gamma,
@@ -392,6 +371,69 @@ def main(args):
                 model_cls=UNet2DModel,
                 model_config=model.config,
             )
+
+            global_steps = pretrained_steps
+
+        else:
+            print("Checkpoing does not exist. ")
+
+            if args.method != "retrain":
+                # Load pruned model for unlearning if checkpoint/pretrained_steps is none.
+                pruned_modeldir = os.path.join(
+                    args.outdir,
+                    args.dataset,
+                    "pruned/models/pruner=magnitude_pruning_ratio=0.3_threshold=0.05"
+                )
+                print("Loading pruned model from {} for unlearning".format(pruned_modeldir))
+                pretrained_steps = get_max_steps(pruned_modeldir)
+                unet_out_dir = os.path.join(pruned_modeldir, f"unet_steps_{pretrained_steps:0>8}.pt")
+                unet_ema_out_dir = os.path.join(
+                    pruned_modeldir, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
+                )
+                model = torch.load(unet_out_dir, map_location=device)
+                ema_model = torch.load(unet_ema_out_dir, map_location=device)
+
+                ema_model = EMAModel(
+                    ema_model.parameters(),
+                    decay=args.ema_max_decay,
+                    use_ema_warmup=False,
+                    inv_gamma=args.ema_inv_gamma,
+                    power=args.ema_power,
+                    model_cls=UNet2DModel,
+                    model_config=model.config,
+                )
+            else:
+                # load pre-trained pipeline and reinitialize model if retraining.
+                print("Loading pretrained model for retraining {}".format(args.dataset))
+
+                if args.dataset == "celeba":
+
+                    model_id = "CompVis/ldm-celebahq-256"
+                    model = UNet2DModel.from_pretrained(model_id, subfolder="unet")
+                    vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
+                    # Freeze VQVAE.
+                    for param in vqvae.parameters():
+                        param.requires_grad = False
+
+                elif args.dataset == "cifar":
+                    pretrained_modeldir = os.path.join(args.outdir, f"pretrained_models/{args.dataset}")
+
+                    pipeline = DDPMPipeline.from_pretrained(pretrained_modeldir)
+                    model = pipeline.unet
+
+                for m in model.modules():
+                    if hasattr(m, "reset_parameters"):
+                        m.reset_parameters()
+
+                ema_model = EMAModel(
+                    model.parameters(),
+                    decay=args.ema_max_decay,
+                    use_ema_warmup=False,
+                    inv_gamma=args.ema_inv_gamma,
+                    power=args.ema_power,
+                    model_cls=UNet2DModel,
+                    model_config=model.config,
+                )
 
     else:
         # initializing standard model from scratch.
@@ -410,15 +452,8 @@ def main(args):
             model_config=model.config,
         )
     ema_model.to(device)
-    # Freeze vqvae
 
     if args.dataset == "celeba":
-        # init and freeze VQVAE.
-        vqvae = VQModel.from_pretrained("CompVis/ldm-celebahq-256", subfolder="vqvae")
-
-        for param in vqvae.parameters():
-            param.requires_grad = False
-
         pipeline = LDMPipeline(
             unet=model,
             vqvae=vqvae,
@@ -453,7 +488,7 @@ def main(args):
 
     if args.method == "esd":
         pipeline_frozen = DDPMPipeline.from_pretrained(
-            os.path.join(args.outdir, "pretrained_models/cifar")
+            os.path.join(args.outdir, f"pretrained_models/{args.dataset}")
         )
         frozen_unet = pipeline_frozen.unet.to(device)
 
