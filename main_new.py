@@ -345,7 +345,7 @@ def main(args):
     epochs = config["epochs"][args.method]
     global_steps = start_epoch * num_epoch_steps
 
-    if not args.init :
+    if not args.init:
         # check if there's existing checkpoint.
 
         pretrained_steps = get_max_steps(args.load) if args.load else None
@@ -354,7 +354,9 @@ def main(args):
             # Loading and training model from an existing checkpoint.
             print("Loading model from checkpoint at ".format(args.load))
 
-            unet_out_dir = os.path.join(args.load, f"unet_steps_{pretrained_steps:0>8}.pt")
+            unet_out_dir = os.path.join(
+                args.load, f"unet_steps_{pretrained_steps:0>8}.pt"
+            )
             unet_ema_out_dir = os.path.join(
                 args.load, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
             )
@@ -382,11 +384,17 @@ def main(args):
                 pruned_modeldir = os.path.join(
                     args.outdir,
                     args.dataset,
-                    "pruned/models/pruner=magnitude_pruning_ratio=0.3_threshold=0.05"
+                    "pruned/models/pruner=magnitude_pruning_ratio=0.3_threshold=0.05",
                 )
-                print("Loading pruned model from {} for unlearning".format(pruned_modeldir))
+                print(
+                    "Loading pruned model from {} for unlearning".format(
+                        pruned_modeldir
+                    )
+                )
                 pretrained_steps = get_max_steps(pruned_modeldir)
-                unet_out_dir = os.path.join(pruned_modeldir, f"unet_steps_{pretrained_steps:0>8}.pt")
+                unet_out_dir = os.path.join(
+                    pruned_modeldir, f"unet_steps_{pretrained_steps:0>8}.pt"
+                )
                 unet_ema_out_dir = os.path.join(
                     pruned_modeldir, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
                 )
@@ -416,7 +424,9 @@ def main(args):
                         param.requires_grad = False
 
                 elif args.dataset == "cifar":
-                    pretrained_modeldir = os.path.join(args.outdir, f"pretrained_models/{args.dataset}")
+                    pretrained_modeldir = os.path.join(
+                        args.outdir, f"pretrained_models/{args.dataset}"
+                    )
 
                     pipeline = DDPMPipeline.from_pretrained(pretrained_modeldir)
                     model = pipeline.unet
@@ -510,9 +520,14 @@ def main(args):
         model,
         optimizer,
         pipeline_scheduler,
-        lr_scheduler
+        lr_scheduler,
     ) = accelerator.prepare(
-        remaining_dataloader, removed_dataloader, model, optimizer, pipeline_scheduler, lr_scheduler
+        remaining_dataloader,
+        removed_dataloader,
+        model,
+        optimizer,
+        pipeline_scheduler,
+        lr_scheduler,
     )
 
     for epoch in tqdm(range(start_epoch, epochs)):
