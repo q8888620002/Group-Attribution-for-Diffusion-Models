@@ -275,6 +275,7 @@ def main(args):
         args.dataset,
         args.method,
         "models",
+        args.removal_dist,
         removal_dir,
     )
     os.makedirs(model_outdir, exist_ok=True)
@@ -284,6 +285,7 @@ def main(args):
         args.dataset,
         args.method,
         "samples",
+        args.removal_dist,
         removal_dir,
     )
     os.makedirs(sample_outdir, exist_ok=True)
@@ -346,7 +348,7 @@ def main(args):
     global_steps = start_epoch * num_epoch_steps
 
     if not args.init:
-        # check if there's existing checkpoint.
+        # check if there's an existing checkpoint.
 
         pretrained_steps = get_max_steps(args.load) if args.load else None
 
@@ -504,7 +506,7 @@ def main(args):
 
     wandb.init(
         project="Data Shapley for Diffusion",
-        notes=f"Experiment for {args.method}:{args.dataset}",
+        notes=f"Experiment for {args.method};{args.removal_dist};{args.dataset}",
         tags=[f"{args.method}"],
         config={
             "epochs": epochs,

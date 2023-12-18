@@ -17,8 +17,8 @@ class DDPMConfig:
         "lr": 1e-4,
         "batch_size": 128,
         "epochs": {"retrain": 800, "ga": 5, "gd": 10, "esd": 500},
-        "ckpt_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 250},
-        "sample_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 20},
+        "ckpt_freq": {"retrain": 100, "ga": 1, "gd": 1, "esd": 100},
+        "sample_freq": {"retrain": 100, "ga": 1, "gd": 1, "esd": 100},
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
