@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Make Init wandb api
-export WANDB_API_KEY="a010d8a84d6d1f4afed42df8d3e37058369030c4"
+export WANDB_API_KEY="YOUR WANDB API KEY"
 
 # let's source our ~/.bashrc for 'conda', then activate our environment.
 . ~/.bashrc
