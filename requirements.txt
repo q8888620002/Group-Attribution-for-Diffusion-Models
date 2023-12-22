@@ -12,4 +12,6 @@ scipy
 ftfy
 regex
 wandb
+pynvml
+accelerate
 clip @ git+https://github.com/openai/CLIP.git

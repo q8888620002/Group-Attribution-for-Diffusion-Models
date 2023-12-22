@@ -265,7 +265,7 @@ def main(args):
     if args.excluded_class is not None:
         removal_dir = f"excluded_{args.excluded_class}"
     if args.removal_dist is not None:
-        removal_dir = f"{args.removal_dist}"
+        removal_dir = f"{args.removal_dist}/{args.removal_dist}"
         if args.removal_dist == "datamodel":
             removal_dir += f"_alpha={args.datamodel_alpha}"
         removal_dir += f"_seed={args.removal_seed}"
@@ -275,7 +275,6 @@ def main(args):
         args.dataset,
         args.method,
         "models",
-        args.removal_dist,
         removal_dir,
     )
     os.makedirs(model_outdir, exist_ok=True)
@@ -285,9 +284,9 @@ def main(args):
         args.dataset,
         args.method,
         "samples",
-        args.removal_dist,
-        removal_dir,
+        removal_dir
     )
+
     os.makedirs(sample_outdir, exist_ok=True)
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
@@ -507,6 +506,7 @@ def main(args):
     wandb.init(
         project="Data Shapley for Diffusion",
         notes=f"Experiment for {args.method};{args.removal_dist};{args.dataset}",
+        dir="/gscratch/aims/diffusion-attr/results_ming/wandb",
         tags=[f"{args.method}"],
         config={
             "epochs": epochs,
