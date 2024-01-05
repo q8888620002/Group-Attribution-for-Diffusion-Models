@@ -91,6 +91,10 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
+        "",
+
+    )
+    parser.add_argument(
         "--datamodel_alpha",
         type=float,
         help="proportion of full dataset to keep in the datamodel distribution",
@@ -378,7 +382,7 @@ def main(args):
             global_steps = pretrained_steps
 
         else:
-            print("Checkpoing does not exist. ")
+            print("Checkpoint does not exist. ")
 
             if args.method != "retrain":
                 # Load pruned model for unlearning if checkpoint/pretrained_steps is none.
@@ -419,10 +423,6 @@ def main(args):
 
                     model_id = "CompVis/ldm-celebahq-256"
                     model = UNet2DModel.from_pretrained(model_id, subfolder="unet")
-                    vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
-                    # Freeze VQVAE.
-                    for param in vqvae.parameters():
-                        param.requires_grad = False
 
                 elif args.dataset == "cifar":
                     pretrained_modeldir = os.path.join(
@@ -465,6 +465,12 @@ def main(args):
     ema_model.to(device)
 
     if args.dataset == "celeba":
+        model_id = "CompVis/ldm-celebahq-256"
+        vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
+
+        for param in vqvae.parameters():
+            param.requires_grad = False
+
         pipeline = LDMPipeline(
             unet=model,
             vqvae=vqvae,
@@ -473,7 +479,8 @@ def main(args):
 
     else:
         pipeline = DDPMPipeline(
-            unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
+            unet=model,
+            scheduler=DDPMScheduler(**config["scheduler_config"])
         ).to(device)
 
     pipeline_scheduler = pipeline.scheduler
@@ -503,18 +510,20 @@ def main(args):
         )
         frozen_unet = pipeline_frozen.unet.to(device)
 
-    wandb.init(
-        project="Data Shapley for Diffusion",
-        notes=f"Experiment for {args.method};{args.removal_dist};{args.dataset}",
-        dir="/gscratch/aims/diffusion-attr/results_ming/wandb",
-        tags=[f"{args.method}"],
-        config={
-            "epochs": epochs,
-            "batch_size": config["batch_size"],
-            "gradient_accumulation_steps": args.gradient_accumulation_steps,
-            "model": model.config._class_name,
-        },
-    )
+    if args.wandb:
+
+        wandb.init(
+            project="Data Shapley for Diffusion",
+            notes=f"Experiment for {args.method};{args.removal_dist};{args.dataset}",
+            dir="/gscratch/aims/diffusion-attr/results_ming/wandb",
+            tags=[f"{args.method}"],
+            config={
+                "epochs": epochs,
+                "batch_size": config["batch_size"],
+                "gradient_accumulation_steps": args.gradient_accumulation_steps,
+                "model": model.config._class_name,
+            },
+        )
 
     (
         remaining_dataloader,
@@ -619,16 +628,18 @@ def main(args):
                 print(info, flush=True)
                 steps_start_time = time.time()
 
-                wandb.log(
-                    {
-                        "Epoch": (epoch + 1),
-                        "loss": loss.detach().cpu().item(),
-                        "steps_time": steps_time,
-                        "gradient norms": grad_norm,
-                        "parameters norms": params_norm,
-                        "lr": lr_scheduler.get_last_lr()[0],
-                    }
-                )
+                if args.wandb:
+
+                    wandb.log(
+                        {
+                            "Epoch": (epoch + 1),
+                            "loss": loss.detach().cpu().item(),
+                            "steps_time": steps_time,
+                            "gradient norms": grad_norm,
+                            "parameters norms": params_norm,
+                            "lr": lr_scheduler.get_last_lr()[0],
+                        }
+                    )
             global_steps += 1
 
         # Generate samples for evaluation.

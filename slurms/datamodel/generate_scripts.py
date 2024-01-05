@@ -34,13 +34,21 @@ def parse_args():
         choices=["retrain", "gd", "ga", "esd"],
         required=True,
     )
+
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        help="alpha for the data model",
+        required=True,
+    )
+
     return parser.parse_args()
 
 def main(args):
 
     # Generate the lines with different seeds
     for seed in seed_range:
-        line = f'--dataset {args.dataset} --device cuda:0 --load /gscratch/scrubbed/mingyulu/diffusion-attr/{args.dataset}/{args.method}/models/{args.removal_dist}/{args.removal_dist}_alpha=0.5_seed={seed} --removal_dist {args.removal_dist} --method {args.method} --removal_seed {seed}\n'
+        line = f'--dataset {args.dataset} --device cuda:0 --load /gscratch/scrubbed/mingyulu/diffusion-attr/{args.dataset}/{args.method}/models/{args.removal_dist}/{args.removal_dist}_alpha={args.alpha}_seed={seed} --removal_dist {args.removal_dist} --method {args.method} --removal_seed {seed}\n'
         lines.append(line)
 
     # Create sublists of lines every 1500 lines

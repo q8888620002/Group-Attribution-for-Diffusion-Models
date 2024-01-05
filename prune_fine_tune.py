@@ -37,10 +37,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--load",
-        type=str,
-        help="path for loading pre-trained model",
-        default=None
+        "--load", type=str, help="path for loading pre-trained model", default=None
     )
 
     parser.add_argument(
@@ -50,16 +47,8 @@ def parse_args():
         choices=["mnist", "cifar", "celeba"],
         default="mnist",
     )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=128
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="cuda:0"
-    )
+    parser.add_argument("--batch_size", type=int, default=128)
+    parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument(
         "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
@@ -354,16 +343,13 @@ def main(args):
         # Loading and training model from an existing checkpoint.
         print("Loading model from checkpoint at ".format(args.load))
 
-        unet_out_dir = os.path.join(
-            args.load, f"unet_steps_{pretrained_steps:0>8}.pt"
-        )
+        unet_out_dir = os.path.join(args.load, f"unet_steps_{pretrained_steps:0>8}.pt")
         unet_ema_out_dir = os.path.join(
             args.load, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
         )
 
         model = torch.load(unet_out_dir, map_location=device)
         ema_model = torch.load(unet_ema_out_dir, map_location=device)
-
 
     if args.dataset == "cifar":
         pipeline.unet = model
@@ -384,7 +370,9 @@ def main(args):
     pipeline.save_pretrained(pipeline_dir)
 
     start_epoch = 0
-    global_steps = pretrained_steps if pretrained_steps else start_epoch * len(train_dataloader)
+    global_steps = (
+        pretrained_steps if pretrained_steps else start_epoch * len(train_dataloader)
+    )
 
     if args.pruning_ratio > 0:
         model_outdir = os.path.join(outdir, dataset, "pruned/models", pruning_params)
@@ -465,8 +453,10 @@ def main(args):
         model,
         optimizer,
         pipeline_scheduler,
-        lr_scheduler
-    ) = accelerator.prepare(train_dataloader, model, optimizer, pipeline_scheduler,lr_scheduler)
+        lr_scheduler,
+    ) = accelerator.prepare(
+        train_dataloader, model, optimizer, pipeline_scheduler, lr_scheduler
+    )
 
     for epoch in range(start_epoch, epochs):
 
@@ -526,7 +516,7 @@ def main(args):
                 ]
                 params_norm = torch.cat(params).norm()
 
-            if (j + 1)/args.gradient_accumulation_steps % args.log_freq == 0:
+            if (j + 1) / args.gradient_accumulation_steps % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{len(train_dataloader)}]"
