@@ -91,8 +91,10 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
-        "",
-
+        "--wandb",
+        help="whether to monitor model training with wandb",
+        action="store_true",
+        default=False,
     )
     parser.add_argument(
         "--datamodel_alpha",
