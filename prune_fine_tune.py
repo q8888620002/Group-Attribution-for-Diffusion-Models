@@ -29,12 +29,17 @@ from tqdm import tqdm
 import constants
 import wandb
 from ddpm_config import DDPMConfig
-from utils import create_dataset
+from utils import create_dataset, get_max_steps
 
 
 def parse_args():
     """Parsing arguments"""
     parser = argparse.ArgumentParser()
+
+    parser.add_argument(
+        "--load", type=str, help="path for loading pre-trained model", default=None
+    )
+
     parser.add_argument(
         "--dataset",
         type=str,
@@ -206,7 +211,7 @@ def main(args):
     train_dataloader = DataLoader(
         train_dataset,
         shuffle=True,
-        batch_size=batch_size,
+        batch_size=config["batch_size"],
         num_workers=4,
     )
 
@@ -332,6 +337,20 @@ def main(args):
 
             reset_parameters(model)
 
+    pretrained_steps = get_max_steps(args.load) if args.load else None
+
+    if pretrained_steps is not None:
+        # Loading and training model from an existing checkpoint.
+        print("Loading model from checkpoint at ".format(args.load))
+
+        unet_out_dir = os.path.join(args.load, f"unet_steps_{pretrained_steps:0>8}.pt")
+        unet_ema_out_dir = os.path.join(
+            args.load, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
+        )
+
+        model = torch.load(unet_out_dir, map_location=device)
+        ema_model = torch.load(unet_ema_out_dir, map_location=device)
+
     if args.dataset == "cifar":
         pipeline.unet = model
         pipeline.to(device)
@@ -351,7 +370,9 @@ def main(args):
     pipeline.save_pretrained(pipeline_dir)
 
     start_epoch = 0
-    global_steps = start_epoch * len(train_dataloader)
+    global_steps = (
+        pretrained_steps if pretrained_steps else start_epoch * len(train_dataloader)
+    )
 
     if args.pruning_ratio > 0:
         model_outdir = os.path.join(outdir, dataset, "pruned/models", pruning_params)
@@ -370,15 +391,26 @@ def main(args):
 
     epochs = config["epochs"]["retrain"]
 
-    ema_model = EMAModel(
-        model.parameters(),
-        decay=args.ema_max_decay,
-        use_ema_warmup=False,
-        inv_gamma=args.ema_inv_gamma,
-        power=args.ema_power,
-        model_cls=UNet2DModel,
-        model_config=model.config,
-    )
+    if args.load:
+        ema_model = EMAModel(
+            ema_model.parameters(),
+            decay=args.ema_max_decay,
+            use_ema_warmup=False,
+            inv_gamma=args.ema_inv_gamma,
+            power=args.ema_power,
+            model_cls=UNet2DModel,
+            model_config=model.config,
+        )
+    else:
+        ema_model = EMAModel(
+            model.parameters(),
+            decay=args.ema_max_decay,
+            use_ema_warmup=False,
+            inv_gamma=args.ema_inv_gamma,
+            power=args.ema_power,
+            model_cls=UNet2DModel,
+            model_config=model.config,
+        )
 
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -421,8 +453,10 @@ def main(args):
         model,
         optimizer,
         pipeline_scheduler,
-        lr_scheduler
-    ) = accelerator.prepare(train_dataloader, model, optimizer, pipeline_scheduler,lr_scheduler)
+        lr_scheduler,
+    ) = accelerator.prepare(
+        train_dataloader, model, optimizer, pipeline_scheduler, lr_scheduler
+    )
 
     for epoch in range(start_epoch, epochs):
 
@@ -482,7 +516,7 @@ def main(args):
                 ]
                 params_norm = torch.cat(params).norm()
 
-            if (j + 1)/args.gradient_accumulation_steps % args.log_freq == 0:
+            if (j + 1) / args.gradient_accumulation_steps % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{len(train_dataloader)}]"

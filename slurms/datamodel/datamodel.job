@@ -1,0 +1,21 @@
+#!/bin/bash
+
+#SBATCH --job-name=retrain_datamodel
+#SBATCH --account=aims
+#SBATCH --partition=ckpt
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --gpus=1
+#SBATCH --constraint=[rtx6k]
+#SBATCH --time=24:00:00
+#SBATCH --mem=12G
+#SBATCH --export=all
+#SBATCH --output=/mmfs1/home/mingyulu/data_attribution/slurms_ming/datamodel/logs/run-%A-%a.out
+#SBATCH --requeue
+#SBATCH --array=1-1500
+
+PARAMS_FILE="/mmfs1/home/mingyulu/data_attribution/slurms_ming/datamodel/params/datamodel_retrain_cifar_1.txt"
+PARAMS="$(tail -n +${SLURM_ARRAY_TASK_ID} ${PARAMS_FILE} | head -n 1)"
+echo $PARAMS
+/mmfs1/home/mingyulu/data_attribution/slurms_ming/retrain.sh $PARAMS
