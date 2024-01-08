@@ -7,6 +7,7 @@ import os
 import sys
 import time
 
+import diffusers
 import numpy as np
 import torch
 import torch.nn as nn
@@ -15,6 +16,7 @@ from diffusers import (
     DDIMScheduler,
     DDPMPipeline,
     DDPMScheduler,
+    DiffusionPipeline,
     UNet2DModel,
 )
 from diffusers.optimization import get_scheduler
@@ -29,6 +31,8 @@ import wandb  # wandb for monitoring loss https://wandb.ai/
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
 from utils import (
+    ImagenetteCaptioner,
+    LabelTokenizer,
     create_dataset,
     get_max_steps,
     remove_data_by_class,
@@ -57,7 +61,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar"],
+        choices=["mnist", "cifar", "imagenette"],
         default="mnist",
     )
     parser.add_argument(
@@ -221,6 +225,8 @@ def main(args):
             torch.load("eval/models/epochs=10_cnn_weights.pt", map_location=device)
         )
         classifier.eval()
+    elif args.dataset == "imagenette":
+        config = {**DDPMConfig.imagenette_config}
     else:
         raise ValueError(f"dataset={args.dataset} is not one of ['cifar', 'mnist']")
 
@@ -361,7 +367,9 @@ def main(args):
 
         print(f"Initializing model from scratch for {args.dataset}")
 
-        model = UNet2DModel(**config["unet_config"]).to(device)
+        model = getattr(diffusers, config["unet_config"]["_class_name"])(
+            **config["unet_config"]
+        ).to(device)
 
         ema_model = EMAModel(
             model.parameters(),
@@ -369,13 +377,29 @@ def main(args):
             use_ema_warmup=False,
             inv_gamma=args.ema_inv_gamma,
             power=args.ema_power,
-            model_cls=UNet2DModel,
+            model_cls=getattr(diffusers, config["unet_config"]["_class_name"]),
             model_config=model.config,
         )
+    if args.dataset == "imagenette":
+        # The pipeline is of class LDMTextToImagePipeline.
+        pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-text2im-large-256")
+        pipeline.unet = model
 
-    pipeline = DDPMPipeline(
-        unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
-    )
+        vqvae = pipeline.vqvae
+        text_encoder = pipeline.bert
+        tokenizer = pipeline.tokenizer
+        captioner = ImagenetteCaptioner(train_dataset)
+        label_tokenizer = LabelTokenizer(captioner=captioner, tokenizer=tokenizer)
+
+        vqvae.requires_grad_(False)
+        text_encoder.requires_grad_(False)
+
+        vqvae = vqvae.to(device)
+        text_encoder = text_encoder.to(device)
+    else:
+        pipeline = DDPMPipeline(
+            unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
+        )
 
     pipeline_scheduler = pipeline.scheduler
 
@@ -419,14 +443,19 @@ def main(args):
 
         steps_start_time = time.time()
 
-        for j, ((image_r, _), (image_f, _)) in enumerate(
+        for j, ((image_r, label_r), (image_f, label_f)) in enumerate(
             zip(remaining_dataloader, removed_dataloader)
         ):
-
             model.train()
             optimizer.zero_grad()
 
             image_r = image_r.to(device)
+            if args.dataset == "imagenette":
+                image_r = vqvae.encode(image_r).latent_dist.sample()
+                image_r = image_r * vqvae.config.scaling_factor
+                input_ids_r = label_tokenizer(label_r).to(device)
+                encoder_hidden_states_r = text_encoder(input_ids_r)[0]
+
             noise = torch.randn_like(image_r).to(device)
             timesteps = torch.randint(
                 0,
@@ -444,7 +473,10 @@ def main(args):
 
             noisy_images_r = pipeline_scheduler.add_noise(image_r, noise, timesteps)
 
-            eps_r = model(noisy_images_r, timesteps).sample
+            if args.dataset == "imagenette":
+                eps_r = model(noisy_images_r, timesteps, encoder_hidden_states_r).sample
+            else:
+                eps_r = model(noisy_images_r, timesteps).sample
 
             loss = loss_fn(eps_r, noise)
 
@@ -454,6 +486,11 @@ def main(args):
             elif args.method == "esd":
 
                 image_f = image_f.to(device)
+                if args.dataset == "imagenette":
+                    image_f = vqvae.encode(image_f).latent_dist.sample()
+                    image_f = image_f * vqvae.config.scaling_factor
+                    input_ids_f = label_tokenizer(label_f).to(device)
+                    encoder_hidden_states_f = text_encoder(input_ids_f)[0]
 
                 with torch.no_grad():
 
@@ -461,8 +498,16 @@ def main(args):
                         image_f, noise, timesteps
                     )
 
-                    eps_r_frozen = frozen_unet(noisy_images_r, timesteps).sample
-                    eps_f_frozen = frozen_unet(noisy_images_f, timesteps).sample
+                    if args.dataset == "imagenette":
+                        eps_r_frozen = frozen_unet(
+                            noisy_images_r, timesteps, encoder_hidden_states_r
+                        ).sample
+                        eps_f_frozen = frozen_unet(
+                            noisy_images_f, timesteps, encoder_hidden_states_f
+                        ).sample
+                    else:
+                        eps_r_frozen = frozen_unet(noisy_images_r, timesteps).sample
+                        eps_f_frozen = frozen_unet(noisy_images_f, timesteps).sample
 
                 loss += loss_fn(eps_r, (eps_r_frozen - 1e-4 * eps_f_frozen))
 
@@ -525,16 +570,35 @@ def main(args):
             sampling_start_time = time.time()
 
             with torch.no_grad():
-                pipeline = DDIMPipeline(
-                    unet=model,
-                    scheduler=DDIMScheduler(num_train_timesteps=args.num_train_steps),
-                )
-
-                samples = pipeline(
-                    batch_size=config["n_samples"],
-                    num_inference_steps=args.num_inference_steps,
-                    output_type="numpy",
-                ).images
+                if args.dataset == "imagenette":
+                    samples = []
+                    n_samples_per_cls = math.ceil(
+                        config["n_samples"] / captioner.num_classes
+                    )
+                    classes = [idx for idx in range(captioner.num_classes)]
+                    for _ in range(n_samples_per_cls):
+                        samples.append(
+                            pipeline(
+                                prompt=captioner(classes),
+                                num_inference_steps=50,
+                                eta=0.3,
+                                guidance_scale=6,
+                                output_type="numpy",
+                            ).images
+                        )
+                    samples = np.concatenate(samples)
+                else:
+                    pipeline = DDIMPipeline(
+                        unet=model,
+                        scheduler=DDIMScheduler(
+                            num_train_timesteps=args.num_train_steps
+                        ),
+                    )
+                    samples = pipeline(
+                        batch_size=config["n_samples"],
+                        num_inference_steps=args.num_inference_steps,
+                        output_type="numpy",
+                    ).images
 
                 samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
 
