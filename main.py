@@ -9,15 +9,19 @@ import time
 
 import diffusers
 import numpy as np
+import pynvml
 import torch
 import torch.nn as nn
+from accelerate import Accelerator
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
     DDPMPipeline,
     DDPMScheduler,
     DiffusionPipeline,
+    LDMPipeline,
     UNet2DModel,
+    VQModel,
 )
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
@@ -42,6 +46,14 @@ from utils import (
 )
 
 
+def get_memory_free_MiB(gpu_index):
+    """Method for monitoring GPU usage. Debugging"""
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(int(gpu_index))
+    mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    return mem_info.free // 1024 ** 2
+
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Training DDPM")
@@ -61,7 +73,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "imagenette"],
+        choices=["mnist", "cifar", "celeba", "imagenette"],
         default="mnist",
     )
     parser.add_argument(
@@ -81,6 +93,12 @@ def parse_args():
         type=str,
         help="distribution for removing data",
         default=None,
+    )
+    parser.add_argument(
+        "--wandb",
+        help="whether to monitor model training with wandb",
+        action="store_true",
+        default=False,
     )
     parser.add_argument(
         "--datamodel_alpha",
@@ -145,6 +163,23 @@ def parse_args():
         type=int,
         default=0,
         help="number of warmup steps in the learning rate scheduler",
+    )
+    parser.add_argument(
+        "--gradient_accumulation_steps",
+        type=int,
+        default=1,
+        help="Number of steps to accumulate before a backward/update pass.",
+    )
+    parser.add_argument(
+        "--mixed_precision",
+        type=str,
+        default="no",
+        choices=["no", "fp16", "bf16"],
+        help=(
+            "Whether to use mixed precision. Choose"
+            "between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >= 1.10."
+            "and an Nvidia Ampere GPU."
+        ),
     )
     parser.add_argument(
         "--adam_beta1",
@@ -214,10 +249,16 @@ def print_args(args):
 
 def main(args):
     """Main function for training or unlearning."""
-    device = args.device
+    accelerator = Accelerator(
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        mixed_precision=args.mixed_precision,
+    )
+    device = accelerator.device
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
+    elif args.dataset == "celeba":
+        config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
         config = {**DDPMConfig.mnist_config}
         classifier = CNN().to(device)
@@ -228,13 +269,16 @@ def main(args):
     elif args.dataset == "imagenette":
         config = {**DDPMConfig.imagenette_config}
     else:
-        raise ValueError(f"dataset={args.dataset} is not one of ['cifar', 'mnist']")
+        raise ValueError(
+            f"dataset={args.dataset} is not one of ['cifar', 'mnist', 'celeba']"
+        )
+    model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
     removal_dir = "full"
     if args.excluded_class is not None:
         removal_dir = f"excluded_{args.excluded_class}"
     if args.removal_dist is not None:
-        removal_dir = f"{args.removal_dist}"
+        removal_dir = f"{args.removal_dist}/{args.removal_dist}"
         if args.removal_dist == "datamodel":
             removal_dir += f"_alpha={args.datamodel_alpha}"
         removal_dir += f"_seed={args.removal_seed}"
@@ -249,12 +293,9 @@ def main(args):
     os.makedirs(model_outdir, exist_ok=True)
 
     sample_outdir = os.path.join(
-        args.outdir,
-        args.dataset,
-        args.method,
-        "samples",
-        removal_dir,
+        args.outdir, args.dataset, args.method, "samples", removal_dir
     )
+
     os.makedirs(sample_outdir, exist_ok=True)
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
@@ -292,7 +333,7 @@ def main(args):
         Subset(train_dataset, remaining_idx),
         batch_size=config["batch_size"],
         shuffle=True,
-        num_workers=4,
+        num_workers=1,
     )
     if args.method == "esd":
         # Only esd requires the removed data loader.
@@ -302,7 +343,7 @@ def main(args):
             Subset(train_dataset, removed_idx),
             batch_size=config["batch_size"],
             shuffle=True,
-            num_workers=4,
+            num_workers=1,
         )
         num_epoch_steps = min(len(remaining_dataloader), len(removed_dataloader))
     else:
@@ -314,72 +355,119 @@ def main(args):
     epochs = config["epochs"][args.method]
     global_steps = start_epoch * num_epoch_steps
 
-    pretrained_steps = get_max_steps(args.load) if args.load else None
+    if not args.init:
+        # check if there's an existing checkpoint.
 
-    if pretrained_steps is not None:
-        # Loading model
-        print("Loading pruned/pretrained model from {}".format(args.load))
+        pretrained_steps = get_max_steps(args.load) if args.load else None
 
-        unet_out_dir = os.path.join(args.load, f"unet_steps_{pretrained_steps:0>8}.pt")
-        unet_ema_out_dir = os.path.join(
-            args.load, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
-        )
+        if pretrained_steps is not None:
+            # Loading and training model from an existing checkpoint.
+            print(f"Loading model from checkpoint at {args.load}")
 
-        model = torch.load(unet_out_dir, map_location=device)
-        ema_model = torch.load(unet_ema_out_dir, map_location=device)
-
-        ema_model = EMAModel(
-            ema_model.parameters(),
-            decay=args.ema_max_decay,
-            use_ema_warmup=False,
-            inv_gamma=args.ema_inv_gamma,
-            power=args.ema_power,
-            model_cls=UNet2DModel,
-            model_config=model.config,
-        )
-
-        global_steps = pretrained_steps
-
-        if args.init:
-
-            print(
-                "initialized a new model from pruned/pretrained at {}.".format(
-                    args.load
-                )
+            unet_out_dir = os.path.join(
+                args.load, f"unet_steps_{pretrained_steps:0>8}.pt"
+            )
+            unet_ema_out_dir = os.path.join(
+                args.load, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
             )
 
-            for m in model.modules():
-                if hasattr(m, "reset_parameters"):
-                    m.reset_parameters()
+            model = torch.load(unet_out_dir, map_location=device)
+            ema_model = torch.load(unet_ema_out_dir, map_location=device)
 
             ema_model = EMAModel(
-                model.parameters(),
+                ema_model.parameters(),
                 decay=args.ema_max_decay,
                 use_ema_warmup=False,
                 inv_gamma=args.ema_inv_gamma,
                 power=args.ema_power,
-                model_cls=UNet2DModel,
+                model_cls=model_cls,
                 model_config=model.config,
             )
+
+            global_steps = pretrained_steps
+
+        else:
+            print("Checkpoint does not exist. ")
+
+            if args.method != "retrain":
+                # Load pruned model for unlearning if checkpoint doesn't exist.
+                pruned_modeldir = os.path.join(
+                    args.outdir,
+                    args.dataset,
+                    "pruned/models/pruner=magnitude_pruning_ratio=0.3_threshold=0.05",
+                )
+                print(
+                    "Loading pruned model from {} for unlearning".format(
+                        pruned_modeldir
+                    )
+                )
+                pretrained_steps = get_max_steps(pruned_modeldir)
+                unet_out_dir = os.path.join(
+                    pruned_modeldir, f"unet_steps_{pretrained_steps:0>8}.pt"
+                )
+                unet_ema_out_dir = os.path.join(
+                    pruned_modeldir, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
+                )
+                model = torch.load(unet_out_dir, map_location=device)
+                ema_model = torch.load(unet_ema_out_dir, map_location=device)
+
+                ema_model = EMAModel(
+                    ema_model.parameters(),
+                    decay=args.ema_max_decay,
+                    use_ema_warmup=False,
+                    inv_gamma=args.ema_inv_gamma,
+                    power=args.ema_power,
+                    model_cls=model_cls,
+                    model_config=model.config,
+                )
+            else:
+                # load pre-trained pipeline and reinitialize model if retraining.
+                print("Loading pretrained model for retraining {}".format(args.dataset))
+
+                if args.dataset == "celeba":
+
+                    model_id = "CompVis/ldm-celebahq-256"
+                    model = UNet2DModel.from_pretrained(model_id, subfolder="unet")
+
+                elif args.dataset == "cifar":
+                    pretrained_modeldir = os.path.join(
+                        args.outdir, f"pretrained_models/{args.dataset}"
+                    )
+
+                    pipeline = DDPMPipeline.from_pretrained(pretrained_modeldir)
+                    model = pipeline.unet
+
+                for m in model.modules():
+                    if hasattr(m, "reset_parameters"):
+                        m.reset_parameters()
+
+                ema_model = EMAModel(
+                    model.parameters(),
+                    decay=args.ema_max_decay,
+                    use_ema_warmup=False,
+                    inv_gamma=args.ema_inv_gamma,
+                    power=args.ema_power,
+                    model_cls=model_cls,
+                    model_config=model.config,
+                )
 
     else:
         # initializing standard model from scratch.
 
         print(f"Initializing model from scratch for {args.dataset}")
 
-        model = getattr(diffusers, config["unet_config"]["_class_name"])(
-            **config["unet_config"]
-        ).to(device)
-
+        model = model_cls(**config["unet_config"])
         ema_model = EMAModel(
             model.parameters(),
             decay=args.ema_max_decay,
             use_ema_warmup=False,
             inv_gamma=args.ema_inv_gamma,
             power=args.ema_power,
-            model_cls=getattr(diffusers, config["unet_config"]["_class_name"]),
+            model_cls=model_cls,
             model_config=model.config,
         )
+    ema_model.to(device)
+
     if args.dataset == "imagenette":
         # The pipeline is of class LDMTextToImagePipeline.
         pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-text2im-large-256")
@@ -396,10 +484,24 @@ def main(args):
 
         vqvae = vqvae.to(device)
         text_encoder = text_encoder.to(device)
+
+    elif args.dataset == "celeba":
+        model_id = "CompVis/ldm-celebahq-256"
+        vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
+
+        for param in vqvae.parameters():
+            param.requires_grad = False
+
+        pipeline = LDMPipeline(
+            unet=model,
+            vqvae=vqvae,
+            scheduler=DDIMScheduler(**config["scheduler_config"]),
+        ).to(device)
+
     else:
         pipeline = DDPMPipeline(
             unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
-        )
+        ).to(device)
 
     pipeline_scheduler = pipeline.scheduler
 
@@ -424,19 +526,39 @@ def main(args):
 
     if args.method == "esd":
         pipeline_frozen = DDPMPipeline.from_pretrained(
-            os.path.join(args.outdir, "pretrained_models/cifar")
+            os.path.join(args.outdir, f"pretrained_models/{args.dataset}")
         )
         frozen_unet = pipeline_frozen.unet.to(device)
 
-    wandb.init(
-        project="Data Shapley for Diffusion",
-        notes=f"Experiment for {args.method}:{args.dataset}",
-        tags=[f"{args.method}"],
-        config={
-            "epochs": epochs,
-            "batch_size": config["batch_size"],
-            "model": model.config._class_name,
-        },
+    if args.wandb:
+
+        wandb.init(
+            project="Data Shapley for Diffusion",
+            notes=f"Experiment for {args.method};{args.removal_dist};{args.dataset}",
+            dir="/gscratch/aims/diffusion-attr/results_ming/wandb",
+            tags=[f"{args.method}"],
+            config={
+                "epochs": epochs,
+                "batch_size": config["batch_size"],
+                "gradient_accumulation_steps": args.gradient_accumulation_steps,
+                "model": model.config._class_name,
+            },
+        )
+
+    (
+        remaining_dataloader,
+        removed_dataloader,
+        model,
+        optimizer,
+        pipeline_scheduler,
+        lr_scheduler,
+    ) = accelerator.prepare(
+        remaining_dataloader,
+        removed_dataloader,
+        model,
+        optimizer,
+        pipeline_scheduler,
+        lr_scheduler,
     )
 
     for epoch in tqdm(range(start_epoch, epochs)):
@@ -447,14 +569,16 @@ def main(args):
             zip(remaining_dataloader, removed_dataloader)
         ):
             model.train()
-            optimizer.zero_grad()
 
             image_r = image_r.to(device)
+
             if args.dataset == "imagenette":
                 image_r = vqvae.encode(image_r).latent_dist.sample()
                 image_r = image_r * vqvae.config.scaling_factor
                 input_ids_r = label_tokenizer(label_r).to(device)
                 encoder_hidden_states_r = text_encoder(input_ids_r)[0]
+            elif args.dataset == "celeba":
+                image_r = vqvae.encode(image_r, False)[0]
 
             noise = torch.randn_like(image_r).to(device)
             timesteps = torch.randint(
@@ -473,67 +597,69 @@ def main(args):
 
             noisy_images_r = pipeline_scheduler.add_noise(image_r, noise, timesteps)
 
-            if args.dataset == "imagenette":
-                eps_r = model(noisy_images_r, timesteps, encoder_hidden_states_r).sample
-            else:
-                eps_r = model(noisy_images_r, timesteps).sample
-
-            loss = loss_fn(eps_r, noise)
-
-            if args.method == "ga":
-                loss *= -1.0
-
-            elif args.method == "esd":
-
-                image_f = image_f.to(device)
+            with accelerator.accumulate(model):
+                optimizer.zero_grad()
                 if args.dataset == "imagenette":
-                    image_f = vqvae.encode(image_f).latent_dist.sample()
-                    image_f = image_f * vqvae.config.scaling_factor
-                    input_ids_f = label_tokenizer(label_f).to(device)
-                    encoder_hidden_states_f = text_encoder(input_ids_f)[0]
+                    eps_r = model(
+                        noisy_images_r, timesteps, encoder_hidden_states_r
+                    ).sample
+                else:
+                    eps_r = model(noisy_images_r, timesteps).sample
+                loss = loss_fn(eps_r, noise)
 
-                with torch.no_grad():
+                if args.method == "ga":
+                    loss *= -1.0
 
-                    noisy_images_f = pipeline_scheduler.add_noise(
-                        image_f, noise, timesteps
-                    )
-
+                elif args.method == "esd":
+                    image_f = image_f.to(device)
                     if args.dataset == "imagenette":
-                        eps_r_frozen = frozen_unet(
-                            noisy_images_r, timesteps, encoder_hidden_states_r
-                        ).sample
-                        eps_f_frozen = frozen_unet(
-                            noisy_images_f, timesteps, encoder_hidden_states_f
-                        ).sample
-                    else:
-                        eps_r_frozen = frozen_unet(noisy_images_r, timesteps).sample
-                        eps_f_frozen = frozen_unet(noisy_images_f, timesteps).sample
+                        image_f = vqvae.encode(image_f).latent_dist.sample()
+                        image_f = image_f * vqvae.config.scaling_factor
+                        input_ids_f = label_tokenizer(label_f).to(device)
+                        encoder_hidden_states_f = text_encoder(input_ids_f)[0]
 
-                loss += loss_fn(eps_r, (eps_r_frozen - 1e-4 * eps_f_frozen))
+                    with torch.no_grad():
+                        noisy_images_f = pipeline_scheduler.add_noise(
+                            image_f, noise, timesteps
+                        )
+                        if args.dataset == "imagenette":
+                            eps_r_frozen = frozen_unet(
+                                noisy_images_r, timesteps, encoder_hidden_states_r
+                            ).sample
+                            eps_f_frozen = frozen_unet(
+                                noisy_images_f, timesteps, encoder_hidden_states_f
+                            ).sample
+                        else:
+                            eps_r_frozen = frozen_unet(noisy_images_r, timesteps).sample
+                            eps_f_frozen = frozen_unet(noisy_images_f, timesteps).sample
+                    loss += loss_fn(eps_r, (eps_r_frozen - 1e-4 * eps_f_frozen))
 
-            loss.backward()
+                accelerator.backward(loss)
+                accelerator.clip_grad_norm_(model.parameters(), 1.0)
 
-            optimizer.step()
-            lr_scheduler.step()
-            ema_model.step(model.parameters())
+                optimizer.step()
+                lr_scheduler.step()
 
-            # check gradient norm & params norm
+                if (j + 1) % args.gradient_accumulation_steps == 0:
+                    ema_model.step(model.parameters())
 
-            grads = [
-                param.grad.detach().flatten()
-                for param in model.parameters()
-                if param.grad is not None
-            ]
-            grad_norm = torch.cat(grads).norm()
+                # check gradient norm & params norm
 
-            params = [
-                param.data.detach().flatten()
-                for param in model.parameters()
-                if param.data is not None
-            ]
-            params_norm = torch.cat(params).norm()
+                grads = [
+                    param.grad.detach().flatten()
+                    for param in model.parameters()
+                    if param.grad is not None
+                ]
+                grad_norm = torch.cat(grads).norm()
 
-            if (j + 1) % args.log_freq == 0:
+                params = [
+                    param.data.detach().flatten()
+                    for param in model.parameters()
+                    if param.data is not None
+                ]
+                params_norm = torch.cat(params).norm()
+
+            if (j + 1) / args.gradient_accumulation_steps % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{num_epoch_steps}]"
@@ -545,16 +671,18 @@ def main(args):
                 print(info, flush=True)
                 steps_start_time = time.time()
 
-                wandb.log(
-                    {
-                        "Epoch": (epoch + 1),
-                        "loss": loss.detach().cpu().item(),
-                        "steps_time": steps_time,
-                        "gradient norms": grad_norm,
-                        "parameters norms": params_norm,
-                        "lr": lr_scheduler.get_last_lr()[0],
-                    }
-                )
+                if args.wandb:
+
+                    wandb.log(
+                        {
+                            "Epoch": (epoch + 1),
+                            "loss": loss.detach().cpu().item(),
+                            "steps_time": steps_time,
+                            "gradient norms": grad_norm,
+                            "parameters norms": params_norm,
+                            "lr": lr_scheduler.get_last_lr()[0],
+                        }
+                    )
             global_steps += 1
 
         # Generate samples for evaluation.
@@ -562,8 +690,7 @@ def main(args):
             epoch + 1
         ) == epochs:
 
-            model.eval()
-
+            model = accelerator.unwrap_model(model).eval()
             ema_model.store(model.parameters())
             ema_model.copy_to(model.parameters())
 
@@ -587,6 +714,17 @@ def main(args):
                             ).images
                         )
                     samples = np.concatenate(samples)
+                elif args.dataset == "celeba":
+                    pipeline = LDMPipeline(
+                        unet=model,
+                        vqvae=vqvae,
+                        scheduler=pipeline_scheduler,
+                    ).to(device)
+                    samples = pipeline(
+                        batch_size=config["n_samples"],
+                        num_inference_steps=args.num_inference_steps,
+                        output_type="numpy",
+                    ).images
                 else:
                     pipeline = DDIMPipeline(
                         unet=model,
@@ -601,6 +739,7 @@ def main(args):
                     ).images
 
                 samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
+                ema_model.restore(model.parameters())
 
             sampling_time = time.time() - sampling_start_time
 
@@ -645,9 +784,9 @@ def main(args):
 
         # Checkpoints for training.
         if (epoch + 1) % config["ckpt_freq"][args.method] == 0 or (epoch + 1) == epochs:
-
-            model.eval()
+            model = accelerator.unwrap_model(model).eval()
             model.zero_grad()
+
             torch.save(
                 model, os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt")
             )

@@ -9,8 +9,6 @@ class DDPMConfig:
     cifar_config = {
         "dataset": "cifar",
         "image_size": 32,
-        "mean": [0.5, 0.5, 0.5],
-        "std": [0.5, 0.5, 0.5],
         "trained_model": (
             "/projects/leelab/mingyulu/data_att/results/cifar/"
             "retrain/models/full/steps_00125000.pt",
@@ -19,8 +17,8 @@ class DDPMConfig:
         "lr": 1e-4,
         "batch_size": 128,
         "epochs": {"retrain": 800, "ga": 5, "gd": 10, "esd": 500},
-        "ckpt_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 250},
-        "sample_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 20},
+        "ckpt_freq": {"retrain": 100, "ga": 1, "gd": 1, "esd": 100},
+        "sample_freq": {"retrain": 100, "ga": 1, "gd": 1, "esd": 100},
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
@@ -79,17 +77,78 @@ class DDPMConfig:
 
     # CelebA-HQ specific configurations
 
-    celeb_config = {
+    celeba_config = {
         "dataset": "celeba",
-        "image_size": 32,
-        "batch_size": 32,
-        "mean": [0.5, 0.5, 0.5],
-        "std": [0.5, 0.5, 0.5],
+        "image_size": 256,
         "lr": 1e-4,
+        "batch_size": 32,
         "epochs": {"retrain": 800, "ga": 5, "gd": 10, "esd": 500},
-        "ckpt_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 250},
-        "sample_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 20},
-        "n_samples": 64,
+        "ckpt_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 100},
+        "sample_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 100},
+        "n_samples": 32,
+        "unet_config": {
+            "_class_name": "UNet2DModel",
+            "_diffusers_version": "0.0.4",
+            "act_fn": "silu",
+            "attention_head_dim": 32,
+            "block_out_channels": [224, 448, 672, 896],
+            "center_input_sample": False,
+            "down_block_types": [
+                "DownBlock2D",
+                "AttnDownBlock2D",
+                "AttnDownBlock2D",
+                "AttnDownBlock2D",
+            ],
+            "downsample_padding": 1,
+            "flip_sin_to_cos": True,
+            "freq_shift": 0,
+            "in_channels": 3,
+            "layers_per_block": 2,
+            "mid_block_scale_factor": 1,
+            "norm_eps": 1e-05,
+            "norm_num_groups": 32,
+            "out_channels": 3,
+            "sample_size": 64,
+            "time_embedding_type": "positional",
+            "up_block_types": [
+                "AttnUpBlock2D",
+                "AttnUpBlock2D",
+                "AttnUpBlock2D",
+                "UpBlock2D",
+            ],
+        },
+        "scheduler_config": {
+            "_class_name": "DDIMScheduler",
+            "_diffusers_version": "0.0.4",
+            "beta_end": 0.0195,
+            "beta_schedule": "scaled_linear",
+            "beta_start": 0.0015,
+            "clip_sample": False,
+            "num_train_timesteps": 1000,
+            "trained_betas": None,
+        },
+        "vqvae_config": {
+            "_class_name": "VQModel",
+            "_diffusers_version": "0.1.2",
+            "act_fn": "silu",
+            "block_out_channels": [128, 256, 512],
+            "down_block_types": [
+                "DownEncoderBlock2D",
+                "DownEncoderBlock2D",
+                "DownEncoderBlock2D",
+            ],
+            "in_channels": 3,
+            "latent_channels": 3,
+            "layers_per_block": 2,
+            "num_vq_embeddings": 8192,
+            "out_channels": 3,
+            "sample_size": 256,
+            "up_block_types": [
+                "UpDecoderBlock2D",
+                "UpDecoderBlock2D",
+                "UpDecoderBlock2D",
+            ],
+        },
     }
 
     # MNIST specific configurations
@@ -100,8 +159,6 @@ class DDPMConfig:
     mnist_config = {
         "dataset": "mnist",
         "image_size": 28,
-        "mean": [0.5],
-        "std": [0.5],
         # UNet parameters.
         "unet_config": {
             "_class_name": "UNet2DModel",

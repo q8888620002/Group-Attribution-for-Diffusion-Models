@@ -11,7 +11,7 @@ if __name__ == "__main__":
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar"],
+        choices=["mnist", "cifar", "celeba"],
         default="mnist",
     )
     args = parser.parse_args()
