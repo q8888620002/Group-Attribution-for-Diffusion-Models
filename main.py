@@ -58,16 +58,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training DDPM")
 
     parser.add_argument(
-        "--load", type=str, help="path for loading pre-trained model", default=None
+        "--load",
+        type=str,
+        help="directory path for loading pre-trained model",
+        default=None,
     )
-
-    parser.add_argument(
-        "--init",
-        action="store_true",
-        help="whether to initialize with a new model.",
-        default=False,
-    )
-
     parser.add_argument(
         "--dataset",
         type=str,
@@ -135,11 +130,6 @@ def parse_args():
     )
     parser.add_argument(
         "--exp_name", type=str, help="experiment name in the database", default=None
-    )
-    parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="whether to resume from the latest available model checkpoint",
     )
 
     # Training and fine-tuning parameters.
@@ -269,7 +259,10 @@ def main(args):
         config = {**DDPMConfig.imagenette_config}
     else:
         raise ValueError(
-            f"dataset={args.dataset} is not one of ['cifar', 'mnist', 'celeba']"
+            (
+                f"dataset={args.dataset} is not one of "
+                "['cifar', 'mnist', 'celeba', 'imagenette']"
+            )
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
@@ -350,31 +343,49 @@ def main(args):
         removed_dataloader = remaining_dataloader
         num_epoch_steps = len(remaining_dataloader)
 
-    start_epoch = 0
     epochs = config["epochs"][args.method]
-    global_steps = start_epoch * num_epoch_steps
 
-    if not args.init:
-        # check if there's an existing checkpoint.
+    existing_steps = get_max_steps(model_outdir)
+    if existing_steps is not None:
+        # Check if there is an existing checkpoint to resume from. This occurs when
+        # model runs are interrupted (e.g., exceeding job time limit).
+        unet_path = os.path.join(model_outdir, f"unet_steps_{existing_steps:0>8}.pt")
+        unet_ema_path = os.path.join(
+            model_outdir, f"unet_ema_steps_{existing_steps:0>8}.pt"
+        )
+        model = torch.load(unet_path, map_location=device)
 
-        pretrained_steps = get_max_steps(args.load) if args.load else None
+        # Resume from the existing EMA checkpoint.
+        ema_model = torch.load(unet_ema_path, map_location=device)
+        ema_model = EMAModel(
+            ema_model.parameters(),
+            decay=args.ema_max_decay,
+            use_ema_warmup=False,
+            inv_gamma=args.ema_inv_gamma,
+            power=args.ema_power,
+            model_cls=model_cls,
+            model_config=model.config,
+        )
 
+        # Set starting epoch and global steps to the resumed checkpoint.
+        global_steps = existing_steps
+        start_epoch = int(existing_steps / num_epoch_steps)
+
+        print(f"Model resumed from {model_outdir}")
+        print(f"\tU-Net resumed from {unet_path}")
+        print(f"\tU-Net EMA resumed from {unet_ema_path}")
+    elif args.load:
+        # If there are no checkpoints to resume from, and a pre-trained model is
+        # specified for fine-tuning or unlearning.
+        pretrained_steps = get_max_steps(args.load)
         if pretrained_steps is not None:
-            # Loading and training model from an existing checkpoint.
-            print(f"Loading model from checkpoint at {args.load}")
+            unet_path = os.path.join(args.load, f"unet_steps_{pretrained_steps:0>8}.pt")
+            model = torch.load(unet_path, map_location=device)
 
-            unet_out_dir = os.path.join(
-                args.load, f"unet_steps_{pretrained_steps:0>8}.pt"
-            )
-            unet_ema_out_dir = os.path.join(
-                args.load, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
-            )
-
-            model = torch.load(unet_out_dir, map_location=device)
-            ema_model = torch.load(unet_ema_out_dir, map_location=device)
-
+            # Consider the pre-trained model as model weight initialization, so the EMA
+            # starts with the pre-trained model.
             ema_model = EMAModel(
-                ema_model.parameters(),
+                model.parameters(),
                 decay=args.ema_max_decay,
                 use_ema_warmup=False,
                 inv_gamma=args.ema_inv_gamma,
@@ -382,48 +393,16 @@ def main(args):
                 model_cls=model_cls,
                 model_config=model.config,
             )
+            start_epoch = 0
+            global_steps = 0
 
-            global_steps = pretrained_steps
-
+            print(f"Pre-trained model loaded from {args.load}")
+            print(f"\tU-Net loaded from {unet_path}")
+            print("EMA started from the loaded U-Net")
         else:
-            print("Checkpoint does not exist. ")
-
-            if args.method != "retrain":
-                # Load pruned model for unlearning if checkpoint doesn't exist.
-                pruned_modeldir = os.path.join(
-                    args.outdir,
-                    args.dataset,
-                    "pruned/models/pruner=magnitude_pruning_ratio=0.3_threshold=0.05",
-                )
-                print(
-                    "Loading pruned model from {} for unlearning".format(
-                        pruned_modeldir
-                    )
-                )
-                pretrained_steps = get_max_steps(pruned_modeldir)
-                unet_out_dir = os.path.join(
-                    pruned_modeldir, f"unet_steps_{pretrained_steps:0>8}.pt"
-                )
-                unet_ema_out_dir = os.path.join(
-                    pruned_modeldir, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
-                )
-                model = torch.load(unet_out_dir, map_location=device)
-                ema_model = torch.load(unet_ema_out_dir, map_location=device)
-
-                ema_model = EMAModel(
-                    ema_model.parameters(),
-                    decay=args.ema_max_decay,
-                    use_ema_warmup=False,
-                    inv_gamma=args.ema_inv_gamma,
-                    power=args.ema_power,
-                    model_cls=model_cls,
-                    model_config=model.config,
-                )
+            raise ValueError(f"No pre-trained checkpoints found at {args.load}")
     else:
-        # initializing standard model from scratch.
-
-        print(f"Initializing model from scratch for {args.dataset}")
-
+        # Randomly initialize the model.
         model = model_cls(**config["unet_config"])
         ema_model = EMAModel(
             model.parameters(),
@@ -434,6 +413,10 @@ def main(args):
             model_cls=model_cls,
             model_config=model.config,
         )
+        start_epoch = 0
+        global_steps = 0
+        print("Model randomly initialized")
+
     ema_model.to(device)
 
     if args.dataset == "imagenette":
@@ -452,7 +435,6 @@ def main(args):
 
         vqvae = vqvae.to(device)
         text_encoder = text_encoder.to(device)
-
     elif args.dataset == "celeba":
         model_id = "CompVis/ldm-celebahq-256"
         vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
@@ -465,7 +447,6 @@ def main(args):
             vqvae=vqvae,
             scheduler=DDIMScheduler(**config["scheduler_config"]),
         ).to(device)
-
     else:
         pipeline = DDPMPipeline(
             unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
@@ -490,8 +471,7 @@ def main(args):
 
     loss_fn = nn.MSELoss(reduction="mean")
 
-    # Load frozen model
-
+    # Load frozen model.
     if args.method == "esd":
         pipeline_frozen = DDPMPipeline.from_pretrained(
             os.path.join(args.outdir, f"pretrained_models/{args.dataset}")
@@ -499,7 +479,6 @@ def main(args):
         frozen_unet = pipeline_frozen.unet.to(device)
 
     if args.wandb:
-
         wandb.init(
             project="Data Shapley for Diffusion",
             notes=f"Experiment for {args.method};{args.removal_dist};{args.dataset}",
