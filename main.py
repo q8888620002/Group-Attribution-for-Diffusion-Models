@@ -541,24 +541,9 @@ def main(args):
                 optimizer.step()
                 lr_scheduler.step()
 
-                if (runtime_steps + 1) % args.gradient_accumulation_steps == 0:
-                    ema_model.step(model.parameters())
-
-                # check gradient norm & params norm
-
-                grads = [
-                    param.grad.detach().flatten()
-                    for param in model.parameters()
-                    if param.grad is not None
-                ]
-                grad_norm = torch.cat(grads).norm()
-
-                params = [
-                    param.data.detach().flatten()
-                    for param in model.parameters()
-                    if param.data is not None
-                ]
-                params_norm = torch.cat(params).norm()
+            # Update the EMA since its update is not handled by the accelerator.
+            if (runtime_steps + 1) % args.gradient_accumulation_steps == 0:
+                ema_model.step(model.parameters())
 
             if (
                 (runtime_steps + 1) / args.gradient_accumulation_steps
@@ -568,6 +553,21 @@ def main(args):
                 info += f", Step[{j + 1}/{num_epoch_steps}]"
                 info += f", steps_time: {steps_time:.3f}"
                 info += f", loss: {loss.detach().cpu().item():.5f}"
+
+                # Check gradient norm and parameter norm.
+                grads = [
+                    param.grad.detach().flatten()
+                    for param in model.parameters()
+                    if param.grad is not None
+                ]
+                grad_norm = torch.cat(grads).norm()
+                params = [
+                    param.data.detach().flatten()
+                    for param in model.parameters()
+                    if param.data is not None
+                ]
+                params_norm = torch.cat(params).norm()
+
                 info += f", gradient norms: {grad_norm:.5f}"
                 info += f", parameters norms: {params_norm:.5f}"
                 info += f", lr: {lr_scheduler.get_last_lr()[0]:.6f}"
@@ -701,8 +701,6 @@ def main(args):
                 model,
                 os.path.join(model_outdir, f"unet_ema_steps_{global_steps:0>8}.pt"),
             )
-
-            # torch.save(ckpt, ckpt_file)
             print(f"Checkpoint saved at step {global_steps}")
 
             ema_model.restore(model.parameters())
