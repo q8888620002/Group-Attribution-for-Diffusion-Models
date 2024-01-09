@@ -2,7 +2,7 @@
 
 import glob
 import os
-from typing import Tuple
+from typing import List, Tuple
 
 import clip
 import numpy as np
@@ -11,8 +11,9 @@ from PIL import Image
 from scipy.linalg import sqrtm
 from torch.utils.data import Dataset
 from torchvision import transforms
-from torchvision.datasets import CIFAR10, MNIST
+from torchvision.datasets import CIFAR10, MNIST, ImageFolder
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
+from transformers import PreTrainedTokenizer
 
 import constants
 
@@ -35,6 +36,88 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
             return decay * avg_model_param + (1 - decay) * model_param
 
         super().__init__(model, device, ema_avg, use_buffers=True)
+
+
+class ImagenetteCaptioner:
+    """
+    Class to caption Imagenette labels.
+
+    Args:
+    ----
+        dataset: a torchvision ImageFolder dataset.
+    """
+
+    def __init__(self, dataset: ImageFolder):
+        self.label_to_synset = dataset.classes  # List of synsets.
+        self.num_classes = len(self.label_to_synset)
+        self.synset_to_word = {
+            "n01440764": "tench",
+            "n02102040": "English springer",
+            "n02979186": "cassette player",
+            "n03000684": "chainsaw",
+            "n03028079": "church",
+            "n03394916": "French horn",
+            "n03417042": "garbage truck",
+            "n03425413": "gas pump",
+            "n03445777": "golf ball",
+            "n03888257": "parachute",
+        }
+
+    def __call__(self, labels: torch.LongTensor) -> List[str]:
+        """
+        Convert integer labels to string captions.
+
+        Args:
+        ----
+            labels: Tensor of integer labels.
+
+        Returns
+        -------
+            A list of string captions, with the format of "a photo of a {object}."
+        """
+        captions = []
+        for label in labels:
+            synset = self.label_to_synset[label]
+            word = self.synset_to_word[synset]
+            captions.append(f"a photo of a {word}.")
+        return captions
+
+
+class LabelTokenizer:
+    """
+    Class to convert integer labels to caption token ids.
+
+    Args:
+    ----
+        captioner: A class that converts integer labels to string captions.
+        tokenizer: A Hugging Face PreTrainedTokenizer.
+    """
+
+    def __init__(self, captioner: ImagenetteCaptioner, tokenizer: PreTrainedTokenizer):
+        self.captioner = captioner
+        self.tokenizer = tokenizer
+
+    def __call__(self, labels: torch.LongTensor) -> torch.LongTensor:
+        """
+        Converts integer labels to caption token ids.
+
+        Args:
+        ----
+            labels: Tensor of integer labels.
+
+        Returns
+        -------
+            Integer tensor of token ids, with padding and truncation if necessary.
+        """
+        captions = self.captioner(labels)
+        inputs = self.tokenizer(
+            captions,
+            max_length=self.tokenizer.model_max_length,
+            padding="longest",
+            truncation=True,
+            return_tensors="pt",
+        )
+        return inputs.input_ids
 
 
 class CelebA(Dataset):
@@ -128,6 +211,16 @@ def create_dataset(
         )
         root_dir = os.path.join(dataset_dir, "celeba/celeba_hq_256")
         dataset = CelebA(root=root_dir, train=train, transform=preprocess)
+    elif dataset_name == "imagenette":
+        preprocess = transforms.Compose(
+            [
+                transforms.Resize((256, 256)),
+                transforms.ToTensor(),
+                transforms.Normalize([0.5], [0.5]),  # Normalize to [-1,1].
+            ]
+        )
+        root_dir = os.path.join(dataset_dir, "imagenette2", "train" if train else "val")
+        dataset = ImageFolder(root_dir, transform=preprocess)
     else:
         raise ValueError(
             f"dataset_name={dataset_name} should be one of ['cifar', 'mnist', 'celeba']"

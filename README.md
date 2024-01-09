@@ -18,7 +18,7 @@ Create a `constants.py` file with the following content:
 
 DATASET_DIR = "/gscratch/aims/datasets"
 OUTDIR = "/gscratch/aims/diffusion-attr"
-MAX_NUM_SAMPLE_IMAGES_TO_SAVE = 36
+MAX_NUM_SAMPLE_IMAGES_TO_SAVE = 64
 
 ```
 
