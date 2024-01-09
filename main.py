@@ -166,7 +166,6 @@ def parse_args():
         default=0.9999,
         help="maximum decay magnitude EMA",
     )
-
     parser.add_argument(
         "--num_inference_steps",
         type=int,
@@ -179,7 +178,6 @@ def parse_args():
         default=1000,
         help="number of diffusion steps during training",
     )
-
     return parser.parse_args()
 
 
@@ -459,6 +457,7 @@ def main(args):
         lr_scheduler,
     )
 
+    runtime_steps = 0
     for epoch in tqdm(range(start_epoch, epochs)):
 
         steps_start_time = time.time()
@@ -542,7 +541,7 @@ def main(args):
                 optimizer.step()
                 lr_scheduler.step()
 
-                if (j + 1) % args.gradient_accumulation_steps == 0:
+                if (runtime_steps + 1) % args.gradient_accumulation_steps == 0:
                     ema_model.step(model.parameters())
 
                 # check gradient norm & params norm
@@ -561,7 +560,9 @@ def main(args):
                 ]
                 params_norm = torch.cat(params).norm()
 
-            if (j + 1) / args.gradient_accumulation_steps % args.log_freq == 0:
+            if (
+                (runtime_steps + 1) / args.gradient_accumulation_steps
+            ) % args.log_freq == 0:
                 steps_time = time.time() - steps_start_time
                 info = f"Epoch[{epoch + 1}/{epochs}]"
                 info += f", Step[{j + 1}/{num_epoch_steps}]"
@@ -574,7 +575,6 @@ def main(args):
                 steps_start_time = time.time()
 
                 if args.wandb:
-
                     wandb.log(
                         {
                             "Epoch": (epoch + 1),
@@ -585,7 +585,8 @@ def main(args):
                             "lr": lr_scheduler.get_last_lr()[0],
                         }
                     )
-            global_steps += 1
+            runtime_steps += 1  # Track steps in each execution of this script.
+            global_steps += 1  # Track global steps taken for the model.
 
         # Generate samples for evaluation.
         if (epoch + 1) % config["sample_freq"][args.method] == 0 or (
