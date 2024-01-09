@@ -131,28 +131,6 @@ def parse_args():
     parser.add_argument(
         "--exp_name", type=str, help="experiment name in the database", default=None
     )
-
-    # Training and fine-tuning parameters.
-    parser.add_argument(
-        "--lr_scheduler",
-        type=str,
-        default="constant",
-        choices=[
-            "constant",
-            "constant_with_warmup",
-            "cosine",
-            "cosine_with_restarts",
-            "linear",
-            "polynomial",
-        ],
-        help="learning rate scheduler to use",
-    )
-    parser.add_argument(
-        "--lr_warmup_steps",
-        type=int,
-        default=0,
-        help="number of warmup steps in the learning rate scheduler",
-    )
     parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
@@ -169,30 +147,6 @@ def parse_args():
             "between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >= 1.10."
             "and an Nvidia Ampere GPU."
         ),
-    )
-    parser.add_argument(
-        "--adam_beta1",
-        type=float,
-        default=0.9,
-        help="beta1 parameter in Adam optimizer",
-    )
-    parser.add_argument(
-        "--adam_beta2",
-        type=float,
-        default=0.999,
-        help="beta2 parameter in Adam optimizer",
-    )
-    parser.add_argument(
-        "--adam_weight_decay",
-        type=float,
-        default=0.0,
-        help="weight decay magnitude in Adam optimizer",
-    )
-    parser.add_argument(
-        "--adam_epsilon",
-        type=float,
-        default=1e-08,
-        help="epsilon value in Adam optimizer",
     )
     parser.add_argument(
         "--ema_inv_gamma",
@@ -454,19 +408,16 @@ def main(args):
 
     pipeline_scheduler = pipeline.scheduler
 
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=config["lr"],
-        betas=(args.adam_beta1, args.adam_beta2),
-        weight_decay=args.adam_weight_decay,
-        eps=args.adam_epsilon,
+    optimizer_kwargs = config["optimizer_config"]["kwargs"]
+    optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
+        model.parameters(), **optimizer_kwargs
     )
-
+    lr_scheduler_kwargs = config["lr_scheduler_config"]["kwargs"]
     lr_scheduler = get_scheduler(
-        args.lr_scheduler,
+        config["lr_scheduler_config"]["name"],
         optimizer=optimizer,
-        num_warmup_steps=args.lr_warmup_steps,
         num_training_steps=full_num_epoch_steps * epochs,
+        **lr_scheduler_kwargs,
     )  # Use the learning rate scheduler for training with the entire training set.
 
     loss_fn = nn.MSELoss(reduction="mean")

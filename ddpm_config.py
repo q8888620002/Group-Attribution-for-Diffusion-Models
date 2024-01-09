@@ -14,7 +14,14 @@ class DDPMConfig:
             "retrain/models/full/steps_00125000.pt",
         ),
         # Training params
-        "lr": 1e-4,
+        "optimizer_config": {
+            "class_name": "Adam",
+            "kwargs": {"lr": 1e-4, "weight_decay": 0.0},
+        },
+        "lr_scheduler_config": {
+            "name": "constant",
+            "kwargs": {"num_warmup_steps": 0},
+        },
         "batch_size": 128,
         "epochs": {"retrain": 800, "ga": 5, "gd": 10, "esd": 500},
         "ckpt_freq": {"retrain": 100, "ga": 1, "gd": 1, "esd": 100},
@@ -80,7 +87,14 @@ class DDPMConfig:
     celeba_config = {
         "dataset": "celeba",
         "image_size": 256,
-        "lr": 1e-4,
+        "optimizer_config": {
+            "class_name": "Adam",
+            "kwargs": {"lr": 1e-4, "weight_decay": 0.0},
+        },
+        "lr_scheduler_config": {
+            "name": "constant",
+            "kwargs": {"num_warmup_steps": 0},
+        },
         "batch_size": 32,
         "epochs": {"retrain": 800, "ga": 5, "gd": 10, "esd": 500},
         "ckpt_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 100},
@@ -192,7 +206,14 @@ class DDPMConfig:
             "num_train_timesteps": 1000,
         },
         # Training params
-        "lr": 1e-3,
+        "optimizer_config": {
+            "class_name": "Adam",
+            "kwargs": {"lr": 1e-3, "weight_decay": 0.0},
+        },
+        "lr_scheduler_config": {
+            "name": "constant",
+            "kwargs": {"num_warmup_steps": 0},
+        },
         "batch_size": 64,
         "epochs": {"retrain": 100, "ga": 5, "gd": 10, "esd": 100},
         "ckpt_freq": {"retrain": 2, "ga": 1, "gd": 1, "esd": 20},
@@ -247,7 +268,14 @@ class DDPMConfig:
             "trained_betas": None,
         },
         # Training params.
-        "lr": 1e-3,
+        "optimizer_config": {
+            "class_name": "Adam",
+            "kwargs": {"lr": 1e-3, "weight_decay": 0.0},
+        },
+        "lr_scheduler_config": {
+            "name": "constant",
+            "kwargs": {"num_warmup_steps": 0},
+        },
         "batch_size": 8,  # Largest batch size with fp32 that fits on RTX-6000.
         "epochs": {"retrain": 100, "ga": 5, "gd": 10, "esd": 100},
         "ckpt_freq": {"retrain": 1, "ga": 1, "gd": 1, "esd": 20},
