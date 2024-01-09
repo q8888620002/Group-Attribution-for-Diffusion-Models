@@ -20,7 +20,6 @@ from diffusers import (
     DDPMScheduler,
     DiffusionPipeline,
     LDMPipeline,
-    UNet2DModel,
     VQModel,
 )
 from diffusers.optimization import get_scheduler
@@ -420,37 +419,6 @@ def main(args):
                     model_cls=model_cls,
                     model_config=model.config,
                 )
-            else:
-                # load pre-trained pipeline and reinitialize model if retraining.
-                print("Loading pretrained model for retraining {}".format(args.dataset))
-
-                if args.dataset == "celeba":
-
-                    model_id = "CompVis/ldm-celebahq-256"
-                    model = UNet2DModel.from_pretrained(model_id, subfolder="unet")
-
-                elif args.dataset == "cifar":
-                    pretrained_modeldir = os.path.join(
-                        args.outdir, f"pretrained_models/{args.dataset}"
-                    )
-
-                    pipeline = DDPMPipeline.from_pretrained(pretrained_modeldir)
-                    model = pipeline.unet
-
-                for m in model.modules():
-                    if hasattr(m, "reset_parameters"):
-                        m.reset_parameters()
-
-                ema_model = EMAModel(
-                    model.parameters(),
-                    decay=args.ema_max_decay,
-                    use_ema_warmup=False,
-                    inv_gamma=args.ema_inv_gamma,
-                    power=args.ema_power,
-                    model_cls=model_cls,
-                    model_config=model.config,
-                )
-
     else:
         # initializing standard model from scratch.
 
