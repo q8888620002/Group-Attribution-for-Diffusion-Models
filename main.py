@@ -547,6 +547,7 @@ def main(args):
                 encoder_hidden_states_r = text_encoder(input_ids_r)[0]
             elif args.dataset == "celeba":
                 image_r = vqvae.encode(image_r, False)[0]
+                image_r = image_r * vqvae.config.scaling_factor
 
             noise = torch.randn_like(image_r).to(device)
             timesteps = torch.randint(
@@ -585,6 +586,9 @@ def main(args):
                         image_f = image_f * vqvae.config.scaling_factor
                         input_ids_f = label_tokenizer(label_f).to(device)
                         encoder_hidden_states_f = text_encoder(input_ids_f)[0]
+                    elif args.dataset == "celeba":
+                        image_f = vqvae.encode(image_f, False)[0]
+                        image_f = image_f * vqvae.config.scaling_factor
 
                     with torch.no_grad():
                         noisy_images_f = pipeline_scheduler.add_noise(
