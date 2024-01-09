@@ -248,7 +248,7 @@ class DDPMConfig:
         },
         # Training params.
         "lr": 1e-3,
-        "batch_size": 32,  # Largest batch size with fp32 that fits on A40.
+        "batch_size": 8,  # Largest batch size with fp32 that fits on RTX-6000.
         "epochs": {"retrain": 100, "ga": 5, "gd": 10, "esd": 100},
         "ckpt_freq": {"retrain": 1, "ga": 1, "gd": 1, "esd": 20},
         "sample_freq": {"retrain": 1, "ga": 1, "gd": 1, "esd": 20},
