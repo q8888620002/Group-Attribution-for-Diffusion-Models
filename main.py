@@ -58,16 +58,11 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Training DDPM")
 
     parser.add_argument(
-        "--load", type=str, help="path for loading pre-trained model", default=None
+        "--load",
+        type=str,
+        help="directory path for loading pre-trained model",
+        default=None,
     )
-
-    parser.add_argument(
-        "--init",
-        action="store_true",
-        help="whether to initialize with a new model.",
-        default=False,
-    )
-
     parser.add_argument(
         "--dataset",
         type=str,
@@ -137,33 +132,6 @@ def parse_args():
         "--exp_name", type=str, help="experiment name in the database", default=None
     )
     parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="whether to resume from the latest available model checkpoint",
-    )
-
-    # Training and fine-tuning parameters.
-    parser.add_argument(
-        "--lr_scheduler",
-        type=str,
-        default="constant",
-        choices=[
-            "constant",
-            "constant_with_warmup",
-            "cosine",
-            "cosine_with_restarts",
-            "linear",
-            "polynomial",
-        ],
-        help="learning rate scheduler to use",
-    )
-    parser.add_argument(
-        "--lr_warmup_steps",
-        type=int,
-        default=0,
-        help="number of warmup steps in the learning rate scheduler",
-    )
-    parser.add_argument(
         "--gradient_accumulation_steps",
         type=int,
         default=1,
@@ -179,30 +147,6 @@ def parse_args():
             "between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >= 1.10."
             "and an Nvidia Ampere GPU."
         ),
-    )
-    parser.add_argument(
-        "--adam_beta1",
-        type=float,
-        default=0.9,
-        help="beta1 parameter in Adam optimizer",
-    )
-    parser.add_argument(
-        "--adam_beta2",
-        type=float,
-        default=0.999,
-        help="beta2 parameter in Adam optimizer",
-    )
-    parser.add_argument(
-        "--adam_weight_decay",
-        type=float,
-        default=0.0,
-        help="weight decay magnitude in Adam optimizer",
-    )
-    parser.add_argument(
-        "--adam_epsilon",
-        type=float,
-        default=1e-08,
-        help="epsilon value in Adam optimizer",
     )
     parser.add_argument(
         "--ema_inv_gamma",
@@ -222,7 +166,6 @@ def parse_args():
         default=0.9999,
         help="maximum decay magnitude EMA",
     )
-
     parser.add_argument(
         "--num_inference_steps",
         type=int,
@@ -235,7 +178,6 @@ def parse_args():
         default=1000,
         help="number of diffusion steps during training",
     )
-
     return parser.parse_args()
 
 
@@ -269,7 +211,10 @@ def main(args):
         config = {**DDPMConfig.imagenette_config}
     else:
         raise ValueError(
-            f"dataset={args.dataset} is not one of ['cifar', 'mnist', 'celeba']"
+            (
+                f"dataset={args.dataset} is not one of "
+                "['cifar', 'mnist', 'celeba', 'imagenette']"
+            )
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
@@ -350,31 +295,49 @@ def main(args):
         removed_dataloader = remaining_dataloader
         num_epoch_steps = len(remaining_dataloader)
 
-    start_epoch = 0
     epochs = config["epochs"][args.method]
-    global_steps = start_epoch * num_epoch_steps
 
-    if not args.init:
-        # check if there's an existing checkpoint.
+    existing_steps = get_max_steps(model_outdir)
+    if existing_steps is not None:
+        # Check if there is an existing checkpoint to resume from. This occurs when
+        # model runs are interrupted (e.g., exceeding job time limit).
+        unet_path = os.path.join(model_outdir, f"unet_steps_{existing_steps:0>8}.pt")
+        unet_ema_path = os.path.join(
+            model_outdir, f"unet_ema_steps_{existing_steps:0>8}.pt"
+        )
+        model = torch.load(unet_path, map_location=device)
 
-        pretrained_steps = get_max_steps(args.load) if args.load else None
+        # Resume from the existing EMA checkpoint.
+        ema_model = torch.load(unet_ema_path, map_location=device)
+        ema_model = EMAModel(
+            ema_model.parameters(),
+            decay=args.ema_max_decay,
+            use_ema_warmup=False,
+            inv_gamma=args.ema_inv_gamma,
+            power=args.ema_power,
+            model_cls=model_cls,
+            model_config=model.config,
+        )
 
+        # Set starting epoch and global steps to the resumed checkpoint.
+        global_steps = existing_steps
+        start_epoch = int(existing_steps / num_epoch_steps)
+
+        print(f"Model resumed from {model_outdir}")
+        print(f"\tU-Net resumed from {unet_path}")
+        print(f"\tU-Net EMA resumed from {unet_ema_path}")
+    elif args.load:
+        # If there are no checkpoints to resume from, and a pre-trained model is
+        # specified for fine-tuning or unlearning.
+        pretrained_steps = get_max_steps(args.load)
         if pretrained_steps is not None:
-            # Loading and training model from an existing checkpoint.
-            print(f"Loading model from checkpoint at {args.load}")
+            unet_path = os.path.join(args.load, f"unet_steps_{pretrained_steps:0>8}.pt")
+            model = torch.load(unet_path, map_location=device)
 
-            unet_out_dir = os.path.join(
-                args.load, f"unet_steps_{pretrained_steps:0>8}.pt"
-            )
-            unet_ema_out_dir = os.path.join(
-                args.load, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
-            )
-
-            model = torch.load(unet_out_dir, map_location=device)
-            ema_model = torch.load(unet_ema_out_dir, map_location=device)
-
+            # Consider the pre-trained model as model weight initialization, so the EMA
+            # starts with the pre-trained model.
             ema_model = EMAModel(
-                ema_model.parameters(),
+                model.parameters(),
                 decay=args.ema_max_decay,
                 use_ema_warmup=False,
                 inv_gamma=args.ema_inv_gamma,
@@ -382,48 +345,16 @@ def main(args):
                 model_cls=model_cls,
                 model_config=model.config,
             )
+            start_epoch = 0
+            global_steps = 0
 
-            global_steps = pretrained_steps
-
+            print(f"Pre-trained model loaded from {args.load}")
+            print(f"\tU-Net loaded from {unet_path}")
+            print("EMA started from the loaded U-Net")
         else:
-            print("Checkpoint does not exist. ")
-
-            if args.method != "retrain":
-                # Load pruned model for unlearning if checkpoint doesn't exist.
-                pruned_modeldir = os.path.join(
-                    args.outdir,
-                    args.dataset,
-                    "pruned/models/pruner=magnitude_pruning_ratio=0.3_threshold=0.05",
-                )
-                print(
-                    "Loading pruned model from {} for unlearning".format(
-                        pruned_modeldir
-                    )
-                )
-                pretrained_steps = get_max_steps(pruned_modeldir)
-                unet_out_dir = os.path.join(
-                    pruned_modeldir, f"unet_steps_{pretrained_steps:0>8}.pt"
-                )
-                unet_ema_out_dir = os.path.join(
-                    pruned_modeldir, f"unet_ema_steps_{pretrained_steps:0>8}.pt"
-                )
-                model = torch.load(unet_out_dir, map_location=device)
-                ema_model = torch.load(unet_ema_out_dir, map_location=device)
-
-                ema_model = EMAModel(
-                    ema_model.parameters(),
-                    decay=args.ema_max_decay,
-                    use_ema_warmup=False,
-                    inv_gamma=args.ema_inv_gamma,
-                    power=args.ema_power,
-                    model_cls=model_cls,
-                    model_config=model.config,
-                )
+            raise ValueError(f"No pre-trained checkpoints found at {args.load}")
     else:
-        # initializing standard model from scratch.
-
-        print(f"Initializing model from scratch for {args.dataset}")
-
+        # Randomly initialize the model.
         model = model_cls(**config["unet_config"])
         ema_model = EMAModel(
             model.parameters(),
@@ -434,6 +365,10 @@ def main(args):
             model_cls=model_cls,
             model_config=model.config,
         )
+        start_epoch = 0
+        global_steps = 0
+        print("Model randomly initialized")
+
     ema_model.to(device)
 
     if args.dataset == "imagenette":
@@ -452,7 +387,6 @@ def main(args):
 
         vqvae = vqvae.to(device)
         text_encoder = text_encoder.to(device)
-
     elif args.dataset == "celeba":
         model_id = "CompVis/ldm-celebahq-256"
         vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
@@ -465,7 +399,6 @@ def main(args):
             vqvae=vqvae,
             scheduler=DDIMScheduler(**config["scheduler_config"]),
         ).to(device)
-
     else:
         pipeline = DDPMPipeline(
             unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
@@ -473,25 +406,21 @@ def main(args):
 
     pipeline_scheduler = pipeline.scheduler
 
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=config["lr"],
-        betas=(args.adam_beta1, args.adam_beta2),
-        weight_decay=args.adam_weight_decay,
-        eps=args.adam_epsilon,
+    optimizer_kwargs = config["optimizer_config"]["kwargs"]
+    optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
+        model.parameters(), **optimizer_kwargs
     )
-
+    lr_scheduler_kwargs = config["lr_scheduler_config"]["kwargs"]
     lr_scheduler = get_scheduler(
-        args.lr_scheduler,
+        config["lr_scheduler_config"]["name"],
         optimizer=optimizer,
-        num_warmup_steps=args.lr_warmup_steps,
         num_training_steps=full_num_epoch_steps * epochs,
+        **lr_scheduler_kwargs,
     )  # Use the learning rate scheduler for training with the entire training set.
 
     loss_fn = nn.MSELoss(reduction="mean")
 
-    # Load frozen model
-
+    # Load frozen model.
     if args.method == "esd":
         pipeline_frozen = DDPMPipeline.from_pretrained(
             os.path.join(args.outdir, f"pretrained_models/{args.dataset}")
@@ -499,7 +428,6 @@ def main(args):
         frozen_unet = pipeline_frozen.unet.to(device)
 
     if args.wandb:
-
         wandb.init(
             project="Data Shapley for Diffusion",
             notes=f"Experiment for {args.method};{args.removal_dist};{args.dataset}",
@@ -529,6 +457,7 @@ def main(args):
         lr_scheduler,
     )
 
+    runtime_steps = 0
     for epoch in tqdm(range(start_epoch, epochs)):
 
         steps_start_time = time.time()
@@ -612,18 +541,26 @@ def main(args):
                 optimizer.step()
                 lr_scheduler.step()
 
-                if (j + 1) % args.gradient_accumulation_steps == 0:
-                    ema_model.step(model.parameters())
+            # Update the EMA since its update is not handled by the accelerator.
+            if (runtime_steps + 1) % args.gradient_accumulation_steps == 0:
+                ema_model.step(model.parameters())
 
-                # check gradient norm & params norm
+            if (
+                (runtime_steps + 1) / args.gradient_accumulation_steps
+            ) % args.log_freq == 0:
+                steps_time = time.time() - steps_start_time
+                info = f"Epoch[{epoch + 1}/{epochs}]"
+                info += f", Step[{j + 1}/{num_epoch_steps}]"
+                info += f", steps_time: {steps_time:.3f}"
+                info += f", loss: {loss.detach().cpu().item():.5f}"
 
+                # Check gradient norm and parameter norm.
                 grads = [
                     param.grad.detach().flatten()
                     for param in model.parameters()
                     if param.grad is not None
                 ]
                 grad_norm = torch.cat(grads).norm()
-
                 params = [
                     param.data.detach().flatten()
                     for param in model.parameters()
@@ -631,12 +568,6 @@ def main(args):
                 ]
                 params_norm = torch.cat(params).norm()
 
-            if (j + 1) / args.gradient_accumulation_steps % args.log_freq == 0:
-                steps_time = time.time() - steps_start_time
-                info = f"Epoch[{epoch + 1}/{epochs}]"
-                info += f", Step[{j + 1}/{num_epoch_steps}]"
-                info += f", steps_time: {steps_time:.3f}"
-                info += f", loss: {loss.detach().cpu().item():.5f}"
                 info += f", gradient norms: {grad_norm:.5f}"
                 info += f", parameters norms: {params_norm:.5f}"
                 info += f", lr: {lr_scheduler.get_last_lr()[0]:.6f}"
@@ -644,7 +575,6 @@ def main(args):
                 steps_start_time = time.time()
 
                 if args.wandb:
-
                     wandb.log(
                         {
                             "Epoch": (epoch + 1),
@@ -655,7 +585,8 @@ def main(args):
                             "lr": lr_scheduler.get_last_lr()[0],
                         }
                     )
-            global_steps += 1
+            runtime_steps += 1  # Track steps in each execution of this script.
+            global_steps += 1  # Track global steps taken for the model.
 
         # Generate samples for evaluation.
         if (epoch + 1) % config["sample_freq"][args.method] == 0 or (
@@ -770,8 +701,6 @@ def main(args):
                 model,
                 os.path.join(model_outdir, f"unet_ema_steps_{global_steps:0>8}.pt"),
             )
-
-            # torch.save(ckpt, ckpt_file)
             print(f"Checkpoint saved at step {global_steps}")
 
             ema_model.restore(model.parameters())
