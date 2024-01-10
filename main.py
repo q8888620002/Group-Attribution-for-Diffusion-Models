@@ -6,6 +6,7 @@ import math
 import os
 import sys
 import time
+import glob
 
 import diffusers
 import numpy as np
@@ -690,12 +691,22 @@ def main(args):
             model = accelerator.unwrap_model(model).eval()
             model.zero_grad()
 
+            # Remove outdated model check points. 
+
+            pattern = os.path.join(model_outdir, "unet_steps_*.pt")
+            for filename in glob.glob(pattern):
+                os.remove(filename)
+
             torch.save(
                 model, os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt")
             )
 
             ema_model.store(model.parameters())
             ema_model.copy_to(model.parameters())
+
+            pattern = os.path.join(model_outdir, "unet_ema_steps_*.pt")
+            for filename in glob.glob(pattern):
+                os.remove(filename)
 
             torch.save(
                 model,
