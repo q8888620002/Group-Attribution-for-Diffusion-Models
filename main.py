@@ -341,7 +341,7 @@ def main(args):
 
             print(f"Pre-trained model loaded from {args.load}")
             print(f"\tU-Net loaded from {unet_path}")
-            print("EMA started from the loaded U-Net")
+            print("\tEMA started from the loaded U-Net")
         else:
             raise ValueError(f"No pre-trained checkpoints found at {args.load}")
     else:
