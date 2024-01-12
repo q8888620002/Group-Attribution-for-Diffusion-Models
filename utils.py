@@ -378,9 +378,9 @@ def get_max_steps(folder_path):
         return None
 
     max_steps = max(
-        files, key=lambda x: int(os.path.basename(x).split("_")[3].split(".")[0])
+        files, key=lambda x: int(os.path.basename(x).split("_")[-1].split(".")[0])
     )
-    return int(os.path.basename(max_steps).split("_")[3].split(".")[0])
+    return int(os.path.basename(max_steps).split("_")[-1].split(".")[0])
 
 
 def get_features(dataloader, mean, std, model, n_samples, device) -> np.ndarray:
