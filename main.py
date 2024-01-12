@@ -1,11 +1,11 @@
 """Train or perform unlearning on a diffusion model."""
 
 import argparse
+import glob
 import json
 import math
 import os
 import time
-import glob
 
 import diffusers
 import numpy as np
@@ -403,10 +403,13 @@ def main(args):
         model.parameters(), **optimizer_kwargs
     )
     lr_scheduler_kwargs = config["lr_scheduler_config"]["kwargs"]
+    lr_scheduler_training_steps = math.floor(
+        full_num_epoch_steps * epochs / args.gradient_accumulation_steps
+    )
     lr_scheduler = get_scheduler(
         config["lr_scheduler_config"]["name"],
         optimizer=optimizer,
-        num_training_steps=full_num_epoch_steps * epochs,
+        num_training_steps=lr_scheduler_training_steps,
         **lr_scheduler_kwargs,
     )  # Use the learning rate scheduler for training with the entire training set.
 
@@ -703,7 +706,7 @@ def main(args):
         ) and accelerator.is_main_process:
             model = accelerator.unwrap_model(model)
 
-            # Remove outdated model check points. 
+            # Remove outdated model check points.
 
             pattern = os.path.join(model_outdir, "unet_steps_*.pt")
             for filename in glob.glob(pattern):
