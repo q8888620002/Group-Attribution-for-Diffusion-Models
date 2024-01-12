@@ -274,10 +274,10 @@ def main(args):
     )
 
     params = {
-        k: v.detach() for k, v in model.named_parameters() if v.requires_grad == True
+        k: v.detach() for k, v in model.named_parameters() if v.requires_grad is True
     }
     buffers = {
-        k: v.detach() for k, v in model.named_buffers() if v.requires_grad == True
+        k: v.detach() for k, v in model.named_buffers() if v.requires_grad is True
     }
 
     if args.f == "mean-squared-l2-norm":
