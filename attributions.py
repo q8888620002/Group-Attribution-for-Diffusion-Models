@@ -2,10 +2,8 @@
 import argparse
 import os
 
-import diffusers
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from diffusers import (
     DDIMScheduler,
@@ -20,6 +18,7 @@ from lightning.pytorch import seed_everything
 from torch.func import functional_call, grad, vmap
 from torch.utils.data import DataLoader, Subset
 from trak.projectors import CudaProjector, ProjectionType
+from trak.utils import is_not_buffer
 
 import constants
 from ddpm_config import DDPMConfig
@@ -97,7 +96,6 @@ def parse_args():
         choices=[
             "mean",
             "mean-squared-l2-norm",
-            "weighted_mse",
             "l1-norm",
             "l2-norm",
             "linf-norm",
@@ -421,35 +419,6 @@ def main(args):
             ####
             # print(f.size())
             # print(f)
-            ####
-            return f
-
-    elif args.f == "weighted-mse":
-        print(args.f)
-
-        def compute_f(params, buffers, noisy_latents, timesteps, targets):
-            noisy_latents = noisy_latents.unsqueeze(0)
-            ####
-
-            ####
-            timesteps = timesteps.unsqueeze(0)
-            targets = targets.unsqueeze(0)
-            predictions = functional_call(
-                model,
-                (params, buffers),
-                args=noisy_latents,
-                kwargs={
-                    "timestep": timesteps,
-                },
-            )
-            predictions = predictions.sample
-            ####
-            w = weights.to(device=timesteps.device)[timesteps]
-            # print(w)
-            ####
-            f = w * F.mse_loss(predictions.float(), targets.float(), reduction="none")
-            f = f.reshape(1, -1)
-            f = f.mean()
             ####
             return f
 
