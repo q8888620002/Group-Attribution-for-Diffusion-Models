@@ -1,12 +1,12 @@
 """Class for TRAK score calculation."""
-import os
-import numpy as np
 import argparse
+import os
+
+import diffusers
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import diffusers
-
 from diffusers import (
     DDIMScheduler,
     DDPMPipeline,
@@ -16,18 +16,13 @@ from diffusers import (
     VQModel,
 )
 
-from accelerate.utils import ProjectConfiguration, set_seed
 from lightning.pytorch import seed_everything
-from diffusers.optimization import get_scheduler
-from diffusers.training_utils import EMAModel
-from ddpm_config import DDPMConfig
-
+from torch.func import functional_call, grad, vmap
 from torch.utils.data import DataLoader, Subset
-from torch.func import functional_call, vmap, grad
-from trak.projectors import ProjectionType, AbstractProjector, CudaProjector
+from trak.projectors import CudaProjector, ProjectionType
 
 import constants
-
+from ddpm_config import DDPMConfig
 from utils import (
     ImagenetteCaptioner,
     LabelTokenizer,
@@ -39,7 +34,9 @@ from utils import (
     remove_data_by_uniform,
 )
 
+
 def parse_args():
+    """Parse command line arguments."""
 
     parser = argparse.ArgumentParser(description="Training DDPM")
 
@@ -57,16 +54,10 @@ def parse_args():
         default="mnist",
     )
     parser.add_argument(
-        "--device",
-        type=str,
-        help="device of training",
-        default="cuda:0"
+        "--device", type=str, help="device of training", default="cuda:0"
     )
     parser.add_argument(
-        "--outdir",
-        type=str,
-        help="output parent directory",
-        default=constants.OUTDIR
+        "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
     parser.add_argument(
         "--excluded_class",
@@ -103,8 +94,15 @@ def parse_args():
         "--f",
         type=str,
         default=None,
-        choices=["mean","mean-squared-l2-norm", "weighted_mse","l1-norm","l2-norm","linf-norm"],
-        help="TBD"
+        choices=[
+            "mean",
+            "mean-squared-l2-norm",
+            "weighted_mse",
+            "l1-norm",
+            "l2-norm",
+            "linf-norm",
+        ],
+        help="TBD",
     )
 
     parser.add_argument(
@@ -120,20 +118,17 @@ def parse_args():
         help="TBD",
     )
 
-
     return parser.parse_args()
 
-def count_parameters(model):
-    """
-    Helper function that return the sum of parameters.
 
-    """
-    print(sum(p.numel() for p in model.parameters() if p.requires_grad))
+def count_parameters(model):
+    """Helper function that return the sum of parameters."""
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
 def vectorize_and_ignore_buffers(g, params_dict=None):
     """
-    gradients are given as a tuple :code:`(grad_w0, grad_w1, ... grad_wp)` where
+    Gradients are given as a tuple :code:`(grad_w0, grad_w1, ... grad_wp)` where
     :code:`p` is the number of weight matrices. each :code:`grad_wi` has shape
     :code:`[batch_size, ...]` this function flattens :code:`g` to have shape
     :code:`[batch_size, num_params]`.
@@ -142,13 +137,23 @@ def vectorize_and_ignore_buffers(g, params_dict=None):
     out = []
     if params_dict is not None:
         for b in range(batch_size):
-            out.append(torch.cat([x[b].flatten() for i, x in enumerate(g) if is_not_buffer(i, params_dict)]))
+            out.append(
+                torch.cat(
+                    [
+                        x[b].flatten()
+                        for i, x in enumerate(g)
+                        if is_not_buffer(i, params_dict)
+                    ]
+                )
+            )
     else:
         for b in range(batch_size):
             out.append(torch.cat([x[b].flatten() for x in g]))
     return torch.stack(out)
 
+
 def main(args):
+    """Main function for computing project@gradient for D-TRAK and TRAK."""
 
     device = args.device
 
@@ -165,7 +170,6 @@ def main(args):
                 "['cifar', 'mnist', 'celeba', 'imagenette']"
             )
         )
-    model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
     removal_dir = "full"
     if args.excluded_class is not None:
@@ -259,12 +263,7 @@ def main(args):
 
     pipeline_scheduler = pipeline.scheduler
 
-    save_dir = os.path.join(
-        args.outdir,
-        args.dataset,
-        removal_dir,
-        "d_track"
-    )
+    save_dir = os.path.join(args.outdir, args.dataset, removal_dir, "d_track")
     # Initialize random matrix projector from trak
 
     projector = CudaProjector(
@@ -273,21 +272,32 @@ def main(args):
         seed=42,
         proj_type=ProjectionType.normal,  # proj_type=ProjectionType.rademacher,
         device=device,
-        max_batch_size = config["batch_size"]
+        max_batch_size=config["batch_size"],
     )
 
-    params = {k: v.detach() for k, v in model.named_parameters() if v.requires_grad==True}
-    buffers = {k: v.detach() for k, v in model.named_buffers() if v.requires_grad==True}
+    params = {
+        k: v.detach() for k, v in model.named_parameters() if v.requires_grad == True
+    }
+    buffers = {
+        k: v.detach() for k, v in model.named_buffers() if v.requires_grad == True
+    }
 
-    if args.f =='mean-squared-l2-norm':
+    if args.f == "mean-squared-l2-norm":
         print(args.f)
+
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
             timesteps = timesteps.unsqueeze(0)
             targets = targets.unsqueeze(0)
 
-            predictions = functional_call(model, (params, buffers), args=noisy_latents,
-                                  kwargs={'timestep': timesteps, })
+            predictions = functional_call(
+                model,
+                (params, buffers),
+                args=noisy_latents,
+                kwargs={
+                    "timestep": timesteps,
+                },
+            )
             predictions = predictions.sample
             ####
             # predictions = predictions.reshape(1, -1)
@@ -295,7 +305,9 @@ def main(args):
             # f = f/predictions.size(1) # mean
             # f = f.mean()
             ####
-            f = F.mse_loss(predictions.float(), torch.zeros_like(targets).float(), reduction="none")
+            f = F.mse_loss(
+                predictions.float(), torch.zeros_like(targets).float(), reduction="none"
+            )
             f = f.reshape(1, -1)
             f = f.mean()
             ####
@@ -303,15 +315,23 @@ def main(args):
             # print(f)
             ####
             return f
-    elif args.f=='mean':
+
+    elif args.f == "mean":
         print(args.f)
+
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
             timesteps = timesteps.unsqueeze(0)
             targets = targets.unsqueeze(0)
 
-            predictions = functional_call(model, (params, buffers), args=noisy_latents,
-                                  kwargs={'timestep': timesteps, })
+            predictions = functional_call(
+                model,
+                (params, buffers),
+                args=noisy_latents,
+                kwargs={
+                    "timestep": timesteps,
+                },
+            )
             predictions = predictions.sample
             ####
             f = predictions.float()
@@ -322,8 +342,10 @@ def main(args):
             # print(f)
             ####
             return f
-    elif args.f=='l1-norm':
+
+    elif args.f == "l1-norm":
         print(args.f)
+
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
             timesteps = timesteps.unsqueeze(0)
@@ -333,7 +355,9 @@ def main(args):
                 model,
                 (params, buffers),
                 args=noisy_latents,
-                kwargs={'timestep': timesteps, }
+                kwargs={
+                    "timestep": timesteps,
+                },
             )
             predictions = predictions.sample
             ####
@@ -345,15 +369,23 @@ def main(args):
             # print(f)
             ####
             return f
-    elif args.f=='l2-norm':
+
+    elif args.f == "l2-norm":
         print(args.f)
+
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
             timesteps = timesteps.unsqueeze(0)
             targets = targets.unsqueeze(0)
 
-            predictions = functional_call(model, (params, buffers), args=noisy_latents,
-                                  kwargs={'timestep': timesteps, })
+            predictions = functional_call(
+                model,
+                (params, buffers),
+                args=noisy_latents,
+                kwargs={
+                    "timestep": timesteps,
+                },
+            )
             predictions = predictions.sample
             ####
             predictions = predictions.reshape(1, -1)
@@ -364,27 +396,37 @@ def main(args):
             # print(f)
             ####
             return f
-    elif args.f=='linf-norm':
+
+    elif args.f == "linf-norm":
         print(args.f)
+
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
             timesteps = timesteps.unsqueeze(0)
             targets = targets.unsqueeze(0)
 
-            predictions = functional_call(model, (params, buffers), args=noisy_latents,
-                                  kwargs={'timestep': timesteps, })
+            predictions = functional_call(
+                model,
+                (params, buffers),
+                args=noisy_latents,
+                kwargs={
+                    "timestep": timesteps,
+                },
+            )
             predictions = predictions.sample
             ####
             predictions = predictions.reshape(1, -1)
-            f = torch.norm(predictions.float(), p=float('inf'), dim=-1)
+            f = torch.norm(predictions.float(), p=float("inf"), dim=-1)
             f = f.mean()
             ####
             # print(f.size())
             # print(f)
             ####
             return f
-    elif args.f=='weighted-mse':
+
+    elif args.f == "weighted-mse":
         print(args.f)
+
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
             ####
@@ -392,27 +434,41 @@ def main(args):
             ####
             timesteps = timesteps.unsqueeze(0)
             targets = targets.unsqueeze(0)
-            predictions = functional_call(model, (params, buffers), args=noisy_latents,
-                                  kwargs={'timestep': timesteps, })
+            predictions = functional_call(
+                model,
+                (params, buffers),
+                args=noisy_latents,
+                kwargs={
+                    "timestep": timesteps,
+                },
+            )
             predictions = predictions.sample
             ####
             w = weights.to(device=timesteps.device)[timesteps]
             # print(w)
             ####
-            f = w*F.mse_loss(predictions.float(), targets.float(), reduction="none")
+            f = w * F.mse_loss(predictions.float(), targets.float(), reduction="none")
             f = f.reshape(1, -1)
             f = f.mean()
             ####
             return f
+
     else:
         print(args.f)
+
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
             timesteps = timesteps.unsqueeze(0)
             targets = targets.unsqueeze(0)
 
-            predictions = functional_call(model, (params, buffers), args=noisy_latents,
-                                  kwargs={'timestep': timesteps, })
+            predictions = functional_call(
+                model,
+                (params, buffers),
+                args=noisy_latents,
+                kwargs={
+                    "timestep": timesteps,
+                },
+            )
             predictions = predictions.sample
             ####
             f = F.mse_loss(predictions.float(), targets.float(), reduction="none")
@@ -425,7 +481,11 @@ def main(args):
     ft_compute_sample_grad = vmap(
         ft_compute_grad,
         in_dims=(
-            None, None, 0, 0, 0,
+            None,
+            None,
+            0,
+            0,
+            0,
         ),
     )
 
@@ -435,16 +495,16 @@ def main(args):
         image = image.to(device)
         bsz = image.shape[0]
 
-        if args.t_strategy=='uniform':
-            selected_timesteps = range(0, 1000, 1000//args.K)
-        elif args.t_strategy=='cumulative':
+        if args.t_strategy == "uniform":
+            selected_timesteps = range(0, 1000, 1000 // args.K)
+        elif args.t_strategy == "cumulative":
             selected_timesteps = range(0, args.K)
 
         for index_t, t in enumerate(selected_timesteps):
             # Sample a random timestep for each image
-            timesteps = torch.tensor([t]*bsz, device=image.device)
+            timesteps = torch.tensor([t] * bsz, device=image.device)
             timesteps = timesteps.long()
-            seed_everything(42*1000+t) # !!!!
+            seed_everything(42 * 1000 + t)  # !!!!
 
             noise = torch.randn_like(image)
             noisy_latents = pipeline_scheduler.add_noise(image, noise, timesteps)
@@ -455,7 +515,9 @@ def main(args):
             elif pipeline_scheduler.config.prediction_type == "v_prediction":
                 target = pipeline_scheduler.get_velocity(image, noise, timesteps)
             else:
-                raise ValueError(f"Unknown prediction type {pipeline_scheduler.config.prediction_type}")
+                raise ValueError(
+                    f"Unknown prediction type {pipeline_scheduler.config.prediction_type}"
+                )
 
             ft_per_sample_grads = ft_compute_sample_grad(
                 params,
@@ -467,12 +529,14 @@ def main(args):
             # if len(keys) == 0:
             #     keys = ft_per_sample_grads.keys()
 
-            ft_per_sample_grads = vectorize_and_ignore_buffers(list(ft_per_sample_grads.values()))
+            ft_per_sample_grads = vectorize_and_ignore_buffers(
+                list(ft_per_sample_grads.values())
+            )
 
             # print(ft_per_sample_grads.size())
             # print(ft_per_sample_grads.dtype)
 
-            if index_t==0:
+            if index_t == 0:
                 emb = ft_per_sample_grads
             else:
                 emb += ft_per_sample_grads
@@ -484,9 +548,10 @@ def main(args):
         # If is_grads_dict == True, then turn emb into a dict.
         # emb_dict = {k: v for k, v in zip(keys, emb)}
 
-        emb_dict = projector.project(emb, is_grads_dict=False, model_id=0) # ddpm
+        emb = projector.project(emb, is_grads_dict=False, model_id=0)  # ddpm
         print(emb.size())
         print(emb.dtype)
+
 
 if __name__ == "__main__":
     args = parse_args()
