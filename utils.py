@@ -2,6 +2,7 @@
 
 import glob
 import os
+import sys
 from typing import List, Tuple
 
 import clip
@@ -20,6 +21,13 @@ import constants
 # Load CLIP model and transformation outside of the function for efficiency
 # device = "cuda:2" if torch.cuda.is_available() else "cpu"
 clip_model, clip_transform = clip.load("ViT-B/32", device="cpu")
+
+
+def print_args(args):
+    """Print script name and args."""
+    print(f"Running {sys.argv[0]} with arguments")
+    for arg in vars(args):
+        print(f"\t{arg}={getattr(args, arg)}")
 
 
 class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
