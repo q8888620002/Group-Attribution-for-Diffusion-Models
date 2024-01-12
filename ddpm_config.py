@@ -269,16 +269,16 @@ class DDPMConfig:
         },
         # Training params.
         "optimizer_config": {
-            "class_name": "Adam",
-            "kwargs": {"lr": 1e-3, "weight_decay": 0.0},
+            "class_name": "AdamW",
+            "kwargs": {"lr": 1.0e-4},
         },
         "lr_scheduler_config": {
             "name": "constant",
             "kwargs": {"num_warmup_steps": 0},
         },
         "batch_size": 8,  # Largest batch size with fp32 that fits on RTX-6000.
-        "epochs": {"retrain": 100, "ga": 5, "gd": 10, "esd": 100},
-        "ckpt_freq": {"retrain": 1, "ga": 1, "gd": 1, "esd": 20},
-        "sample_freq": {"retrain": 1, "ga": 1, "gd": 1, "esd": 20},
-        "n_samples": 64,
+        "epochs": {"retrain": 300, "ga": 5, "gd": 10, "esd": 150},
+        "ckpt_freq": {"retrain": 50, "ga": 1, "gd": 1, "esd": 50},
+        "sample_freq": {"retrain": 50, "ga": 1, "gd": 1, "esd": 50},
+        "n_samples": 60,
     }

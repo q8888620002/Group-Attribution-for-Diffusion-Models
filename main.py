@@ -4,7 +4,6 @@ import argparse
 import json
 import math
 import os
-import sys
 import time
 import glob
 
@@ -39,6 +38,7 @@ from utils import (
     LabelTokenizer,
     create_dataset,
     get_max_steps,
+    print_args,
     remove_data_by_class,
     remove_data_by_datamodel,
     remove_data_by_shapley,
@@ -121,9 +121,6 @@ def parse_args():
         default=42,
     )
     parser.add_argument(
-        "--device", type=str, help="device of training", default="cuda:0"
-    )
-    parser.add_argument(
         "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
     parser.add_argument(
@@ -182,13 +179,6 @@ def parse_args():
     return parser.parse_args()
 
 
-def print_args(args):
-    """Print script name and args."""
-    print(f"Running {sys.argv[0]} with arguments")
-    for arg in vars(args):
-        print(f"\t{arg}={getattr(args, arg)}")
-
-
 def main(args):
     """Main function for training or unlearning."""
     accelerator = Accelerator(
@@ -235,13 +225,14 @@ def main(args):
         "models",
         removal_dir,
     )
-    os.makedirs(model_outdir, exist_ok=True)
-
     sample_outdir = os.path.join(
         args.outdir, args.dataset, args.method, "samples", removal_dir
     )
 
-    os.makedirs(sample_outdir, exist_ok=True)
+    if accelerator.is_main_process:
+        # Make the output directories once in the main process.
+        os.makedirs(model_outdir, exist_ok=True)
+        os.makedirs(sample_outdir, exist_ok=True)
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
     full_num_epoch_steps = math.ceil(len(train_dataset) / config["batch_size"])
@@ -351,7 +342,7 @@ def main(args):
 
             print(f"Pre-trained model loaded from {args.load}")
             print(f"\tU-Net loaded from {unet_path}")
-            print("EMA started from the loaded U-Net")
+            print("\tEMA started from the loaded U-Net")
         else:
             raise ValueError(f"No pre-trained checkpoints found at {args.load}")
     else:
@@ -458,7 +449,7 @@ def main(args):
         lr_scheduler,
     )
 
-    runtime_steps = 0
+    param_update_steps = 0
     for epoch in tqdm(range(start_epoch, epochs)):
 
         steps_start_time = time.time()
@@ -480,6 +471,8 @@ def main(args):
                 image_r = image_r * vqvae.config.scaling_factor
 
             noise = torch.randn_like(image_r).to(device)
+
+            # Antithetic sampling of time steps.
             timesteps = torch.randint(
                 0,
                 pipeline_scheduler.config.num_train_timesteps,
@@ -537,68 +530,82 @@ def main(args):
                     loss += loss_fn(eps_r, (eps_r_frozen - 1e-4 * eps_f_frozen))
 
                 accelerator.backward(loss)
-                accelerator.clip_grad_norm_(model.parameters(), 1.0)
+                if accelerator.sync_gradients:
+                    # Clip the gradients when the gradients are synced. This has to
+                    # happen before calling optimizer.step() to update the model
+                    # parameters.
+                    accelerator.clip_grad_norm_(model.parameters(), 1.0)
 
                 optimizer.step()
                 lr_scheduler.step()
 
-            # Update the EMA since its update is not handled by the accelerator.
-            if (runtime_steps + 1) % args.gradient_accumulation_steps == 0:
-                ema_model.step(model.parameters())
+                if accelerator.sync_gradients:
+                    # Update the EMA model when the gradients are synced (that is, when
+                    # model parameters are updated).
+                    ema_model.step(model.parameters())
 
-            if (
-                (runtime_steps + 1) / args.gradient_accumulation_steps
-            ) % args.log_freq == 0:
-                steps_time = time.time() - steps_start_time
-                info = f"Epoch[{epoch + 1}/{epochs}]"
-                info += f", Step[{j + 1}/{num_epoch_steps}]"
-                info += f", steps_time: {steps_time:.3f}"
-                info += f", loss: {loss.detach().cpu().item():.5f}"
+                    # Print info when the parameters have enough number of updates.
+                    # This is done only once with the main process.
+                    if (
+                        param_update_steps + 1
+                    ) % args.log_freq == 0 and accelerator.is_main_process:
+                        steps_time = time.time() - steps_start_time
+                        info = f"Epoch[{epoch + 1}/{epochs}]"
+                        info += f", Step[{j + 1}/{num_epoch_steps}]"
+                        info += f", steps_time: {steps_time:.3f}"
+                        info += f", loss: {loss.detach().cpu().item():.5f}"
 
-                # Check gradient norm and parameter norm.
-                grads = [
-                    param.grad.detach().flatten()
-                    for param in model.parameters()
-                    if param.grad is not None
-                ]
-                grad_norm = torch.cat(grads).norm()
-                params = [
-                    param.data.detach().flatten()
-                    for param in model.parameters()
-                    if param.data is not None
-                ]
-                params_norm = torch.cat(params).norm()
+                        # Check gradient norm and parameter norm.
+                        model = accelerator.unwrap_model(model)
+                        grads = [
+                            param.grad.detach().flatten()
+                            for param in model.parameters()
+                            if param.grad is not None
+                        ]
+                        grad_norm = torch.cat(grads).norm()
+                        params = [
+                            param.data.detach().flatten()
+                            for param in model.parameters()
+                            if param.data is not None
+                        ]
+                        params_norm = torch.cat(params).norm()
 
-                info += f", gradient norms: {grad_norm:.5f}"
-                info += f", parameters norms: {params_norm:.5f}"
-                info += f", lr: {lr_scheduler.get_last_lr()[0]:.6f}"
-                print(info, flush=True)
-                steps_start_time = time.time()
+                        info += f", gradient norms: {grad_norm:.5f}"
+                        info += f", parameters norms: {params_norm:.5f}"
+                        info += f", lr: {lr_scheduler.get_last_lr()[0]:.6f}"
+                        print(info, flush=True)
+                        steps_start_time = time.time()
 
-                if args.wandb:
-                    wandb.log(
-                        {
-                            "Epoch": (epoch + 1),
-                            "loss": loss.detach().cpu().item(),
-                            "steps_time": steps_time,
-                            "gradient norms": grad_norm,
-                            "parameters norms": params_norm,
-                            "lr": lr_scheduler.get_last_lr()[0],
-                        }
-                    )
-            runtime_steps += 1  # Track steps in each execution of this script.
-            global_steps += 1  # Track global steps taken for the model.
+                        if args.wandb:
+                            wandb.log(
+                                {
+                                    "Epoch": (epoch + 1),
+                                    "loss": loss.detach().cpu().item(),
+                                    "steps_time": steps_time,
+                                    "gradient norms": grad_norm,
+                                    "parameters norms": params_norm,
+                                    "lr": lr_scheduler.get_last_lr()[0],
+                                }
+                            )
 
-        # Generate samples for evaluation.
-        if (epoch + 1) % config["sample_freq"][args.method] == 0 or (
-            epoch + 1
-        ) == epochs:
+                    param_update_steps += 1  # Track number of parameter update steps.
+            global_steps += 1  # Track global steps through the data loader.
+
+        # Generate samples for evaluation. This is done only once for the main process.
+        if (
+            (epoch + 1) % config["sample_freq"][args.method] == 0
+            or (epoch + 1) == epochs
+            and accelerator.is_main_process
+        ):
 
             model = accelerator.unwrap_model(model).eval()
             ema_model.store(model.parameters())
             ema_model.copy_to(model.parameters())
 
             sampling_start_time = time.time()
+            img_nrows = int(math.sqrt(config["n_samples"]))
+            if args.dataset == "imagenette":
+                img_nrows = captioner.num_classes
 
             with torch.no_grad():
                 if args.dataset == "imagenette":
@@ -647,6 +654,10 @@ def main(args):
 
             sampling_time = time.time() - sampling_start_time
 
+            sampling_info = f"Epoch[{epoch + 1}/{epochs}]"
+            sampling_info += f", Step[{j + 1}/{num_epoch_steps}]"
+            sampling_info += f", sampling_time: {sampling_time:.3f}"
+
             if args.dataset == "mnist" and args.excluded_class is not None:
                 with torch.no_grad():
                     outs = classifier(samples.to(device))[0]
@@ -656,25 +667,25 @@ def main(args):
                     ].mean()
                     excluded_prop = ((preds == args.excluded_class) * 1.0).mean()
 
-                info += f", mean_excluded_prob: {mean_excluded_prob:.5f}"
-                info += f", excluded_prop: {excluded_prop:.5f}"
-                info += f", sampling_time: {sampling_time:.3f}"
+                sampling_info += f", mean_excluded_prob: {mean_excluded_prob:.5f}"
+                sampling_info += f", excluded_prop: {excluded_prop:.5f}"
+            print(sampling_info, flush=True)
 
-                print(info, flush=True)
-
+            if args.db is not None:
                 info_dict = vars(args)
                 info_dict["start_epoch"] = start_epoch
                 info_dict["epoch"] = f"{epoch + 1}"
                 info_dict["global_steps"] = f"{global_steps}"
                 info_dict["loss"] = f"{loss.detach().cpu().item():.5f}"
                 info_dict["lr"] = f"{lr_scheduler.get_last_lr()[0]:.6f}"
-                info_dict["mean_excluded_prob"] = f"{mean_excluded_prob:.5f}"
-                info_dict["exlcuded_prop"] = f"{excluded_prop:.5f}"
                 info_dict["steps_time"] = f"{steps_time:.3f}"
                 info_dict["sampling_time"] = f"{sampling_time:.3f}"
-                if args.db is not None:
-                    with open(args.db, "a+") as f:
-                        f.write(json.dumps(info_dict) + "\n")
+                if args.dataset == "mnist" and args.excluded_class is not None:
+                    info_dict["mean_excluded_prob"] = f"{mean_excluded_prob:.5f}"
+                    info_dict["exlcuded_prop"] = f"{excluded_prop:.5f}"
+
+                with open(args.db, "a+") as f:
+                    f.write(json.dumps(info_dict) + "\n")
                 print(f"Results saved to the database at {args.db}")
 
             if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
@@ -683,13 +694,14 @@ def main(args):
             save_image(
                 samples,
                 os.path.join(sample_outdir, f"steps_{global_steps:0>8}.png"),
-                nrow=int(math.sqrt(config["n_samples"])),
+                nrow=img_nrows,
             )
 
-        # Checkpoints for training.
-        if (epoch + 1) % config["ckpt_freq"][args.method] == 0 or (epoch + 1) == epochs:
-            model = accelerator.unwrap_model(model).eval()
-            model.zero_grad()
+        # Checkpoints for training. This is done only once for the main process.
+        if (
+            (epoch + 1) % config["ckpt_freq"][args.method] == 0 or (epoch + 1) == epochs
+        ) and accelerator.is_main_process:
+            model = accelerator.unwrap_model(model)
 
             # Remove outdated model check points. 
 
@@ -698,7 +710,8 @@ def main(args):
                 os.remove(filename)
 
             torch.save(
-                model, os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt")
+                model,
+                os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt"),
             )
 
             ema_model.store(model.parameters())
@@ -721,3 +734,4 @@ if __name__ == "__main__":
     args = parse_args()
     print_args(args)
     main(args)
+    print("Done!")

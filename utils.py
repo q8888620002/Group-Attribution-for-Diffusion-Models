@@ -2,6 +2,7 @@
 
 import glob
 import os
+import sys
 from typing import List, Tuple
 
 import clip
@@ -20,6 +21,13 @@ import constants
 # Load CLIP model and transformation outside of the function for efficiency
 # device = "cuda:2" if torch.cuda.is_available() else "cpu"
 clip_model, clip_transform = clip.load("ViT-B/32", device="cpu")
+
+
+def print_args(args):
+    """Print script name and args."""
+    print(f"Running {sys.argv[0]} with arguments")
+    for arg in vars(args):
+        print(f"\t{arg}={getattr(args, arg)}")
 
 
 class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
@@ -363,16 +371,16 @@ def get_max_step_file(folder_path):
 def get_max_steps(folder_path):
     """Get maximum number of training steps for results in a folder."""
 
-    path_pattern = os.path.join(folder_path, "unet_ema_steps_*.pt")
+    path_pattern = os.path.join(folder_path, "unet_steps_*.pt")
     files = glob.glob(path_pattern)
 
     if not files:
         return None
 
     max_steps = max(
-        files, key=lambda x: int(os.path.basename(x).split("_")[3].split(".")[0])
+        files, key=lambda x: int(os.path.basename(x).split("_")[-1].split(".")[0])
     )
-    return int(os.path.basename(max_steps).split("_")[3].split(".")[0])
+    return int(os.path.basename(max_steps).split("_")[-1].split(".")[0])
 
 
 def get_features(dataloader, mean, std, model, n_samples, device) -> np.ndarray:
