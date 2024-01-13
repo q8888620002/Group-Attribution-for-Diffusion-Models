@@ -65,9 +65,9 @@ def main(args):
         pipeline = DiffusionPipeline.from_pretrained(model_id)
         unet = pipeline.unet
         steps = 0
-        unet_path = os.path.join(model_outdir, f"unet_steps_{steps:0>8}.pt")
-        torch.save(unet, unet_path)
-        print(f"Pre-trained U-Net from {model_id} saved at {unet_path}")
+        ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{steps:0>8}.pt")
+        torch.save({"unet": unet.state_dict()}, ckpt_path)
+        print(f"Pre-trained U-Net from {model_id} saved at {ckpt_path}")
 
         pipeline = pipeline.to(args.device)
         config = {**DDPMConfig.imagenette_config}
