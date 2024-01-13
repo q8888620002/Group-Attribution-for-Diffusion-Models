@@ -187,6 +187,9 @@ def main(args):
     )
     device = accelerator.device
 
+    if accelerator.is_main_process:
+        print_args(args)
+
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
     elif args.dataset == "celeba":
@@ -293,16 +296,12 @@ def main(args):
     if existing_steps is not None:
         # Check if there is an existing checkpoint to resume from. This occurs when
         # model runs are interrupted (e.g., exceeding job time limit).
-        unet_path = os.path.join(model_outdir, f"unet_steps_{existing_steps:0>8}.pt")
-        unet_ema_path = os.path.join(
-            model_outdir, f"unet_ema_steps_{existing_steps:0>8}.pt"
-        )
-        model = torch.load(unet_path, map_location=device)
-
-        # Resume from the existing EMA checkpoint.
-        ema_model = torch.load(unet_ema_path, map_location=device)
+        ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{existing_steps:0>8}.pt")
+        ckpt = torch.load(ckpt_path, map_location="cpu")
+        model = model_cls(**config["unet_config"])
+        model.load_state_dict(ckpt["unet"])
         ema_model = EMAModel(
-            ema_model.parameters(),
+            model.parameters(),
             decay=args.ema_max_decay,
             use_ema_warmup=False,
             inv_gamma=args.ema_inv_gamma,
@@ -310,21 +309,22 @@ def main(args):
             model_cls=model_cls,
             model_config=model.config,
         )
+        ema_model.load_state_dict(ckpt["unet_ema"])
 
         # Set starting epoch and global steps to the resumed checkpoint.
-        global_steps = existing_steps
         start_epoch = int(existing_steps / num_epoch_steps)
+        global_steps = existing_steps
 
-        print(f"Model resumed from {model_outdir}")
-        print(f"\tU-Net resumed from {unet_path}")
-        print(f"\tU-Net EMA resumed from {unet_ema_path}")
+        accelerator.print(f"U-Net and U-Net EMA resumed from {ckpt_path}")
     elif args.load:
         # If there are no checkpoints to resume from, and a pre-trained model is
         # specified for fine-tuning or unlearning.
         pretrained_steps = get_max_steps(args.load)
         if pretrained_steps is not None:
-            unet_path = os.path.join(args.load, f"unet_steps_{pretrained_steps:0>8}.pt")
-            model = torch.load(unet_path, map_location=device)
+            ckpt_path = os.path.join(args.load, f"ckpt_steps_{pretrained_steps:0>8}.pt")
+            ckpt = torch.load(ckpt_path, map_location="cpu")
+            model = model_cls(**config["unet_config"])
+            model.load_state_dict(ckpt["unet"])
 
             # Consider the pre-trained model as model weight initialization, so the EMA
             # starts with the pre-trained model.
@@ -340,9 +340,9 @@ def main(args):
             start_epoch = 0
             global_steps = 0
 
-            print(f"Pre-trained model loaded from {args.load}")
-            print(f"\tU-Net loaded from {unet_path}")
-            print("\tEMA started from the loaded U-Net")
+            accelerator.print(f"Pre-trained model loaded from {args.load}")
+            accelerator.print(f"\tU-Net loaded from {ckpt_path}")
+            accelerator.print("\tEMA started from the loaded U-Net")
         else:
             raise ValueError(f"No pre-trained checkpoints found at {args.load}")
     else:
@@ -359,7 +359,7 @@ def main(args):
         )
         start_epoch = 0
         global_steps = 0
-        print("Model randomly initialized")
+        accelerator.print("Model randomly initialized")
 
     ema_model.to(device)
 
@@ -412,6 +412,11 @@ def main(args):
         num_training_steps=lr_scheduler_training_steps,
         **lr_scheduler_kwargs,
     )  # Use the learning rate scheduler for training with the entire training set.
+
+    if existing_steps is not None:
+        optimizer.load_state_dict(ckpt["optimizer"])
+        lr_scheduler.load_state_dict(ckpt["lr_scheduler"])
+        accelerator.print(f"Optimizer and lr scheduler resumed from {ckpt_path}")
 
     loss_fn = nn.MSELoss(reduction="mean")
 
@@ -561,13 +566,13 @@ def main(args):
                         # Check gradient norm and parameter norm.
                         model = accelerator.unwrap_model(model)
                         grads = [
-                            param.grad.detach().flatten()
+                            param.grad.detach().cpu().flatten()
                             for param in model.parameters()
                             if param.grad is not None
                         ]
                         grad_norm = torch.cat(grads).norm()
                         params = [
-                            param.data.detach().flatten()
+                            param.data.detach().cpu().flatten()
                             for param in model.parameters()
                             if param.data is not None
                         ]
@@ -704,37 +709,24 @@ def main(args):
         if (
             (epoch + 1) % config["ckpt_freq"][args.method] == 0 or (epoch + 1) == epochs
         ) and accelerator.is_main_process:
-            model = accelerator.unwrap_model(model)
-
-            # Remove outdated model check points.
-
-            pattern = os.path.join(model_outdir, "unet_steps_*.pt")
+            # Remove previous checkpoints to keep only the latest checkpoint.
+            pattern = os.path.join(model_outdir, "ckpt_steps_*.pt")
             for filename in glob.glob(pattern):
                 os.remove(filename)
 
             torch.save(
-                model,
-                os.path.join(model_outdir, f"unet_steps_{global_steps:0>8}.pt"),
-            )
-
-            ema_model.store(model.parameters())
-            ema_model.copy_to(model.parameters())
-
-            pattern = os.path.join(model_outdir, "unet_ema_steps_*.pt")
-            for filename in glob.glob(pattern):
-                os.remove(filename)
-
-            torch.save(
-                model,
-                os.path.join(model_outdir, f"unet_ema_steps_{global_steps:0>8}.pt"),
+                {
+                    "unet": accelerator.unwrap_model(model).state_dict(),
+                    "unet_ema": ema_model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "lr_scheduler": lr_scheduler.state_dict(),
+                },
+                os.path.join(model_outdir, f"ckpt_steps_{global_steps:0>8}.pt"),
             )
             print(f"Checkpoint saved at step {global_steps}")
-
-            ema_model.restore(model.parameters())
+    accelerator.print("Done!")
 
 
 if __name__ == "__main__":
     args = parse_args()
-    print_args(args)
     main(args)
-    print("Done!")
