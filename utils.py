@@ -371,7 +371,7 @@ def get_max_step_file(folder_path):
 def get_max_steps(folder_path):
     """Get maximum number of training steps for results in a folder."""
 
-    path_pattern = os.path.join(folder_path, "unet_steps_*.pt")
+    path_pattern = os.path.join(folder_path, "ckpt_steps_*.pt")
     files = glob.glob(path_pattern)
 
     if not files:
