@@ -7,7 +7,6 @@ import torch
 from sklearn.linear_model import RidgeCV
 
 import constants
-from ddpm_config import DDPMConfig
 from utils import (
     create_dataset,
     remove_data_by_datamodel,
