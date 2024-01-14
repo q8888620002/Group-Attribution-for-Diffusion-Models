@@ -129,7 +129,7 @@ def parse_args():
 
 def main(args):
     """Main function for computing D-TRAK and TRAK."""
-    ## TODO: return score of validation set.
+    # TODO: return score of validation set.
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
@@ -157,7 +157,7 @@ def main(args):
 
         for i in range(0, args.train_size):
 
-            ## Step1: load computed gradients for each subset.
+            # Step1: load computed gradients for each subset.
             if args.removal_dist == "datamodel":
                 removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={args.removal_seed}"
                 remaining_idx, _ = remove_data_by_datamodel(
@@ -191,7 +191,7 @@ def main(args):
 
             print(dstore_keys.size())
 
-            ## Step2: calculate D-TRAK or TRAK for each subset as in https://github.com/sail-sg/d-trak.
+            # Step2: calculate D-TRAK or TRAK for each subset as in https://github.com/sail-sg/d-trak.
 
             kernel = dstore_keys.T @ dstore_keys
             kernel = kernel + 5e-1 * torch.eye(kernel.shape[0]).cuda()
@@ -238,7 +238,7 @@ def main(args):
 
     elif args.attribution_method == "shapley":
 
-        ## calculate shapley value e.g. shapley sampling with each subset until each player's value converge.
+        # calculate shapley value e.g. shapley sampling with each subset until each player's value converge.
 
         kernelshap_coeff = []
 
