@@ -2,11 +2,10 @@
 import argparse
 import os
 
+import diffusers
 import numpy as np
 import torch
 import torch.nn.functional as F
-import diffusers
-
 from diffusers import (
     DDIMScheduler,
     DDPMPipeline,
@@ -38,7 +37,9 @@ from utils import (
 def parse_args():
     """Parse command line arguments."""
 
-    parser = argparse.ArgumentParser(description="Calculating gradient for D-TRAK and TRAK.")
+    parser = argparse.ArgumentParser(
+        description="Calculating gradient for D-TRAK and TRAK."
+    )
     parser.add_argument(
         "--opt_seed",
         type=int,
@@ -168,9 +169,9 @@ def vectorize_and_ignore_buffers(g, params_dict=None):
         params_dict (dict, optional): Dictionary to identify non-buffer gradients in 'g'.
 
     Returns:
-    torch.Tensor: 
-        Tensor with shape [batch_size, num_params], where each row represents flattened and 
-        concatenated gradients for a single batch instance. 'num_params' is the total count of 
+    torch.Tensor:
+        Tensor with shape [batch_size, num_params], where each row represents flattened and
+        concatenated gradients for a single batch instance. 'num_params' is the total count of
         flattened parameters across all weight matrices.
 
     Note:
@@ -311,24 +312,24 @@ def main(args):
     pipeline_scheduler = pipeline.scheduler
 
     save_dir = os.path.join(
-        args.outdir, 
-        args.dataset, 
+        args.outdir,
+        args.dataset,
         args.method,
         "d_track",
         removal_dir,
-        f"f={args.model_behavior}_t={args.t_strategy}" 
+        f"f={args.model_behavior}_t={args.t_strategy}",
     )
-    
+
     os.makedirs(os.path.dirname(save_dir), exist_ok=True)
 
     # Init a memory-mapped array stored on disk directly for D-TRAK results.
 
     dstore_keys = np.memmap(
-        save_dir, 
-        dtype=np.float32, 
-        mode='w+', 
-        shape=(len(remaining_idx), args.projector_dim)
-    )  
+        save_dir,
+        dtype=np.float32,
+        mode="w+",
+        shape=(len(remaining_idx), args.projector_dim),
+    )
 
     # Initialize random matrix projector from trak
     projector = CudaProjector(
@@ -584,15 +585,26 @@ def main(args):
         # If is_grads_dict == True, then turn emb into a dict.
         # emb_dict = {k: v for k, v in zip(keys, emb)}
 
-        emb = projector.project(emb, is_grads_dict=False, model_id=0) 
+        emb = projector.project(emb, is_grads_dict=False, model_id=0)
         print(emb.size())
         print(emb.dtype)
 
-        while (np.abs(dstore_keys[step*config["batch_size"]:step*config["batch_size"]+bsz, 0:32]).sum()==0):
-            print('saving')
-            dstore_keys[step*config["batch_size"]:step*config["batch_size"]+bsz] = emb.detach().cpu().numpy()
+        while (
+            np.abs(
+                dstore_keys[
+                    step * config["batch_size"] : step * config["batch_size"] + bsz,
+                    0:32,
+                ]
+            ).sum()
+            == 0
+        ):
+            print("saving")
+            dstore_keys[
+                step * config["batch_size"] : step * config["batch_size"] + bsz
+            ] = (emb.detach().cpu().numpy())
         print(f"{step} / {len(remaining_dataloader)}, {t}")
-        print(step*config["batch_size"], step*config["batch_size"]+bsz)
+        print(step * config["batch_size"], step * config["batch_size"] + bsz)
+
 
 if __name__ == "__main__":
     args = parse_args()

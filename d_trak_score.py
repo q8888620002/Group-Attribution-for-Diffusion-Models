@@ -1,8 +1,9 @@
-import torch
-import random
-import numpy as np
 import argparse
 import os
+
+import numpy as np
+import torch
+
 import constants
 from ddpm_config import DDPMConfig
 from utils import (
@@ -12,6 +13,7 @@ from utils import (
     remove_data_by_shapley,
     remove_data_by_uniform,
 )
+
 
 def parse_args():
     """Parse command line arguments."""
@@ -92,6 +94,7 @@ def parse_args():
     )
     return parser.parse_args()
 
+
 def main(args):
     """Main function for computing D-TRAK and TRAK."""
 
@@ -153,37 +156,38 @@ def main(args):
         removed_idx = np.array([], dtype=int)
 
     save_dir = os.path.join(
-        args.outdir, 
-        args.dataset, 
+        args.outdir,
+        args.dataset,
         args.method,
         "d_track",
         removal_dir,
-        f"f={args.model_behavior}_t={args.t_strategy}" 
+        f"f={args.model_behavior}_t={args.t_strategy}",
     )
-    
+
     dstore_keys = np.memmap(
-        save_dir, 
-        dtype=np.float32, 
-        mode='r', 
-        shape=(len(remaining_idx), args.projector_dim)
+        save_dir,
+        dtype=np.float32,
+        mode="r",
+        shape=(len(remaining_idx), args.projector_dim),
     )
 
     dstore_keys = torch.from_numpy(dstore_keys).cuda()
 
-    print(dstore_keys.size()) 
+    print(dstore_keys.size())
 
-    kernel = dstore_keys.T@dstore_keys
-    kernel = kernel + 5e-1*torch.eye(kernel.shape[0]).cuda()
+    kernel = dstore_keys.T @ dstore_keys
+    kernel = kernel + 5e-1 * torch.eye(kernel.shape[0]).cuda()
 
-    kernel = torch.linalg.inv(kernel)  
+    kernel = torch.linalg.inv(kernel)
 
     print(kernel.shape)
     print(torch.mean(kernel.diagonal()))
 
     # scores = gen_dstore_keys.dot((dstore_keys@kernel_).T)
-    scores = dstore_keys@((dstore_keys@kernel).T)
+    scores = dstore_keys @ ((dstore_keys @ kernel).T)
     print(scores.size())
     scores = scores.cpu().numpy()
+
 
 if __name__ == "__main__":
     args = parse_args()
