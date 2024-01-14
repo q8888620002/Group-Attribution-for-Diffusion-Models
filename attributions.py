@@ -1,4 +1,4 @@
-"""This is a script for calculating attribution scores including D-TRAK, TRAK, Datamodel, Data Shapley"""
+"""Functions for calculating attribution scores including D-TRAK, TRAK, Datamodel, Data Shapley"""
 import argparse
 import os
 
@@ -130,22 +130,6 @@ def parse_args():
 def main(args):
     """Main function for computing D-TRAK and TRAK."""
     # TODO: return score of validation set.
-
-    if args.dataset == "cifar":
-        config = {**DDPMConfig.cifar_config}
-    elif args.dataset == "celeba":
-        config = {**DDPMConfig.celeba_config}
-    elif args.dataset == "mnist":
-        config = {**DDPMConfig.mnist_config}
-    elif args.dataset == "imagenette":
-        config = {**DDPMConfig.imagenette_config}
-    else:
-        raise ValueError(
-            (
-                f"dataset={args.dataset} is not one of "
-                "['cifar', 'mnist', 'celeba', 'imagenette']"
-            )
-        )
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
     x_train = np.zeros((args.train_size, len(train_dataset)))
