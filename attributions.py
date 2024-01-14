@@ -150,7 +150,7 @@ def main(args):
                 removal_dir = (
                     f"{args.removal_dist}/{args.removal_dist}_seed={args.removal_seed}"
                 )
-                remaining_idx, removed_idx = remove_data_by_shapley(
+                remaining_idx, _ = remove_data_by_shapley(
                     train_dataset, seed=args.removal_seed
                 )
 
@@ -230,7 +230,7 @@ def main(args):
             removal_dir = (
                 f"{args.removal_dist}/{args.removal_dist}_seed={args.removal_seed}"
             )
-            remaining_idx, removed_idx = remove_data_by_shapley(
+            remaining_idx, _ = remove_data_by_shapley(
                 train_dataset, seed=args.removal_seed
             )
 
