@@ -5,6 +5,8 @@ import os
 import numpy as np
 import torch
 import torch.nn.functional as F
+import diffusers
+
 from diffusers import (
     DDIMScheduler,
     DDPMPipeline,
@@ -36,8 +38,13 @@ from utils import (
 def parse_args():
     """Parse command line arguments."""
 
-    parser = argparse.ArgumentParser(description="Training DDPM")
-
+    parser = argparse.ArgumentParser(description="Calculating gradient for D-TRAK and TRAK.")
+    parser.add_argument(
+        "--opt_seed",
+        type=int,
+        help="random seed for model training or unlearning",
+        default=42,
+    )
     parser.add_argument(
         "--load",
         type=str,
@@ -89,7 +96,30 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
-        "--f",
+        "--num_inference_steps",
+        type=int,
+        default=100,
+        help="number of diffusion steps for generating images",
+    )
+    parser.add_argument(
+        "--num_train_steps",
+        type=int,
+        default=1000,
+        help="number of diffusion steps during training",
+    )
+    parser.add_argument(
+        "--mixed_precision",
+        type=str,
+        default="no",
+        choices=["no", "fp16", "bf16"],
+        help=(
+            "Whether to use mixed precision. Choose"
+            "between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >= 1.10."
+            "and an Nvidia Ampere GPU."
+        ),
+    )
+    parser.add_argument(
+        "--model_behavior",
         type=str,
         default=None,
         choices=[
@@ -99,7 +129,7 @@ def parse_args():
             "l2-norm",
             "linf-norm",
         ],
-        help="TBD",
+        help="Specification for D-TRAK model behavior.",
     )
 
     parser.add_argument(
@@ -114,6 +144,12 @@ def parse_args():
         default=None,
         help="TBD",
     )
+    parser.add_argument(
+        "--projector_dim",
+        type=int,
+        default=1024,
+        help="Dimension for TRAK projector",
+    )
 
     return parser.parse_args()
 
@@ -125,10 +161,21 @@ def count_parameters(model):
 
 def vectorize_and_ignore_buffers(g, params_dict=None):
     """
-    Gradients are given as a tuple :code:`(grad_w0, grad_w1, ... grad_wp)` where
-    :code:`p` is the number of weight matrices. each :code:`grad_wi` has shape
-    :code:`[batch_size, ...]` this function flattens :code:`g` to have shape
-    :code:`[batch_size, num_params]`.
+    Flattens and concatenates gradients from multiple weight matrices into a single tensor.
+
+    Params:
+        g (tuple of torch.Tensor): Gradients for each weight matrix, each with shape [batch_size, ...].
+        params_dict (dict, optional): Dictionary to identify non-buffer gradients in 'g'.
+
+    Returns:
+    torch.Tensor: 
+        Tensor with shape [batch_size, num_params], where each row represents flattened and 
+        concatenated gradients for a single batch instance. 'num_params' is the total count of 
+        flattened parameters across all weight matrices.
+
+    Note:
+    - If 'params_dict' is provided, only non-buffer gradients are processed.
+    - The output tensor is formed by flattening each gradient tensor and concatenating them.
     """
     batch_size = len(g[0])
     out = []
@@ -158,6 +205,8 @@ def main(args):
         config = {**DDPMConfig.cifar_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
+    elif args.dataset == "mnist":
+        config = {**DDPMConfig.mnist_config}
     elif args.dataset == "imagenette":
         config = {**DDPMConfig.imagenette_config}
     else:
@@ -167,6 +216,7 @@ def main(args):
                 "['cifar', 'mnist', 'celeba', 'imagenette']"
             )
         )
+    model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
     removal_dir = "full"
     if args.excluded_class is not None:
@@ -209,7 +259,8 @@ def main(args):
     else:
         remaining_idx = np.arange(len(train_dataset))
         removed_idx = np.array([], dtype=int)
-    config["batch_size"] = 32
+
+    config["batch_size"] = 8
 
     remaining_dataloader = DataLoader(
         Subset(train_dataset, remaining_idx),
@@ -219,11 +270,10 @@ def main(args):
     )
     existing_steps = get_max_steps(model_outdir)
 
-    unet_path = os.path.join(model_outdir, f"unet_steps_{existing_steps:0>8}.pt")
-    # unet_ema_path = os.path.join(
-    #     model_outdir, f"unet_ema_steps_{existing_steps:0>8}.pt"
-    # )
-    model = torch.load(unet_path, map_location=device)
+    ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{existing_steps:0>8}.pt")
+    ckpt = torch.load(ckpt_path, map_location="cpu")
+    model = model_cls(**config["unet_config"])
+    model.load_state_dict(ckpt["unet"])
 
     if args.dataset == "imagenette":
         # The pipeline is of class LDMTextToImagePipeline.
@@ -260,13 +310,31 @@ def main(args):
 
     pipeline_scheduler = pipeline.scheduler
 
-    save_dir = os.path.join(args.outdir, args.dataset, removal_dir, "d_track")
-    # Initialize random matrix projector from trak
+    save_dir = os.path.join(
+        args.outdir, 
+        args.dataset, 
+        args.method,
+        "d_track",
+        removal_dir,
+        f"f={args.model_behavior}_t={args.t_strategy}" 
+    )
+    
+    os.makedirs(os.path.dirname(save_dir), exist_ok=True)
 
+    # Init a memory-mapped array stored on disk directly for D-TRAK results.
+
+    dstore_keys = np.memmap(
+        save_dir, 
+        dtype=np.float32, 
+        mode='w+', 
+        shape=(len(remaining_idx), args.projector_dim)
+    )  
+
+    # Initialize random matrix projector from trak
     projector = CudaProjector(
         grad_dim=count_parameters(model),
-        proj_dim=2048,
-        seed=42,
+        proj_dim=args.projector_dim,
+        seed=args.opt_seed,
         proj_type=ProjectionType.normal,  # proj_type=ProjectionType.rademacher,
         device=device,
         max_batch_size=config["batch_size"],
@@ -279,8 +347,8 @@ def main(args):
         k: v.detach() for k, v in model.named_buffers() if v.requires_grad is True
     }
 
-    if args.f == "mean-squared-l2-norm":
-        print(args.f)
+    if args.model_behavior == "mean-squared-l2-norm":
+        print(args.model_behavior)
 
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
@@ -313,8 +381,8 @@ def main(args):
             ####
             return f
 
-    elif args.f == "mean":
-        print(args.f)
+    elif args.model_behavior == "mean":
+        print(args.model_behavior)
 
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
@@ -340,8 +408,8 @@ def main(args):
             ####
             return f
 
-    elif args.f == "l1-norm":
-        print(args.f)
+    elif args.model_behavior == "l1-norm":
+        print(args.model_behavior)
 
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
@@ -367,8 +435,8 @@ def main(args):
             ####
             return f
 
-    elif args.f == "l2-norm":
-        print(args.f)
+    elif args.model_behavior == "l2-norm":
+        print(args.model_behavior)
 
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
@@ -394,8 +462,8 @@ def main(args):
             ####
             return f
 
-    elif args.f == "linf-norm":
-        print(args.f)
+    elif args.model_behavior == "linf-norm":
+        print(args.model_behavior)
 
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
@@ -422,7 +490,7 @@ def main(args):
             return f
 
     else:
-        print(args.f)
+        print(args.model_behavior)
 
         def compute_f(params, buffers, noisy_latents, timesteps, targets):
             noisy_latents = noisy_latents.unsqueeze(0)
@@ -457,9 +525,9 @@ def main(args):
         ),
     )
 
-    for step, (image, label) in enumerate(remaining_dataloader):
+    for step, (image, _) in enumerate(remaining_dataloader):
 
-        seed_everything(42, workers=True)
+        seed_everything(args.opt_seed, workers=True)
         image = image.to(device)
         bsz = image.shape[0]
 
@@ -472,7 +540,7 @@ def main(args):
             # Sample a random timestep for each image
             timesteps = torch.tensor([t] * bsz, device=image.device)
             timesteps = timesteps.long()
-            seed_everything(42 * 1000 + t)  # !!!!
+            seed_everything(args.opt_seed * 1000 + t)  # !!!!
 
             noise = torch.randn_like(image)
             noisy_latents = pipeline_scheduler.add_noise(image, noise, timesteps)
@@ -516,10 +584,15 @@ def main(args):
         # If is_grads_dict == True, then turn emb into a dict.
         # emb_dict = {k: v for k, v in zip(keys, emb)}
 
-        emb = projector.project(emb, is_grads_dict=False, model_id=0)  # ddpm
+        emb = projector.project(emb, is_grads_dict=False, model_id=0) 
         print(emb.size())
         print(emb.dtype)
 
+        while (np.abs(dstore_keys[step*config["batch_size"]:step*config["batch_size"]+bsz, 0:32]).sum()==0):
+            print('saving')
+            dstore_keys[step*config["batch_size"]:step*config["batch_size"]+bsz] = emb.detach().cpu().numpy()
+        print(f"{step} / {len(remaining_dataloader)}, {t}")
+        print(step*config["batch_size"], step*config["batch_size"]+bsz)
 
 if __name__ == "__main__":
     args = parse_args()

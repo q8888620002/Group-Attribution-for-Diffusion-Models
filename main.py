@@ -709,6 +709,15 @@ def main(args):
         if (
             (epoch + 1) % config["ckpt_freq"][args.method] == 0 or (epoch + 1) == epochs
         ) and accelerator.is_main_process:
+            # Remove legacy model checkpoints
+            pattern = os.path.join(model_outdir, "unet_steps_*.pt")
+            for filename in glob.glob(pattern):
+                os.remove(filename)
+                
+            pattern = os.path.join(model_outdir, "unet_ema_steps_*.pt")
+            for filename in glob.glob(pattern):
+                os.remove(filename)
+
             # Remove previous checkpoints to keep only the latest checkpoint.
             pattern = os.path.join(model_outdir, "ckpt_steps_*.pt")
             for filename in glob.glob(pattern):
