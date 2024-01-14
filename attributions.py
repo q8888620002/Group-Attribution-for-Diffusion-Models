@@ -4,16 +4,14 @@ import os
 
 import numpy as np
 import torch
+from sklearn.linear_model import RidgeCV
 
 import constants
-from sklearn.linear_model import Ridge, Lasso, RidgeCV, LassoCV
 from ddpm_config import DDPMConfig
 from utils import (
     create_dataset,
-    remove_data_by_class,
     remove_data_by_datamodel,
     remove_data_by_shapley,
-    remove_data_by_uniform,
     shapley_kernel,
 )
 
@@ -115,7 +113,7 @@ def parse_args():
             "l1-norm",
             "l2-norm",
             "linf-norm",
-            "unlearn_retrain_fid"
+            "unlearn_retrain_fid",
         ],
         help="Specification for D-TRAK model behavior.",
     )
@@ -166,11 +164,13 @@ def main(args):
                     train_dataset, alpha=args.datamodel_alpha, seed=i
                 )
             elif args.removal_dist == "shpaley":
-                removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={args.removal_seed}"
+                removal_dir = (
+                    f"{args.removal_dist}/{args.removal_dist}_seed={args.removal_seed}"
+                )
                 remaining_idx, removed_idx = remove_data_by_shapley(
                     train_dataset, seed=args.removal_seed
                 )
-            
+
             grad_result_dir = os.path.join(
                 args.outdir,
                 args.dataset,
@@ -202,97 +202,80 @@ def main(args):
             print(torch.mean(kernel.diagonal()))
 
             # scores = gen_dstore_keys.dot((dstore_keys@kernel_).T)
-            score = dstore_keys@((dstore_keys @ kernel).T)
+            score = dstore_keys @ ((dstore_keys @ kernel).T)
             print(score.size())
 
             scores[i] = score.cpu().numpy()
 
-    elif args.attribution_method== "datamodel":
+    elif args.attribution_method == "datamodel":
 
         datamodel_coeff = []
 
         for i in range(0, args.train_size):
-            # Load and set input, subset masking indicator, and output, model behavior eg. FID score. 
+            # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
             removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={args.removal_seed}"
             remaining_idx, _ = remove_data_by_datamodel(
                 train_dataset, alpha=args.datamodel_alpha, seed=i
             )
             x_train[i, remaining_idx] = 1
 
-            # Load pre-calculated model behavior 
+            # Load pre-calculated model behavior
             model_behavior_dir = os.path.join(
-                args.outdir,
-                args.dataset,
-                args.method,
-                removal_dir,
-                "model_behavior"
+                args.outdir, args.dataset, args.method, removal_dir, "model_behavior"
             )
             model_output = np.load(model_behavior_dir)
             y_train[i] = model_output[args.model_behavior]
 
             # Train a datamodel
             reg = RidgeCV(
-                cv=5, 
-                alphas=[0.1, 1.0, 1e1], 
-                random_state=42, 
-            ).fit(
-                x_train[i], y_train[i]
-            )
+                cv=5,
+                alphas=[0.1, 1.0, 1e1],
+                random_state=42,
+            ).fit(x_train[i], y_train[i])
             datamodel_coeff.append(reg.coef_)
 
-        scores = x_train@datamodel_coeff.T
+        scores = x_train @ datamodel_coeff.T
 
     elif args.attribution_method == "shapley":
 
-        ## calculate shapley value e.g. shapley sampling with each subset until each player's value converge. 
+        ## calculate shapley value e.g. shapley sampling with each subset until each player's value converge.
 
         kernelshap_coeff = []
 
         for i in range(0, args.train_size):
-            # Load and set input, subset masking indicator, and output, model behavior eg. FID score. 
-            removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={args.removal_seed}"
+            # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
+            removal_dir = (
+                f"{args.removal_dist}/{args.removal_dist}_seed={args.removal_seed}"
+            )
             remaining_idx, removed_idx = remove_data_by_shapley(
                 train_dataset, seed=args.removal_seed
             )
-            
+
             x_train[i, remaining_idx] = 1
 
-            # Load pre-calculated model behavior 
+            # Load pre-calculated model behavior
             model_behavior_dir = os.path.join(
-                args.outdir,
-                args.dataset,
-                args.method,
-                removal_dir,
-                "model_behavior"
+                args.outdir, args.dataset, args.method, removal_dir, "model_behavior"
             )
             model_output = np.load(model_behavior_dir)
             y_train[i] = model_output[args.model_behavior]
-            
+
             # Get kernel weights
-            weight = shapley_kernel(
-                train_dataset,
-                args.removal_seed
-            )
+            weight = shapley_kernel(train_dataset, args.removal_seed)
 
             # Train a linear regression.
             reg = RidgeCV(
-                cv=5, 
-                alphas=[0.1, 1.0, 1e1], 
-                random_state=42, 
-            ).fit(
-                x_train[i], y_train[i]
-            )
-            kernelshap_coeff.append(weight*reg.coef_)
+                cv=5,
+                alphas=[0.1, 1.0, 1e1],
+                random_state=42,
+            ).fit(x_train[i], y_train[i])
+            kernelshap_coeff.append(weight * reg.coef_)
 
-        scores = x_train@kernelshap_coeff.T
+        scores = x_train @ kernelshap_coeff.T
 
     else:
-        raise NotImplementedError(
-            (
-                f"{args.attribution_method} is not implemented."
-            )
-        )
-    
+        raise NotImplementedError((f"{args.attribution_method} is not implemented."))
+
     return scores
 
 
