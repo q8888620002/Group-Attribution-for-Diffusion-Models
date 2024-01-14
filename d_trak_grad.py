@@ -164,11 +164,13 @@ def vectorize_and_ignore_buffers(g, params_dict=None):
     """
     Flattens and concatenates gradients from multiple weight matrices into a single tensor.
 
-    Params:
+    Args:
+    ----
         g (tuple of torch.Tensor): Gradients for each weight matrix, each with shape [batch_size, ...].
         params_dict (dict, optional): Dictionary to identify non-buffer gradients in 'g'.
 
     Returns:
+    ----
     torch.Tensor:
         Tensor with shape [batch_size, num_params], where each row represents flattened and
         concatenated gradients for a single batch instance. 'num_params' is the total count of
