@@ -127,7 +127,7 @@ def parse_args():
 
 
 def main(args):
-    """Main function for computing D-TRAK and TRAK."""
+    """Main function for computing D-TRAK, TRAK, Datamodel, and Data Shapley."""
     # TODO: return score of validation set.
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
