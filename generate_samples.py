@@ -274,7 +274,6 @@ def main(args):
     with torch.no_grad():
         if args.dataset == "imagenette":
             samples = []
-            img_nrows = captioner.num_classes
             n_samples_per_cls = math.ceil(config["n_samples"] / captioner.num_classes)
             classes = [idx for idx in range(captioner.num_classes)]
             for _ in range(n_samples_per_cls):

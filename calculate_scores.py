@@ -1,12 +1,13 @@
 """Calculate model behavior for unlearn and retrain model."""
 import argparse
 import os
+import numpy as np
 
-from pytorch_fid import fid_score
 from lightning.pytorch import seed_everything
+from pytorch_fid import fid_score
 
 import constants
-from utils import *
+
 
 
 def parse_args():
