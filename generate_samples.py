@@ -22,12 +22,7 @@ from torchvision.utils import save_image
 import constants
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
-from utils import (
-    ImagenetteCaptioner,
-    LabelTokenizer,
-    create_dataset,
-    get_max_steps,
-)
+from utils import ImagenetteCaptioner, LabelTokenizer, create_dataset, get_max_steps
 
 
 def parse_args():
