@@ -1,11 +1,16 @@
+"""Calculate model behavior for unlearn and retrain model."""
 import argparse
 import os
 
-from utils import *
 from pytorch_fid import fid_score
+from lightning.pytorch import seed_everything
+
 import constants
+from utils import *
+
 
 def parse_args():
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Calculating model behavior")
 
     parser.add_argument(
@@ -21,10 +26,7 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
-        "--outdir", 
-        type=str, 
-        help="output parent directory", 
-        default=constants.OUTDIR
+        "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
     parser.add_argument(
         "--model_behavior",
@@ -45,11 +47,7 @@ def parse_args():
         action="store_true",
         help="set to normal sampling method without clip x_0 which could yield unstable samples",
     )
-    parser.add_argument(
-        "--device", 
-        type=str, 
-        help="device to train"
-    )
+    parser.add_argument("--device", type=str, help="device to train")
     parser.add_argument(
         "--removal_dist",
         type=str,
@@ -80,15 +78,12 @@ def parse_args():
 
     return args
 
+
 def main(args):
     """Main script for calculating model behavior"""
+    seed_everything(args.seed)
 
-    results = {
-        "fid": [], 
-        "clip": [], 
-        "diversity": [],
-        "pixel_dist": []
-    }
+    results = {"fid": [], "clip": [], "diversity": [], "pixel_dist": []}
 
     paths = []
 
@@ -103,41 +98,31 @@ def main(args):
         if args.removal_dist == "datamodel":
             removal_dir += f"_alpha={args.datamodel_alpha}"
         removal_dir += f"_seed={args.removal_seed}"
-        
+
     output_dir = os.path.join(
-        args.outdir, 
-        args.dataset, 
-        args.method, 
-        removal_dir,
-        "model_behavior"
+        args.outdir, args.dataset, args.method, removal_dir, "model_behavior"
     )
 
     if args.model_behavior == "fid":
         fid_value = fid_score.calculate_fid_given_paths(
-            paths,
-            batch_size=2048,
-            device=args.device,
-            dims=2048,
-            num_workers=0
+            paths, batch_size=2048, device=args.device, dims=2048, num_workers=0
         )
         results["fid"] = fid_value
 
     elif args.model_behavior == "clip":
         raise NotImplementedError
-    
+
     elif args.model_behavior == "diversity":
         raise NotImplementedError
-    
+
     elif args.model_behavior == "pixel_dist":
         raise NotImplementedError
 
     else:
         raise NotImplementedError
 
-    np.save(
-        results, 
-        os.path.join(output_dir,"results.npy")
-    )
+    np.save(results, os.path.join(output_dir, "results.npy"))
+
 
 if __name__ == "__main__":
     args = parse_args()

@@ -1,17 +1,11 @@
-"""Calculate model behavior for unlearn and retrain model."""
+"""Generate samples for a given diffusion model."""
 import argparse
-import glob
-import json
 import math
 import os
-import time
 
 import diffusers
 import numpy as np
-import pynvml
 import torch
-import torch.nn as nn
-from accelerate import Accelerator
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
@@ -21,15 +15,11 @@ from diffusers import (
     LDMPipeline,
     VQModel,
 )
-from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
-from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
-from tqdm import tqdm
 
 import constants
-import wandb  # wandb for monitoring loss https://wandb.ai/
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
 from utils import (
@@ -37,12 +27,8 @@ from utils import (
     LabelTokenizer,
     create_dataset,
     get_max_steps,
-    print_args,
-    remove_data_by_class,
-    remove_data_by_datamodel,
-    remove_data_by_shapley,
-    remove_data_by_uniform,
 )
+
 
 def parse_args():
     """Parse command line arguments."""
@@ -62,10 +48,7 @@ def parse_args():
         default="mnist",
     )
     parser.add_argument(
-        '--batch_size',
-        type = int,
-        default=512,
-        help="batch size for sample generation."
+        "--batch_size", type=int, default=512, help="batch size for sample generation."
     )
     parser.add_argument(
         "--log_freq",
@@ -111,7 +94,7 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
-        "--opt_seed",
+        "--seed",
         type=int,
         help="random seed for model training or unlearning",
         default=42,
@@ -149,17 +132,16 @@ def parse_args():
         help="number of diffusion steps during training",
     )
     parser.add_argument(
-        '--device', 
-        type=str ,
-        help = 'device of training', 
-        default="cuda:0"
+        "--device", type=str, help="device of training", default="cuda:0"
     )
 
     return parser.parse_args()
 
+
 def main(args):
     """Function to calculate model behavior"""
-    
+    seed_everything(args.seed)
+
     device = args.device
 
     if args.dataset == "cifar":
@@ -289,13 +271,11 @@ def main(args):
 
     pipeline_scheduler = pipeline.scheduler
 
-    with torch.no_grad():                
+    with torch.no_grad():
         if args.dataset == "imagenette":
             samples = []
             img_nrows = captioner.num_classes
-            n_samples_per_cls = math.ceil(
-                config["n_samples"] / captioner.num_classes
-            )
+            n_samples_per_cls = math.ceil(config["n_samples"] / captioner.num_classes)
             classes = [idx for idx in range(captioner.num_classes)]
             for _ in range(n_samples_per_cls):
                 samples.append(
@@ -317,9 +297,7 @@ def main(args):
         else:
             pipeline = DDIMPipeline(
                 unet=model,
-                scheduler=DDIMScheduler(
-                    num_train_timesteps=args.num_train_steps
-                ),
+                scheduler=DDIMScheduler(num_train_timesteps=args.num_train_steps),
             )
 
         generated_imgs = []
@@ -329,20 +307,21 @@ def main(args):
             images = pipeline(
                 batch_size=args.batch_size,
                 num_inference_steps=args.num_inference_steps,
-                output_type="numpy"
+                output_type="numpy",
             ).images
 
             generated_imgs.append(images)
 
         generated_imgs = np.concatenate(generated_imgs, axis=0)
-    
+
     for i, images in enumerate(generated_imgs):
         save_image(
             torch.from_numpy(images).permute([2, 0, 1]),
-            os.path.join(sample_outdir, f"sample_{i:04d}.png")
+            os.path.join(sample_outdir, f"sample_{i:04d}.png"),
         )
 
     print(f"Images saved to {sample_outdir}")
+
 
 if __name__ == "__main__":
     args = parse_args()
