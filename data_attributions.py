@@ -11,7 +11,6 @@ from utils import (
     create_dataset,
     remove_data_by_datamodel,
     remove_data_by_shapley,
-    shapley_kernel,
 )
 
 
@@ -204,7 +203,7 @@ def main(args):
 
             # Load pre-calculated model behavior
             model_behavior_dir = os.path.join(
-                args.outdir, args.dataset, args.method, removal_dir, "model_behavior"
+                args.outdir, args.dataset, args.method, removal_dir, "model_behavior.npy"
             )
             model_output = np.load(model_behavior_dir)
             y_train[i] = model_output[args.model_behavior]
@@ -224,6 +223,12 @@ def main(args):
         # calculate shapley value e.g. shapley sampling with each subset until each player's value converge.
 
         kernelshap_coeff = []
+        model_behavior_dir = os.path.join(
+            args.outdir, args.dataset, args.method, removal_dir, "null/model_behavior.npy"
+        )
+        null_model_output = np.load(model_behavior_dir)        
+        
+        # Load pre-calculated model behavior
 
         for i in range(0, args.train_size):
             # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
@@ -238,21 +243,18 @@ def main(args):
 
             # Load pre-calculated model behavior
             model_behavior_dir = os.path.join(
-                args.outdir, args.dataset, args.method, removal_dir, "model_behavior"
+                args.outdir, args.dataset, args.method, removal_dir, "model_behavior.npy"
             )
             model_output = np.load(model_behavior_dir)
             y_train[i] = model_output[args.model_behavior]
-
-            # Get kernel weights
-            weight = shapley_kernel(train_dataset, args.removal_seed)
 
             # Train a linear regression.
             reg = RidgeCV(
                 cv=5,
                 alphas=[0.1, 1.0, 1e1],
                 random_state=42,
-            ).fit(x_train[i], y_train[i])
-            kernelshap_coeff.append(weight * reg.coef_)
+            ).fit(x_train[i], y_train[i] - null_model_output)
+            kernelshap_coeff.append(reg.coef_)
 
         scores = x_train @ kernelshap_coeff.T
 

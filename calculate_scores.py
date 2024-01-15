@@ -26,7 +26,10 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
-        "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
+        "--outdir", 
+        type=str, 
+        help="output parent directory", 
+        default=constants.OUTDIR
     )
     parser.add_argument(
         "--model_behavior",
