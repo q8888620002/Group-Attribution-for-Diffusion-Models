@@ -22,19 +22,18 @@ from torchvision.utils import save_image
 import constants
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
-from utils import ImagenetteCaptioner, LabelTokenizer, create_dataset, get_max_steps
+from utils import (
+    ImagenetteCaptioner, 
+    LabelTokenizer, 
+    create_dataset,
+    get_max_steps,
+)
 
 
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Training DDPM")
 
-    parser.add_argument(
-        "--load",
-        type=str,
-        help="directory path for loading pre-trained model",
-        default=None,
-    )
     parser.add_argument(
         "--dataset",
         type=str,
@@ -43,13 +42,10 @@ def parse_args():
         default="mnist",
     )
     parser.add_argument(
-        "--batch_size", type=int, default=512, help="batch size for sample generation."
-    )
-    parser.add_argument(
-        "--log_freq",
-        type=int,
-        help="training log message printing frequence",
-        default=20,
+        "--batch_size", 
+        type=int, 
+        default=512,
+        help="batch size for sample generation."
     )
     parser.add_argument(
         "--excluded_class",
@@ -62,12 +58,6 @@ def parse_args():
         type=str,
         help="distribution for removing data",
         default=None,
-    )
-    parser.add_argument(
-        "--wandb",
-        help="whether to monitor model training with wandb",
-        action="store_true",
-        default=False,
     )
     parser.add_argument(
         "--datamodel_alpha",
@@ -136,7 +126,6 @@ def parse_args():
 def main(args):
     """Function to calculate model behavior"""
     seed_everything(args.seed)
-
     device = args.device
 
     if args.dataset == "cifar":
@@ -170,7 +159,7 @@ def main(args):
             removal_dir += f"_alpha={args.datamodel_alpha}"
         removal_dir += f"_seed={args.removal_seed}"
 
-    model_outdir = os.path.join(
+    model_loaddir = os.path.join(
         args.outdir,
         args.dataset,
         args.method,
@@ -178,16 +167,23 @@ def main(args):
         removal_dir,
     )
     sample_outdir = os.path.join(
-        args.outdir, args.dataset, args.method, "samples", removal_dir
+        args.outdir, 
+        args.dataset, 
+        args.method, 
+        "samples", 
+        removal_dir
     )
-    existing_steps = get_max_steps(model_outdir)
-    if existing_steps is not None:
-        # Check if there is an existing checkpoint to resume from. This occurs when
-        # model runs are interrupted (e.g., exceeding job time limit).
-        ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{existing_steps:0>8}.pt")
+
+    # Load pre-trained model.
+
+    pretrained_steps = get_max_steps(model_loaddir)
+
+    if pretrained_steps is not None:
+        ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{pretrained_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
         model = model_cls(**config["unet_config"])
         model.load_state_dict(ckpt["unet"])
+
         ema_model = EMAModel(
             model.parameters(),
             decay=args.ema_max_decay,
@@ -197,36 +193,12 @@ def main(args):
             model_cls=model_cls,
             model_config=model.config,
         )
-        ema_model.load_state_dict(ckpt["unet_ema"])
 
-        print(f"U-Net and U-Net EMA resumed from {ckpt_path}")
-    elif args.load:
-        # If there are no checkpoints to resume from, and a pre-trained model is
-        # specified for fine-tuning or unlearning.
-        pretrained_steps = get_max_steps(args.load)
-        if pretrained_steps is not None:
-            ckpt_path = os.path.join(args.load, f"ckpt_steps_{pretrained_steps:0>8}.pt")
-            ckpt = torch.load(ckpt_path, map_location="cpu")
-            model = model_cls(**config["unet_config"])
-            model.load_state_dict(ckpt["unet"])
-
-            # Consider the pre-trained model as model weight initialization, so the EMA
-            # starts with the pre-trained model.
-            ema_model = EMAModel(
-                model.parameters(),
-                decay=args.ema_max_decay,
-                use_ema_warmup=False,
-                inv_gamma=args.ema_inv_gamma,
-                power=args.ema_power,
-                model_cls=model_cls,
-                model_config=model.config,
-            )
-
-            print(f"Pre-trained model loaded from {args.load}")
-            print(f"\tU-Net loaded from {ckpt_path}")
-            print("\tEMA started from the loaded U-Net")
-        else:
-            raise ValueError(f"No pre-trained checkpoints found at {args.load}")
+        print(f"Pre-trained model loaded from {args.load}")
+        print(f"\tU-Net loaded from {ckpt_path}")
+        print("\tEMA started from the loaded U-Net")
+    else:
+        raise ValueError(f"No pre-trained checkpoints found at {model_loaddir}")
 
     ema_model.to(device)
 
@@ -296,8 +268,10 @@ def main(args):
 
         generated_imgs = []
         n_batches = args.n_samples // args.batch_size
+        
+        # TODO add text-to-image generation
 
-        for _ in range(n_batches):
+        for index in range(n_batches):
             images = pipeline(
                 batch_size=args.batch_size,
                 num_inference_steps=args.num_inference_steps,
@@ -305,6 +279,7 @@ def main(args):
             ).images
 
             generated_imgs.append(images)
+            print(f"generating samples {index}/{n_batches}")
 
         generated_imgs = np.concatenate(generated_imgs, axis=0)
 

@@ -1,8 +1,8 @@
 """Calculate model behavior for unlearn and retrain model."""
 import argparse
 import os
-
 import numpy as np
+
 from lightning.pytorch import seed_everything
 from pytorch_fid import fid_score
 
