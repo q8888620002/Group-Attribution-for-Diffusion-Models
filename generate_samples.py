@@ -22,12 +22,7 @@ from torchvision.utils import save_image
 import constants
 from ddpm_config import DDPMConfig
 from diffusion.models import CNN
-from utils import (
-    ImagenetteCaptioner, 
-    LabelTokenizer, 
-    create_dataset,
-    get_max_steps,
-)
+from utils import ImagenetteCaptioner, LabelTokenizer, create_dataset, get_max_steps
 
 
 def parse_args():
@@ -42,10 +37,7 @@ def parse_args():
         default="mnist",
     )
     parser.add_argument(
-        "--batch_size", 
-        type=int, 
-        default=512,
-        help="batch size for sample generation."
+        "--batch_size", type=int, default=512, help="batch size for sample generation."
     )
     parser.add_argument(
         "--excluded_class",
@@ -167,11 +159,7 @@ def main(args):
         removal_dir,
     )
     sample_outdir = os.path.join(
-        args.outdir, 
-        args.dataset, 
-        args.method, 
-        "samples", 
-        removal_dir
+        args.outdir, args.dataset, args.method, "samples", removal_dir
     )
 
     # Load pre-trained model.
@@ -268,7 +256,7 @@ def main(args):
 
         generated_imgs = []
         n_batches = args.n_samples // args.batch_size
-        
+
         # TODO add text-to-image generation
 
         for index in range(n_batches):
