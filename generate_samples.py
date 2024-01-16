@@ -6,8 +6,8 @@ import diffusers
 import numpy as np
 import torch
 from diffusers import (
+    DDIMPipeline,
     DDIMScheduler,
-    DDPMPipeline,
     DDPMScheduler,
     DiffusionPipeline,
     LDMPipeline,
@@ -211,7 +211,7 @@ def main(args):
             scheduler=DDIMScheduler(**config["scheduler_config"]),
         ).to(device)
     else:
-        pipeline = DDPMPipeline(
+        pipeline = DDIMPipeline(
             unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
         ).to(device)
 
