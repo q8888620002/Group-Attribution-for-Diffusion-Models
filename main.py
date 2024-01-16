@@ -626,7 +626,7 @@ def main(args):
                         samples.append(
                             pipeline(
                                 prompt=captioner(classes),
-                                num_inference_steps=50,
+                                num_inference_steps=args.num_inference_steps,
                                 eta=0.3,
                                 guidance_scale=6,
                                 output_type="numpy",
