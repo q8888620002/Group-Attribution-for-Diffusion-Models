@@ -3,7 +3,6 @@ import argparse
 import os
 
 import diffusers
-import numpy as np
 import torch
 from diffusers import (
     DDIMPipeline,
@@ -223,7 +222,7 @@ def main(args):
 
     if args.dataset != "imagenette":
         # For unconditional diffusion models.
-        generated_images = []
+        counter = 0
         with torch.no_grad():
             for batch_size in tqdm(batch_size_list):
                 images = pipeline(
@@ -231,19 +230,22 @@ def main(args):
                     num_inference_steps=args.num_inference_steps,
                     output_type="numpy",
                 ).images
-                generated_images.append(images)
-        generated_images = np.concatenate(generated_images, axis=0)
-
-        for i, image in enumerate(generated_images):
-            save_image(
-                torch.from_numpy(image).permute([2, 0, 1]),
-                os.path.join(sample_outdir, f"seed={args.seed}_sample_{i}.png"),
-            )
-        print(f"Generated samples saved to {sample_outdir}")
+                for image in images:
+                    save_image(
+                        torch.from_numpy(image).permute([2, 0, 1]),
+                        os.path.join(
+                            sample_outdir, f"seed={args.seed}_sample_{counter}.png"
+                        ),
+                    )
+                    counter += 1
+        print(f"Generated {counter} samples and saved to {sample_outdir}")
     else:
         # Conditoinal generation for each class in Imagenette.
         for class_idx in range(captioner.num_classes):
-            generated_images = []
+            synset = captioner.label_to_synset[class_idx]
+            synset_sample_outdir = os.path.join(sample_outdir, synset)
+            os.makedirs(synset_sample_outdir, exist_ok=True)
+            counter = 0
             with torch.no_grad():
                 for batch_size in tqdm(batch_size_list):
                     images = pipeline(
@@ -253,20 +255,16 @@ def main(args):
                         guidance_scale=6,
                         output_type="numpy",
                     ).images
-                    generated_images.append(images)
-            generated_images = np.concatenate(generated_images, axis=0)
-
-            synset = captioner.label_to_synset[class_idx]
-            synset_sample_outdir = os.path.join(sample_outdir, synset)
-            os.makedirs(synset_sample_outdir, exist_ok=True)
-            for i, image in enumerate(generated_images):
-                save_image(
-                    torch.from_numpy(image).permute([2, 0, 1]),
-                    os.path.join(
-                        synset_sample_outdir, f"seed={args.seed}_sample_{i}.png"
-                    ),
-                )
-            print(f"Generated sampels saved to {synset_sample_outdir}")
+                    for image in images:
+                        save_image(
+                            torch.from_numpy(image).permute([2, 0, 1]),
+                            os.path.join(
+                                synset_sample_outdir,
+                                f"seed={args.seed}_sample_{counter}.png",
+                            ),
+                        )
+                        counter += 1
+            print(f"Generated {counter} samples and saved to {synset_sample_outdir}")
 
 
 if __name__ == "__main__":
