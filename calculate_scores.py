@@ -1,8 +1,8 @@
 """Calculate model behavior for unlearn and retrain model."""
 import argparse
 import os
-import numpy as np
 
+import numpy as np
 from lightning.pytorch import seed_everything
 from pytorch_fid import fid_score
 
@@ -26,10 +26,7 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
-        "--outdir", 
-        type=str, 
-        help="output parent directory", 
-        default=constants.OUTDIR
+        "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
     parser.add_argument(
         "--model_behavior",
@@ -44,11 +41,6 @@ def parse_args():
         help="dataset for training or unlearning",
         choices=["mnist", "cifar", "celeba", "imagenette"],
         default="mnist",
-    )
-    parser.add_argument(
-        "--no_clip",
-        action="store_true",
-        help="set to normal sampling method without clip x_0 which could yield unstable samples",
     )
     parser.add_argument("--device", type=str, help="device to train")
     parser.add_argument(
