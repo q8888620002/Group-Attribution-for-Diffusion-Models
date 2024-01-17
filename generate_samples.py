@@ -158,7 +158,7 @@ def main(args):
         args.outdir,
         args.dataset,
         args.method,
-        "generated_samples",
+        "ema_generated_samples" if args.use_ema else "generated_samples",
         removal_dir,
     )
     os.makedirs(sample_outdir, exist_ok=True)
