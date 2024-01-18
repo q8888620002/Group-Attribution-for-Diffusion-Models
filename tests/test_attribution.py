@@ -1,9 +1,10 @@
-"""This script servse for testing data attribution calculation"""
+"""Unit tests for data attribution calculation"""
+import unittest
 import numpy as np
 from sklearn.linear_model import RidgeCV
 
 
-def __kernel_shap_test(
+def kernel_shap(
     x_train: np.array,
     y_train: np.array,
 ):
@@ -16,7 +17,6 @@ def __kernel_shap_test(
 
     Return:
         estimated data shapley value with confidence interval.
-
     """
     kernelshap_coeff = []
     train_size = x_train.shape[0]
@@ -55,15 +55,23 @@ def __kernel_shap_test(
         kernelshap_coeff.append(coef)
 
     kernelshap_coeff = np.stack(kernelshap_coeff)
-    scores = x_train @ kernelshap_coeff
-
-    return scores
+    return kernelshap_coeff
 
 
-def __datamodel_test(
+def datamodel(
     x_train: np.array,
     y_train: np.array,
 ):
+    """
+    Method for calculating datamodel value with a ridge regression
+    Confidence interval is calculated based on bootstrapped sampling
+    Args:
+        x_train: np array data indices
+        y_train: np arraycorresponding model behavior
+
+    Return:
+        estimated datamodel value with confidence interval.
+    """
     train_size = x_train.shape[0]
     dataset_size = x_train.shape[1]
     datamodel_coeff = []
@@ -77,16 +85,29 @@ def __datamodel_test(
         datamodel_coeff.append(reg.coef_)
 
     datamodel_coeff = np.stack(datamodel_coeff)
-    scores = x_train @ datamodel_coeff.T
 
-    return scores
+    return datamodel_coeff
 
+class TestDataAttribution(unittest.TestCase):
+    def test_kernel_shap(self):
 
-if __name__ == "__main__":
+        dataset_size = 1000
+        train_size = 100
 
-    dataset_size = 1000
-    train_size = 100
+        x_train = np.random.randint(2, size=(train_size, dataset_size))
+        y_train = np.random.random(train_size)
 
-    x_train = np.random.randint(2, size=(train_size, dataset_size))
-    y_train = np.random.random(train_size)
-    data_score = __kernel_shap_test(x_train, y_train)
+        kernelshap_coeff = kernel_shap(x_train, y_train)
+
+        self.assertEqual(kernelshap_coeff.shape[1], x_train.shape[1], "incorrect coefficient shape")
+
+    def test_datamodel(self):
+
+        dataset_size = 1000
+        train_size = 100
+
+        x_train = np.random.randint(2, size=(train_size, dataset_size))
+        y_train = np.random.random(train_size)
+        datamodel_coeff = datamodel(x_train, y_train)
+
+        self.assertEqual(datamodel_coeff.shape[1], x_train.shape[1], "incorrect coefficient shape")
