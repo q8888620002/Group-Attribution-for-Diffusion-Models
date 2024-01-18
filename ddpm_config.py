@@ -11,17 +11,17 @@ class DDPMConfig:
         "image_size": 32,
         # Training params
         "optimizer_config": {
-            "class_name": "Adam",
-            "kwargs": {"lr": 1e-4, "weight_decay": 0.0},
+            "class_name": "AdamW",
+            "kwargs": {"lr": 1e-4, "weight_decay": 1e-6},
         },
         "lr_scheduler_config": {
-            "name": "constant",
-            "kwargs": {"num_warmup_steps": 0},
+            "name": "cosine",
+            "kwargs": {"num_warmup_steps": 500},
         },
         "batch_size": 128,
-        "training_steps": {"retrain": 5000, "ga": 5, "gd": 10, "esd": 500},
-        "ckpt_freq": {"retrain": 1000, "ga": 1, "gd": 1, "esd": 100},
-        "sample_freq": {"retrain": 1000, "ga": 1, "gd": 1, "esd": 100},
+        "training_steps": {"retrain": 200000, "ga": 5, "gd": 10, "esd": 500},
+        "ckpt_freq": {"retrain": 20000, "ga": 1, "gd": 1, "esd": 100},
+        "sample_freq": {"retrain": 20000, "ga": 1, "gd": 1, "esd": 100},
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
