@@ -713,7 +713,7 @@ def main(args):
             pattern = os.path.join(model_outdir, "unet_steps_*.pt")
             for filename in glob.glob(pattern):
                 os.remove(filename)
-                
+
             pattern = os.path.join(model_outdir, "unet_ema_steps_*.pt")
             for filename in glob.glob(pattern):
                 os.remove(filename)

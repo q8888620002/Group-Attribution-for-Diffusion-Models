@@ -355,52 +355,6 @@ def remove_data_by_shapley(
     removed_idx = all_idx[remaining_size:]
     return remaining_idx, removed_idx
 
-
-def shapley_kernel(
-    dataset: torch.utils.data.Dataset, seed: int = 0
-) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Split a PyTorch Dataset into indices with the remaining and removed data, where
-    the remaining dataset is drawn from the Shapley kernel distribution, which has the
-    probability mass function: p(S) = (n - 1) / (|S| * (n - |S|) * (n choose |S|)).
-
-    Reference: https://captum.ai/api/kernel_shap.html#captum.attr.KernelShap.
-    kernel_shap_perturb_generator.
-
-    Args:
-    ----
-        dataset: The PyTorch Dataset to split.
-        seed: Random seed for sampling which data points are selected to keep.
-
-    Returns
-    -------
-        weight: Weight for a given sampled subset size from shapley kernel distribution. 
-    """
-    rng = np.random.RandomState(seed)
-    dataset_size = len(dataset)
-
-    # First sample the remaining set size.
-    # This corresponds to the term: (n - 1) / (|S| * (n - |S|)).
-    possible_remaining_sizes = np.arange(1, dataset_size)
-    remaining_size_probs = (dataset_size - 1) / (
-        possible_remaining_sizes * (dataset_size - possible_remaining_sizes)
-    )
-    remaining_size_probs /= remaining_size_probs.sum()
-    remaining_size = rng.choice(
-        possible_remaining_sizes, size=1, p=remaining_size_probs
-    )[0]
-
-    # Then sample uniformly given the remaining set size.
-    # This corresponds to the term: 1 / (n choose |S|).
-    all_idx = np.arange(dataset_size)
-    rng.shuffle(all_idx)  # Shuffle in place.
-    remaining_size_prob =  (dataset_size - 1) / (
-            remaining_size * (dataset_size - remaining_size)
-        )
-    weight = (dataset_size-1)/(remaining_size_prob*remaining_size*(dataset_size - remaining_size))
-
-    return weight
-
 def get_max_step_file(folder_path):
     """Get maximum number of training steps for results in a folder."""
     path_pattern = os.path.join(folder_path, "steps_*.pt")

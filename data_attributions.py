@@ -78,6 +78,12 @@ def parse_args():
         help="Dimension for TRAK projector",
     )
     parser.add_argument(
+        "--calibation_num",
+        type=int,
+        default=1000,
+        help="Number of runs for obtain confidence interval",
+    )
+    parser.add_argument(
         "--model_behavior",
         type=str,
         default=None,
@@ -130,14 +136,19 @@ def main(args):
     # TODO: return score of validation set.
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
-    x_train = np.zeros((args.train_size, len(train_dataset)))
-    y_train = np.zeros(args.train_size)
+    train_size = args.train_size
+    dataset_size = len(train_dataset)
+
+    # Initializing masking array.
+    x_train = np.zeros((train_size, dataset_size))
+    y_train = np.zeros(train_size)
+    coeff = []
 
     if args.attribution_method == "d-trak":
 
         scores = np.zeros((len(train_dataset), 1))
 
-        for i in range(0, args.train_size):
+        for i in range(0, train_size):
 
             # Step1: load computed gradients for each subset.
             if args.removal_dist == "datamodel":
@@ -191,9 +202,7 @@ def main(args):
 
     elif args.attribution_method == "datamodel":
 
-        datamodel_coeff = []
-
-        for i in range(0, args.train_size):
+        for i in range(0, train_size):
             # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
             removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={args.removal_seed}"
             remaining_idx, _ = remove_data_by_datamodel(
@@ -208,29 +217,38 @@ def main(args):
             model_output = np.load(model_behavior_dir)
             y_train[i] = model_output[args.model_behavior]
 
-            # Train a datamodel
+        # Train datamodels
+
+        for i in range(args.calibation_num):
+
+            bootstrapped_indices = np.random.choice(train_size, train_size)
             reg = RidgeCV(
                 cv=5,
-                alphas=[0.1, 1.0, 1e1],
-                random_state=42,
-            ).fit(x_train[i], y_train[i])
-            datamodel_coeff.append(reg.coef_)
+                alphas=[0.1, 1.0, 1e1]
+            ).fit(x_train[bootstrapped_indices], y_train[bootstrapped_indices])
+            coeff.append(reg.coef_)
 
-        scores = x_train @ datamodel_coeff.T
+        coeff = np.stack(coeff)
+        scores = x_train @ coeff.T
 
     elif args.attribution_method == "shapley":
 
         # calculate shapley value e.g. shapley sampling with each subset until each player's value converge.
 
-        kernelshap_coeff = []
-        model_behavior_dir = os.path.join(
+        null_behavior_dir = os.path.join(
             args.outdir, args.dataset, args.method, removal_dir, "null/model_behavior.npy"
         )
-        null_model_output = np.load(model_behavior_dir)        
-        
-        # Load pre-calculated model behavior
+        full_behavior_dir = os.path.join(
+            args.outdir, args.dataset, args.method, removal_dir, "full/model_behavior.npy"
+        )
 
-        for i in range(0, args.train_size):
+        # Load v(1) and v(0)
+        null_model_output = np.load(null_behavior_dir)
+        full_model_output = np.load(full_behavior_dir)
+
+        # Load pre-calculated model behavior
+        for i in range(0, train_size):
+
             # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
             removal_dir = (
                 f"{args.removal_dist}/{args.removal_dist}_seed={args.removal_seed}"
@@ -248,15 +266,38 @@ def main(args):
             model_output = np.load(model_behavior_dir)
             y_train[i] = model_output[args.model_behavior]
 
-            # Train a linear regression.
-            reg = RidgeCV(
-                cv=5,
-                alphas=[0.1, 1.0, 1e1],
-                random_state=42,
-            ).fit(x_train[i], y_train[i] - null_model_output)
-            kernelshap_coeff.append(reg.coef_)
+        # Closed form solution of Shapley from equation (7) in https://proceedings.mlr.press/v130/covert21a/covert21a.pdf
 
-        scores = x_train @ kernelshap_coeff.T
+        train_size = x_train.shape[0]
+        dataset_size = x_train.shape[1]
+
+        for i in range(args.calibation_num):
+
+            bootstrapped_indices = np.random.choice(train_size, train_size)
+
+            a_hat = np.zeros((dataset_size, dataset_size))
+            b_hat = np.zeros((dataset_size, 1))
+
+            for j in range(train_size):
+                a_hat += np.outer(x_train[bootstrapped_indices][j], x_train[bootstrapped_indices][j])
+                b_hat += (x_train[bootstrapped_indices][j] * (y_train[bootstrapped_indices][j] - null_model_output))[:, None]
+
+            a_hat /= train_size
+            b_hat /= train_size
+
+            # Using np.linalg.pinv instead of np.linalg.inv in case of singular matrix
+            a_hat_inv = np.linalg.pinv(a_hat)
+            one = np.ones((dataset_size, 1))
+
+            c = one.T@a_hat_inv@b_hat - full_model_output + null_model_output
+            d = one.T@a_hat_inv@one
+
+            coef = a_hat_inv@(b_hat - one@(c/d))
+
+            coeff.append(coef)
+
+        coeff = np.stack(coeff)
+        scores = x_train @ coeff
 
     else:
         raise NotImplementedError((f"{args.attribution_method} is not implemented."))

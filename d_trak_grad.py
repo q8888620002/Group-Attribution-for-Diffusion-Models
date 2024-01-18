@@ -140,10 +140,10 @@ def parse_args():
         help="strategy for sampling time steps",
     )
     parser.add_argument(
-        "--K",
+        "--k_partition",
         type=int,
         default=None,
-        help="TBD",
+        help="Partition for embeddings across time steps.",
     )
     parser.add_argument(
         "--projector_dim",
@@ -535,9 +535,9 @@ def main(args):
         bsz = image.shape[0]
 
         if args.t_strategy == "uniform":
-            selected_timesteps = range(0, 1000, 1000 // args.K)
+            selected_timesteps = range(0, 1000, 1000 // args.k_partition)
         elif args.t_strategy == "cumulative":
-            selected_timesteps = range(0, args.K)
+            selected_timesteps = range(0, args.k_partition)
 
         for index_t, t in enumerate(selected_timesteps):
             # Sample a random timestep for each image
@@ -581,7 +581,7 @@ def main(args):
                 emb += ft_per_sample_grads
             # break
 
-        emb = emb / args.K
+        emb = emb / args.k_partition
         print(emb.size())
 
         # If is_grads_dict == True, then turn emb into a dict.
