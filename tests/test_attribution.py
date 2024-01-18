@@ -1,5 +1,6 @@
 """Unit tests for data attribution calculation"""
 import unittest
+
 import numpy as np
 from sklearn.linear_model import RidgeCV
 
@@ -73,7 +74,6 @@ def datamodel(
         estimated datamodel value with confidence interval.
     """
     train_size = x_train.shape[0]
-    dataset_size = x_train.shape[1]
     datamodel_coeff = []
 
     for i in range(5):
@@ -88,6 +88,7 @@ def datamodel(
 
     return datamodel_coeff
 
+
 class TestDataAttribution(unittest.TestCase):
     def test_kernel_shap(self):
 
@@ -99,7 +100,9 @@ class TestDataAttribution(unittest.TestCase):
 
         kernelshap_coeff = kernel_shap(x_train, y_train)
 
-        self.assertEqual(kernelshap_coeff.shape[1], x_train.shape[1], "incorrect coefficient shape")
+        self.assertEqual(
+            kernelshap_coeff.shape[1], x_train.shape[1], "incorrect coefficient shape"
+        )
 
     def test_datamodel(self):
 
@@ -110,4 +113,6 @@ class TestDataAttribution(unittest.TestCase):
         y_train = np.random.random(train_size)
         datamodel_coeff = datamodel(x_train, y_train)
 
-        self.assertEqual(datamodel_coeff.shape[1], x_train.shape[1], "incorrect coefficient shape")
+        self.assertEqual(
+            datamodel_coeff.shape[1], x_train.shape[1], "incorrect coefficient shape"
+        )
