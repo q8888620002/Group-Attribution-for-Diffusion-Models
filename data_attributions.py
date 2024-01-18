@@ -7,11 +7,7 @@ import torch
 from sklearn.linear_model import RidgeCV
 
 import constants
-from utils import (
-    create_dataset,
-    remove_data_by_datamodel,
-    remove_data_by_shapley,
-)
+from utils import create_dataset, remove_data_by_datamodel, remove_data_by_shapley
 
 
 def parse_args():
@@ -212,7 +208,11 @@ def main(args):
 
             # Load pre-calculated model behavior
             model_behavior_dir = os.path.join(
-                args.outdir, args.dataset, args.method, removal_dir, "model_behavior.npy"
+                args.outdir,
+                args.dataset,
+                args.method,
+                removal_dir,
+                "model_behavior.npy",
             )
             model_output = np.load(model_behavior_dir)
             y_train[i] = model_output[args.model_behavior]
@@ -222,10 +222,9 @@ def main(args):
         for i in range(args.calibation_num):
 
             bootstrapped_indices = np.random.choice(train_size, train_size)
-            reg = RidgeCV(
-                cv=5,
-                alphas=[0.1, 1.0, 1e1]
-            ).fit(x_train[bootstrapped_indices], y_train[bootstrapped_indices])
+            reg = RidgeCV(cv=5, alphas=[0.1, 1.0, 1e1]).fit(
+                x_train[bootstrapped_indices], y_train[bootstrapped_indices]
+            )
             coeff.append(reg.coef_)
 
         coeff = np.stack(coeff)
@@ -236,10 +235,18 @@ def main(args):
         # calculate shapley value e.g. shapley sampling with each subset until each player's value converge.
 
         null_behavior_dir = os.path.join(
-            args.outdir, args.dataset, args.method, removal_dir, "null/model_behavior.npy"
+            args.outdir,
+            args.dataset,
+            args.method,
+            removal_dir,
+            "null/model_behavior.npy",
         )
         full_behavior_dir = os.path.join(
-            args.outdir, args.dataset, args.method, removal_dir, "full/model_behavior.npy"
+            args.outdir,
+            args.dataset,
+            args.method,
+            removal_dir,
+            "full/model_behavior.npy",
         )
 
         # Load v(1) and v(0)
@@ -261,7 +268,11 @@ def main(args):
 
             # Load pre-calculated model behavior
             model_behavior_dir = os.path.join(
-                args.outdir, args.dataset, args.method, removal_dir, "model_behavior.npy"
+                args.outdir,
+                args.dataset,
+                args.method,
+                removal_dir,
+                "model_behavior.npy",
             )
             model_output = np.load(model_behavior_dir)
             y_train[i] = model_output[args.model_behavior]
@@ -279,8 +290,13 @@ def main(args):
             b_hat = np.zeros((dataset_size, 1))
 
             for j in range(train_size):
-                a_hat += np.outer(x_train[bootstrapped_indices][j], x_train[bootstrapped_indices][j])
-                b_hat += (x_train[bootstrapped_indices][j] * (y_train[bootstrapped_indices][j] - null_model_output))[:, None]
+                a_hat += np.outer(
+                    x_train[bootstrapped_indices][j], x_train[bootstrapped_indices][j]
+                )
+                b_hat += (
+                    x_train[bootstrapped_indices][j]
+                    * (y_train[bootstrapped_indices][j] - null_model_output)
+                )[:, None]
 
             a_hat /= train_size
             b_hat /= train_size
@@ -289,10 +305,10 @@ def main(args):
             a_hat_inv = np.linalg.pinv(a_hat)
             one = np.ones((dataset_size, 1))
 
-            c = one.T@a_hat_inv@b_hat - full_model_output + null_model_output
-            d = one.T@a_hat_inv@one
+            c = one.T @ a_hat_inv @ b_hat - full_model_output + null_model_output
+            d = one.T @ a_hat_inv @ one
 
-            coef = a_hat_inv@(b_hat - one@(c/d))
+            coef = a_hat_inv @ (b_hat - one @ (c / d))
 
             coeff.append(coef)
 

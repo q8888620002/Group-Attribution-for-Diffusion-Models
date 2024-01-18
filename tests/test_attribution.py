@@ -32,8 +32,13 @@ def __kernel_shap_test(
         b_hat = np.zeros((dataset_size, 1))
 
         for j in range(train_size):
-            a_hat += np.outer(x_train[bootstrapped_indices][j], x_train[bootstrapped_indices][j])
-            b_hat += (x_train[bootstrapped_indices][j] * (y_train[bootstrapped_indices][j] - null_model_output))[:, None]
+            a_hat += np.outer(
+                x_train[bootstrapped_indices][j], x_train[bootstrapped_indices][j]
+            )
+            b_hat += (
+                x_train[bootstrapped_indices][j]
+                * (y_train[bootstrapped_indices][j] - null_model_output)
+            )[:, None]
 
         a_hat /= train_size
         b_hat /= train_size
@@ -42,10 +47,10 @@ def __kernel_shap_test(
         a_hat_inv = np.linalg.pinv(a_hat)
         one = np.ones((dataset_size, 1))
 
-        c = one.T@a_hat_inv@b_hat - full_model_output + null_model_output
-        d = one.T@a_hat_inv@one
+        c = one.T @ a_hat_inv @ b_hat - full_model_output + null_model_output
+        d = one.T @ a_hat_inv @ one
 
-        coef = a_hat_inv@(b_hat - one@(c/d))
+        coef = a_hat_inv @ (b_hat - one @ (c / d))
 
         kernelshap_coeff.append(coef)
 
@@ -53,6 +58,7 @@ def __kernel_shap_test(
     scores = x_train @ kernelshap_coeff
 
     return scores
+
 
 def __datamodel_test(
     x_train: np.array,
@@ -74,7 +80,6 @@ def __datamodel_test(
     scores = x_train @ datamodel_coeff.T
 
     return scores
-
 
 
 if __name__ == "__main__":
