@@ -7,6 +7,7 @@ from typing import List, Tuple
 
 import clip
 import numpy as np
+import pynvml
 import torch
 from PIL import Image
 from scipy.linalg import sqrtm
@@ -28,6 +29,14 @@ def print_args(args):
     print(f"Running {sys.argv[0]} with arguments")
     for arg in vars(args):
         print(f"\t{arg}={getattr(args, arg)}")
+
+
+def get_memory_free_MiB(gpu_index):
+    """Method for monitoring GPU usage when debugging."""
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(int(gpu_index))
+    mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    return mem_info.free // 1024 ** 2
 
 
 class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
