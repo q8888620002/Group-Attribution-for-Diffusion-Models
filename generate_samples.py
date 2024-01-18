@@ -92,24 +92,6 @@ def parse_args():
         default=False,
     )
     parser.add_argument(
-        "--ema_inv_gamma",
-        type=float,
-        default=1.0,
-        help="inverse gamma value for EMA decay",
-    )
-    parser.add_argument(
-        "--ema_power",
-        type=float,
-        default=3 / 4,
-        help="power value for EMA decay",
-    )
-    parser.add_argument(
-        "--ema_max_decay",
-        type=float,
-        default=0.9999,
-        help="maximum decay magnitude EMA",
-    )
-    parser.add_argument(
         "--device", type=str, help="device of training", default="cuda:0"
     )
 
@@ -175,10 +157,6 @@ def main(args):
         if args.use_ema:
             ema_model = EMAModel(
                 model.parameters(),
-                decay=args.ema_max_decay,
-                use_ema_warmup=False,
-                inv_gamma=args.ema_inv_gamma,
-                power=args.ema_power,
                 model_cls=model_cls,
                 model_config=model.config,
             )
