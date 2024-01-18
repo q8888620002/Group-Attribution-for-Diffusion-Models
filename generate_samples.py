@@ -68,7 +68,6 @@ def parse_args():
         type=str,
         help="training or unlearning method",
         choices=["retrain", "gd", "ga", "esd"],
-        required=True,
     )
     parser.add_argument(
         "--seed",
@@ -78,6 +77,12 @@ def parse_args():
     )
     parser.add_argument(
         "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
+    )
+    parser.add_argument(
+        "--pretrained",
+        help="whether to generate samples for a pre-trained model",
+        action="store_true",
+        default=False,
     )
     parser.add_argument(
         "--num_inference_steps",
@@ -129,20 +134,34 @@ def main(args):
             removal_dir += f"_alpha={args.datamodel_alpha}"
         removal_dir += f"_seed={args.removal_seed}"
 
-    model_loaddir = os.path.join(
-        args.outdir,
-        args.dataset,
-        args.method,
-        "models",
-        removal_dir,
-    )
-    sample_outdir = os.path.join(
-        args.outdir,
-        args.dataset,
-        args.method,
-        "ema_generated_samples" if args.use_ema else "generated_samples",
-        removal_dir,
-    )
+    if args.pretrained:
+        model_loaddir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "pretrained",
+            "models",
+        )
+        sample_outdir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "pretrained",
+            "ema_generated_samples" if args.use_ema else "generated_samples",
+        )
+    else:
+        model_loaddir = os.path.join(
+            args.outdir,
+            args.dataset,
+            args.method,
+            "models",
+            removal_dir,
+        )
+        sample_outdir = os.path.join(
+            args.outdir,
+            args.dataset,
+            args.method,
+            "ema_generated_samples" if args.use_ema else "generated_samples",
+            removal_dir,
+        )
     os.makedirs(sample_outdir, exist_ok=True)
 
     # Load the trained U-Net model or U-Net EMA.
