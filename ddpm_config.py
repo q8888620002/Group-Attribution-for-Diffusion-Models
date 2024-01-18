@@ -9,10 +9,6 @@ class DDPMConfig:
     cifar_config = {
         "dataset": "cifar",
         "image_size": 32,
-        "trained_model": (
-            "/projects/leelab/mingyulu/data_att/results/cifar/"
-            "retrain/models/full/steps_00125000.pt",
-        ),
         # Training params
         "optimizer_config": {
             "class_name": "Adam",
@@ -23,9 +19,9 @@ class DDPMConfig:
             "kwargs": {"num_warmup_steps": 0},
         },
         "batch_size": 128,
-        "epochs": {"retrain": 800, "ga": 5, "gd": 10, "esd": 500},
-        "ckpt_freq": {"retrain": 100, "ga": 1, "gd": 1, "esd": 100},
-        "sample_freq": {"retrain": 100, "ga": 1, "gd": 1, "esd": 100},
+        "training_steps": {"retrain": 5000, "ga": 5, "gd": 10, "esd": 500},
+        "ckpt_freq": {"retrain": 1000, "ga": 1, "gd": 1, "esd": 100},
+        "sample_freq": {"retrain": 1000, "ga": 1, "gd": 1, "esd": 100},
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
@@ -96,7 +92,7 @@ class DDPMConfig:
             "kwargs": {"num_warmup_steps": 0},
         },
         "batch_size": 32,
-        "epochs": {"retrain": 800, "ga": 5, "gd": 10, "esd": 500},
+        "training_steps": {"retrain": 800, "ga": 5, "gd": 10, "esd": 500},
         "ckpt_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 100},
         "sample_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 100},
         "n_samples": 32,
@@ -215,7 +211,7 @@ class DDPMConfig:
             "kwargs": {"num_warmup_steps": 0},
         },
         "batch_size": 64,
-        "epochs": {"retrain": 100, "ga": 5, "gd": 10, "esd": 100},
+        "training_steps": {"retrain": 100, "ga": 5, "gd": 10, "esd": 100},
         "ckpt_freq": {"retrain": 2, "ga": 1, "gd": 1, "esd": 20},
         "sample_freq": {"retrain": 20, "ga": 1, "gd": 1, "esd": 20},
         "n_samples": 500,
@@ -277,7 +273,7 @@ class DDPMConfig:
             "kwargs": {"num_warmup_steps": 0},
         },
         "batch_size": 8,  # Largest batch size with fp32 that fits on RTX-6000.
-        "epochs": {"retrain": 300, "ga": 5, "gd": 10, "esd": 150},
+        "training_steps": {"retrain": 300, "ga": 5, "gd": 10, "esd": 150},
         "ckpt_freq": {"retrain": 50, "ga": 1, "gd": 1, "esd": 50},
         "sample_freq": {"retrain": 50, "ga": 1, "gd": 1, "esd": 50},
         "n_samples": 60,
