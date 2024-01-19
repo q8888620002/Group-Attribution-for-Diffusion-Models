@@ -11,12 +11,12 @@ from sklearn.linear_model import RidgeCV
 
 import constants
 from utils import (
-    create_dataset, 
-    remove_data_by_datamodel, 
-    remove_data_by_shapley,
     clip_score,
+    create_dataset,
     process_images_clip,
-    process_images_np
+    process_images_np,
+    remove_data_by_datamodel,
+    remove_data_by_shapley,
 )
 
 
@@ -34,16 +34,16 @@ def parse_args():
         "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
     parser.add_argument(
-        "--val_sample_dir", 
-        type=str, 
-        help="directory for validation samples", 
-        default=None
+        "--val_sample_dir",
+        type=str,
+        help="directory for validation samples",
+        default=None,
     )
     parser.add_argument(
-        "--train_sample_dir", 
-        type=str, 
-        help="directory for training samples", 
-        default=None
+        "--train_sample_dir",
+        type=str,
+        help="directory for training samples",
+        default=None,
     )
     parser.add_argument(
         "--dataset",
@@ -351,10 +351,12 @@ def main(args):
         # Find the highest score for each image in val_samples
 
         if not args.val_samples_dir or not args.train_samples_dir:
-            raise FileNotFoundError("Please specify both val_samples_dir and train_samples_dir for clip score calculation.")
+            raise FileNotFoundError(
+                "Please specify both val_samples_dir and train_samples_dir for clip score calculation."
+            )
 
         val_samples = process_images_clip(glob.glob(args.val_samples_dir))
-        train_samples = process_images_clip( glob.glob(args.train_samples_dir))
+        train_samples = process_images_clip(glob.glob(args.train_samples_dir))
 
         scores = clip_score(val_samples, train_samples)
         scores = np.max(scores, axis=1)
@@ -363,7 +365,9 @@ def main(args):
         # Calculate L2 distances and find the highest for each val image
 
         if not args.val_samples_dir or not args.train_samples_dir:
-            raise FileNotFoundError("Please specify both val_samples_dir and train_samples_dir for pixel distance calculation.")
+            raise FileNotFoundError(
+                "Please specify both val_samples_dir and train_samples_dir for pixel distance calculation."
+            )
 
         val_images = process_images_np(glob.glob(args.val_samples_dir))
         train_images = process_images_np(glob.glob(args.train_samples_dir))
@@ -376,7 +380,7 @@ def main(args):
         for i, val_image in enumerate(val_images):
             distances = np.sqrt(np.sum((train_images - val_image) ** 2, axis=1))
             scores[i] = np.max(distances)
-        
+
     elif args.attribution_method == "if":
         raise NotImplementedError
 
