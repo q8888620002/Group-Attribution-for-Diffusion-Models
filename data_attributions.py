@@ -36,11 +36,11 @@ def parse_args():
     parser.add_argument(
         "--seed",
         type=int,
-        help="random seed for train and validation set splitting",
+        help="random seed for splitting train and validation set.",
         default=42,
     )
     parser.add_argument(
-        "--subset_size",
+        "--n_subset",
         type=int,
         help="Number of subsests for attribution score calculation",
         default=None,
@@ -138,9 +138,9 @@ def main(args):
     full_dataset = create_dataset(dataset_name=args.dataset, train=True)
     dataset_size = len(full_dataset)
 
-    subset_size = args.subset_size
-    all_idx = np.arange(subset_size)
-    num_selected = int(args.train_ratio * subset_size)
+    n_subset = args.n_subset
+    all_idx = np.arange(n_subset)
+    num_selected = int(args.train_ratio * n_subset)
 
     rng = np.random.RandomState(args.seed)
     rng.shuffle(all_idx)
@@ -150,14 +150,14 @@ def main(args):
 
     # Initializing masking array (n, d); n is the subset number and d is number of data is the original dataset.
 
-    X = np.zeros((subset_size, dataset_size))
-    Y = np.zeros(subset_size)
+    X = np.zeros((n_subset, dataset_size))
+    Y = np.zeros(n_subset)
 
     coeff = []
 
     if args.attribution_method == "d-trak":
 
-        scores = np.zeros((subset_size, 1))
+        scores = np.zeros((n_subset, 1))
 
         # Iterating only through validation set for D-TRAK/TRAK.
 
@@ -212,7 +212,7 @@ def main(args):
     elif args.attribution_method == "datamodel":
 
         # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
-        for i in range(0, subset_size):
+        for i in range(0, n_subset):
             removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={i}"
             remaining_idx, _ = remove_data_by_datamodel(
                 full_dataset, alpha=args.datamodel_alpha, seed=i
@@ -236,7 +236,7 @@ def main(args):
 
         for i in range(args.num_runs):
 
-            bootstrapped_indices = np.random.choice(subset_size, subset_size)
+            bootstrapped_indices = np.random.choice(n_subset, n_subset)
             reg = RidgeCV(cv=5, alphas=[0.1, 1.0, 1e1]).fit(
                 x_train[bootstrapped_indices], y_train[bootstrapped_indices]
             )
@@ -269,7 +269,7 @@ def main(args):
         full_model_output = np.load(full_behavior_dir)
 
         # Load pre-calculated model behavior
-        for i in range(0, subset_size):
+        for i in range(0, n_subset):
 
             # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
             removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={i}"
