@@ -4,6 +4,8 @@ import os
 
 import numpy as np
 import torch
+import clip
+
 from sklearn.linear_model import RidgeCV
 
 import constants
@@ -13,7 +15,7 @@ from utils import create_dataset, remove_data_by_datamodel, remove_data_by_shapl
 def parse_args():
     """Parse command line arguments."""
 
-    parser = argparse.ArgumentParser(description="Computing D-TRAK and TRAK")
+    parser = argparse.ArgumentParser(description="Computing data attribution.")
     parser.add_argument(
         "--load",
         type=str,
@@ -31,10 +33,16 @@ def parse_args():
         default="mnist",
     )
     parser.add_argument(
-        "--train_size",
+        "--subset_size",
         type=int,
-        help="Number of sampling subsets for attribution score calculation",
+        help="Number of subsests for attribution score calculation",
         default=None,
+    )
+    parser.add_argument(
+        "--train_ratio",
+        type=float,
+        help="Ratio of subsets for shapley & datamodel calculation.",
+        default=0.8,
     )
     parser.add_argument(
         "--excluded_class",
@@ -55,12 +63,6 @@ def parse_args():
         default=0.5,
     )
     parser.add_argument(
-        "--removal_seed",
-        type=int,
-        help="random seed for sampling from the removal distribution",
-        default=0,
-    )
-    parser.add_argument(
         "--method",
         type=str,
         help="training or unlearning method",
@@ -74,7 +76,7 @@ def parse_args():
         help="Dimension for TRAK projector",
     )
     parser.add_argument(
-        "--calibation_num",
+        "--num_runs",
         type=int,
         default=1000,
         help="Number of runs for obtain confidence interval",
@@ -100,6 +102,9 @@ def parse_args():
             "shapley",
             "d-trak",
             "datamodel",
+            "clip_score",
+            "pixel_dist",
+            "if"
         ],
         help="Specification for attribution score methods",
     )
@@ -129,35 +134,45 @@ def parse_args():
 
 def main(args):
     """Main function for computing D-TRAK, TRAK, Datamodel, and Data Shapley."""
-    # TODO: return score of validation set.
 
-    train_dataset = create_dataset(dataset_name=args.dataset, train=True)
-    train_size = args.train_size
-    dataset_size = len(train_dataset)
+    full_dataset = create_dataset(dataset_name=args.dataset, train=True)
+    dataset_size = len(full_dataset)
 
-    # Initializing masking array.
-    x_train = np.zeros((train_size, dataset_size))
-    y_train = np.zeros(train_size)
+    subset_size = args.subset_size
+    all_idx = np.arange(subset_size)
+    num_selected = int(args.train_ratio * subset_size)
+    rng.shuffle(all_idx)
+
+    train_idx = all_idx[:num_selected]
+    val_idx = all_idx[num_selected:]
+
+    # Initializing masking array (n, d); n is the subset number and d is number of data is the original dataset.
+
+    X = np.zeros((subset_size, dataset_size))
+    Y = np.zeros(subset_size)
+
     coeff = []
 
     if args.attribution_method == "d-trak":
 
-        scores = np.zeros((len(train_dataset), 1))
+        scores = np.zeros((subset_size, 1))
 
-        for i in range(0, train_size):
+        # Iterating only through validation set for D-TRAK/TRAK.
+
+        for i in enumerate(val_idx):
 
             # Step1: load computed gradients for each subset.
             if args.removal_dist == "datamodel":
-                removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={args.removal_seed}"
+                removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={i}"
                 remaining_idx, _ = remove_data_by_datamodel(
                     train_dataset, alpha=args.datamodel_alpha, seed=i
                 )
             elif args.removal_dist == "shpaley":
                 removal_dir = (
-                    f"{args.removal_dist}/{args.removal_dist}_seed={args.removal_seed}"
+                    f"{args.removal_dist}/{args.removal_dist}_seed={i}"
                 )
                 remaining_idx, _ = remove_data_by_shapley(
-                    train_dataset, seed=args.removal_seed
+                    train_dataset, seed=i
                 )
 
             grad_result_dir = os.path.join(
@@ -198,13 +213,13 @@ def main(args):
 
     elif args.attribution_method == "datamodel":
 
-        for i in range(0, train_size):
-            # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
-            removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={args.removal_seed}"
+        # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
+        for i in range(0, subset_size):
+            removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={i}"
             remaining_idx, _ = remove_data_by_datamodel(
                 train_dataset, alpha=args.datamodel_alpha, seed=i
             )
-            x_train[i, remaining_idx] = 1
+            X[i, remaining_idx] = 1
 
             # Load pre-calculated model behavior
             model_behavior_dir = os.path.join(
@@ -215,24 +230,26 @@ def main(args):
                 "model_behavior.npy",
             )
             model_output = np.load(model_behavior_dir)
-            y_train[i] = model_output[args.model_behavior]
+            Y[i] = model_output[args.model_behavior]
 
         # Train datamodels
+        x_train = X[train_idx]
+        y_train = Y[train_idx]
 
-        for i in range(args.calibation_num):
+        for i in range(args.num_runs):
 
-            bootstrapped_indices = np.random.choice(train_size, train_size)
+            bootstrapped_indices = np.random.choice(subset_size, subset_size)
             reg = RidgeCV(cv=5, alphas=[0.1, 1.0, 1e1]).fit(
                 x_train[bootstrapped_indices], y_train[bootstrapped_indices]
             )
             coeff.append(reg.coef_)
 
         coeff = np.stack(coeff)
-        scores = x_train @ coeff.T
+        scores = X[val_idx] @ coeff.T
 
     elif args.attribution_method == "shapley":
 
-        # calculate shapley value e.g. shapley sampling with each subset until each player's value converge.
+        # Calculate shapley value e.g. shapley sampling with each subset until each player's value converge.
 
         null_behavior_dir = os.path.join(
             args.outdir,
@@ -254,17 +271,17 @@ def main(args):
         full_model_output = np.load(full_behavior_dir)
 
         # Load pre-calculated model behavior
-        for i in range(0, train_size):
+        for i in range(0, subset_size):
 
             # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
             removal_dir = (
-                f"{args.removal_dist}/{args.removal_dist}_seed={args.removal_seed}"
+                f"{args.removal_dist}/{args.removal_dist}_seed={i}"
             )
             remaining_idx, _ = remove_data_by_shapley(
-                train_dataset, seed=args.removal_seed
+                train_dataset, seed=i
             )
 
-            x_train[i, remaining_idx] = 1
+            X[i, remaining_idx] = 1
 
             # Load pre-calculated model behavior
             model_behavior_dir = os.path.join(
@@ -275,14 +292,16 @@ def main(args):
                 "model_behavior.npy",
             )
             model_output = np.load(model_behavior_dir)
-            y_train[i] = model_output[args.model_behavior]
+            Y[i] = model_output[args.model_behavior]
+
+        x_train = X[train_idx]
+        y_train = Y[train_idx]
 
         # Closed form solution of Shapley from equation (7) in https://proceedings.mlr.press/v130/covert21a/covert21a.pdf
 
         train_size = x_train.shape[0]
-        dataset_size = x_train.shape[1]
 
-        for i in range(args.calibation_num):
+        for i in range(args.num_runs):
 
             bootstrapped_indices = np.random.choice(train_size, train_size)
 
@@ -313,7 +332,28 @@ def main(args):
             coeff.append(coef)
 
         coeff = np.stack(coeff)
-        scores = x_train @ coeff
+        scores = X[val_idx] @ coeff.T
+
+    elif args.attribution_method == "clip_score":
+        # TODO
+        # Find the most similar images w.r.t. clip score (dot product or cosine similarity)
+
+        with torch.no_grad():
+            features1 = clip_model.encode_image(images1)
+            features2 = clip_model.encode_image(images2)
+
+        features1 = features1 / features1.norm(dim=-1, keepdim=True)
+        features2 = features2 / features2.norm(dim=-1, keepdim=True)
+        similarity = (features1 @ features2.T).cpu().numpy()
+
+    elif args.attribution_method == "pixel_dist":
+        # TODO
+        # Find the most similar images w.r.t. l2 distance, dot product or cosine similarity.
+
+    elif args.attribution_method == "if":
+        # TODO
+
+        raise NotImplementedError
 
     else:
         raise NotImplementedError((f"{args.attribution_method} is not implemented."))
