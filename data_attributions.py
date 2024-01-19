@@ -2,10 +2,9 @@
 import argparse
 import os
 
+import clip
 import numpy as np
 import torch
-import clip
-
 from sklearn.linear_model import RidgeCV
 
 import constants
