@@ -1,6 +1,8 @@
 """Functions for calculating attribution scores including D-TRAK, TRAK, Datamodel, Data Shapley"""
 import argparse
 import os
+from PIL import Image
+import glob
 
 import clip
 import numpy as np
@@ -271,7 +273,7 @@ def main(args):
 
             # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
             removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={i}"
-            remaining_idx, _ = remove_data_by_shapley(train_dataset, seed=i)
+            remaining_idx, _ = remove_data_by_shapley(full_dataset, seed=i)
 
             X[i, remaining_idx] = 1
 
@@ -330,6 +332,16 @@ def main(args):
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         clip_model, clip_transform = clip.load("ViT-B/32", device=device)
+
+        val_samples = []
+        for filename in glob.glob('path-to-val_samples'):
+            im=Image.open(filename)
+            val_samples.append(im)
+
+        train_samples = []
+        for filename in glob.glob('path-to-val_samples'):
+            im=Image.open(filename)
+            train_samples.append(im)
 
         # Find the most similar images w.r.t. clip score (dot product or cosine similarity)
 
