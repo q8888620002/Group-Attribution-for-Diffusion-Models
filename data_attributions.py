@@ -32,6 +32,12 @@ def parse_args():
         default="mnist",
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        help="random seed for train and validation set splitting",
+        default=42,
+    )
+    parser.add_argument(
         "--subset_size",
         type=int,
         help="Number of subsests for attribution score calculation",
@@ -133,6 +139,8 @@ def main(args):
     subset_size = args.subset_size
     all_idx = np.arange(subset_size)
     num_selected = int(args.train_ratio * subset_size)
+
+    rng = np.random.RandomState(args.seed)
     rng.shuffle(all_idx)
 
     train_idx = all_idx[:num_selected]
@@ -157,11 +165,11 @@ def main(args):
             if args.removal_dist == "datamodel":
                 removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={i}"
                 remaining_idx, _ = remove_data_by_datamodel(
-                    train_dataset, alpha=args.datamodel_alpha, seed=i
+                    full_dataset, alpha=args.datamodel_alpha, seed=i
                 )
             elif args.removal_dist == "shpaley":
                 removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={i}"
-                remaining_idx, _ = remove_data_by_shapley(train_dataset, seed=i)
+                remaining_idx, _ = remove_data_by_shapley(full_dataset, seed=i)
 
             grad_result_dir = os.path.join(
                 args.outdir,
@@ -205,7 +213,7 @@ def main(args):
         for i in range(0, subset_size):
             removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={i}"
             remaining_idx, _ = remove_data_by_datamodel(
-                train_dataset, alpha=args.datamodel_alpha, seed=i
+                full_dataset, alpha=args.datamodel_alpha, seed=i
             )
             X[i, remaining_idx] = 1
 
