@@ -10,7 +10,14 @@ from PIL import Image
 from sklearn.linear_model import RidgeCV
 
 import constants
-from utils import create_dataset, remove_data_by_datamodel, remove_data_by_shapley
+from utils import (
+    create_dataset, 
+    remove_data_by_datamodel, 
+    remove_data_by_shapley,
+    clip_score,
+    process_images_clip,
+    process_images_np
+)
 
 
 def parse_args():
@@ -27,17 +34,23 @@ def parse_args():
         "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
     parser.add_argument(
+        "--val_sample_dir", 
+        type=str, 
+        help="directory for validation samples", 
+        default=None
+    )
+    parser.add_argument(
+        "--train_sample_dir", 
+        type=str, 
+        help="directory for training samples", 
+        default=None
+    )
+    parser.add_argument(
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
         choices=["mnist", "cifar", "celeba", "imagenette"],
         default="mnist",
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        help="random seed for splitting train and validation set.",
-        default=42,
     )
     parser.add_argument(
         "--n_subset",
@@ -50,6 +63,12 @@ def parse_args():
         type=float,
         help="Ratio of subsets for shapley & datamodel calculation.",
         default=0.8,
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        help="random seed for splitting train and validation set.",
+        default=42,
     )
     parser.add_argument(
         "--excluded_class",
@@ -127,7 +146,7 @@ def parse_args():
         "--t_strategy",
         type=str,
         default=None,
-        help="strategy for sampling time steps",
+        help="strategy for sampling time steps for D-TRAK.",
     )
     return parser.parse_args()
 
@@ -329,36 +348,37 @@ def main(args):
         scores = X[val_idx] @ coeff.T
 
     elif args.attribution_method == "clip_score":
+        # Find the highest score for each image in val_samples
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        clip_model, clip_transform = clip.load("ViT-B/32", device=device)
+        if not args.val_samples_dir or not args.train_samples_dir:
+            raise FileNotFoundError("Please specify both val_samples_dir and train_samples_dir for clip score calculation.")
 
-        val_samples = []
-        for filename in glob.glob("path-to-val_samples"):
-            im = Image.open(filename)
-            val_samples.append(im)
+        val_samples = process_images_clip(glob.glob(args.val_samples_dir))
+        train_samples = process_images_clip( glob.glob(args.train_samples_dir))
 
-        train_samples = []
-        for filename in glob.glob("path-to-val_samples"):
-            im = Image.open(filename)
-            train_samples.append(im)
+        scores = clip_score(val_samples, train_samples)
+        scores = np.max(scores, axis=1)
 
-        # Find the most similar images w.r.t. clip score (dot product or cosine similarity)
+    elif args.attribution_method == "pixel_dist":
+        # Calculate L2 distances and find the highest for each val image
 
-        with torch.no_grad():
-            features1 = clip_model.encode_image(val_samples)
-            features2 = clip_model.encode_image(train_samples)
+        if not args.val_samples_dir or not args.train_samples_dir:
+            raise FileNotFoundError("Please specify both val_samples_dir and train_samples_dir for pixel distance calculation.")
 
-        features1 = features1 / features1.norm(dim=-1, keepdim=True)
-        features2 = features2 / features2.norm(dim=-1, keepdim=True)
+        val_images = process_images_np(glob.glob(args.val_samples_dir))
+        train_images = process_images_np(glob.glob(args.train_samples_dir))
 
-        scores = (features1 @ features2.T).cpu().numpy()
-    #     TODO
+        val_images = val_images.reshape(val_images.shape[0], -1)
+        train_images = train_images.reshape(train_images.shape[0], -1)
 
-    # elif args.attribution_method == "pixel_dist":
-    #      Find the most similar images w.r.t. l2 distance, dot product or cosine similarity.
-    # elif args.attribution_method == "if":
-    #     raise NotImplementedError
+        scores = np.zeros(val_images.shape[0])
+
+        for i, val_image in enumerate(val_images):
+            distances = np.sqrt(np.sum((train_images - val_image) ** 2, axis=1))
+            scores[i] = np.max(distances)
+        
+    elif args.attribution_method == "if":
+        raise NotImplementedError
 
     else:
         raise NotImplementedError((f"{args.attribution_method} is not implemented."))

@@ -20,7 +20,8 @@ import constants
 
 # Load CLIP model and transformation outside of the function for efficiency
 # device = "cuda:2" if torch.cuda.is_available() else "cpu"
-clip_model, clip_transform = clip.load("ViT-B/32", device="cpu")
+device = "cpu"
+clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 
 
 def print_args(args):
@@ -481,6 +482,23 @@ def preprocess_clip_mnist(batch_images):
 
     return batch_processed
 
+def process_images_clip(file_list):
+    """Function to load and process images with clip transform"""
+    images = []
+    for filename in file_list:
+        image = Image.open(filename)
+        image = clip_transform(image).unsqueeze(0).to(device)
+        images.append(image)
+    return torch.cat(images, dim=0)
+
+def process_images_np(file_list):
+    """Function to load and process images into numpy"""
+    images = []
+    for filename in file_list:
+        image = Image.open(filename).convert('RGB')
+        image = np.array(image).astype(np.float32)
+        images.append(image)
+    return np.stack(images)
 
 def clip_score(images1, images2):
     """
@@ -496,9 +514,6 @@ def clip_score(images1, images2):
         Mean pairwise CLIP score between the two sets of images.
     """
 
-    images1 = preprocess_clip_mnist(images1)
-    images2 = preprocess_clip_mnist(images2)
-
     # Get the model's visual features (without text features)
 
     with torch.no_grad():
@@ -509,4 +524,4 @@ def clip_score(images1, images2):
     features2 = features2 / features2.norm(dim=-1, keepdim=True)
     similarity = (features1 @ features2.T).cpu().numpy()
 
-    return similarity.mean()
+    return similarity
