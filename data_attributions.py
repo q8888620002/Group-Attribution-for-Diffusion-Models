@@ -3,10 +3,8 @@ import argparse
 import glob
 import os
 
-import clip
 import numpy as np
 import torch
-from PIL import Image
 from sklearn.linear_model import RidgeCV
 
 import constants
