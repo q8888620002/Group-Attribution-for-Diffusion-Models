@@ -97,14 +97,7 @@ def parse_args():
         "--attribution_method",
         type=str,
         default=None,
-        choices=[
-            "shapley",
-            "d-trak",
-            "datamodel",
-            "clip_score",
-            "pixel_dist",
-            "if"
-        ],
+        choices=["shapley", "d-trak", "datamodel", "clip_score", "pixel_dist", "if"],
         help="Specification for attribution score methods",
     )
     parser.add_argument(
@@ -167,12 +160,8 @@ def main(args):
                     train_dataset, alpha=args.datamodel_alpha, seed=i
                 )
             elif args.removal_dist == "shpaley":
-                removal_dir = (
-                    f"{args.removal_dist}/{args.removal_dist}_seed={i}"
-                )
-                remaining_idx, _ = remove_data_by_shapley(
-                    train_dataset, seed=i
-                )
+                removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={i}"
+                remaining_idx, _ = remove_data_by_shapley(train_dataset, seed=i)
 
             grad_result_dir = os.path.join(
                 args.outdir,
@@ -273,12 +262,8 @@ def main(args):
         for i in range(0, subset_size):
 
             # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
-            removal_dir = (
-                f"{args.removal_dist}/{args.removal_dist}_seed={i}"
-            )
-            remaining_idx, _ = remove_data_by_shapley(
-                train_dataset, seed=i
-            )
+            removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={i}"
+            remaining_idx, _ = remove_data_by_shapley(train_dataset, seed=i)
 
             X[i, remaining_idx] = 1
 
@@ -334,24 +319,25 @@ def main(args):
         scores = X[val_idx] @ coeff.T
 
     elif args.attribution_method == "clip_score":
-        # TODO
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        clip_model, clip_transform = clip.load("ViT-B/32", device=device)
+
         # Find the most similar images w.r.t. clip score (dot product or cosine similarity)
 
         with torch.no_grad():
-            features1 = clip_model.encode_image(images1)
-            features2 = clip_model.encode_image(images2)
+            features1 = clip_model.encode_image(val_samples)
+            features2 = clip_model.encode_image(train_samples)
 
         features1 = features1 / features1.norm(dim=-1, keepdim=True)
         features2 = features2 / features2.norm(dim=-1, keepdim=True)
-        similarity = (features1 @ features2.T).cpu().numpy()
+
+        scores = (features1 @ features2.T).cpu().numpy()
+    #     TODO
 
     # elif args.attribution_method == "pixel_dist":
-    #     # TODO
-    #     # Find the most similar images w.r.t. l2 distance, dot product or cosine similarity.
-
+    #      Find the most similar images w.r.t. l2 distance, dot product or cosine similarity.
     # elif args.attribution_method == "if":
-    #     # TODO
-
     #     raise NotImplementedError
 
     else:
