@@ -345,14 +345,14 @@ def main(args):
         features2 = features2 / features2.norm(dim=-1, keepdim=True)
         similarity = (features1 @ features2.T).cpu().numpy()
 
-    elif args.attribution_method == "pixel_dist":
-        # TODO
-        # Find the most similar images w.r.t. l2 distance, dot product or cosine similarity.
+    # elif args.attribution_method == "pixel_dist":
+    #     # TODO
+    #     # Find the most similar images w.r.t. l2 distance, dot product or cosine similarity.
 
-    elif args.attribution_method == "if":
-        # TODO
+    # elif args.attribution_method == "if":
+    #     # TODO
 
-        raise NotImplementedError
+    #     raise NotImplementedError
 
     else:
         raise NotImplementedError((f"{args.attribution_method} is not implemented."))
