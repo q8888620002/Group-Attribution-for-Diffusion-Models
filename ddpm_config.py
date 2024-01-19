@@ -11,12 +11,12 @@ class DDPMConfig:
         "image_size": 32,
         # Training params
         "optimizer_config": {
-            "class_name": "AdamW",
-            "kwargs": {"lr": 1e-4, "weight_decay": 1e-6},
+            "class_name": "Adam",
+            "kwargs": {"lr": 1e-4},
         },
         "lr_scheduler_config": {
-            "name": "cosine",
-            "kwargs": {"num_warmup_steps": 500},
+            "name": "constant",
+            "kwargs": {"num_warmup_steps": 0},
         },
         "batch_size": 128,
         "training_steps": {"retrain": 200000, "ga": 5, "gd": 10, "esd": 500},
