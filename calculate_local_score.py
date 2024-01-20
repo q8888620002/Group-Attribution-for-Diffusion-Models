@@ -1,6 +1,5 @@
 """Functions for calculating attribution scores including D-TRAK, TRAK, Datamodel, Data Shapley"""
 import argparse
-import glob
 import os
 
 import numpy as np
@@ -8,11 +7,15 @@ import torch
 from sklearn.linear_model import RidgeCV
 
 import constants
-from utils import (
+from attributions import (
+    d_trak_grad,
+    datamodel,
+    data_shapley,
     clip_score,
+    pixel_distance
+)
+from utils import (
     create_dataset,
-    process_images_clip,
-    process_images_np,
     remove_data_by_datamodel,
     remove_data_by_shapley,
 )
@@ -254,10 +257,11 @@ def main(args):
         for i in range(args.num_runs):
 
             bootstrapped_indices = np.random.choice(n_subset, n_subset)
-            reg = RidgeCV(cv=5, alphas=[0.1, 1.0, 1e1]).fit(
-                x_train[bootstrapped_indices], y_train[bootstrapped_indices]
+            coef = datamodel(
+                x_train[bootstrapped_indices],
+                y_train[bootstrapped_indices],
             )
-            coeff.append(reg.coef_)
+            coeff.append(coef)
 
         coeff = np.stack(coeff)
         scores = X[val_idx] @ coeff.T
@@ -282,8 +286,8 @@ def main(args):
         )
 
         # Load v(1) and v(0)
-        null_model_output = np.load(null_behavior_dir)
-        full_model_output = np.load(full_behavior_dir)
+        v0 = np.load(null_behavior_dir)
+        v1 = np.load(full_behavior_dir)
 
         # Load pre-calculated model behavior
         for i in range(0, n_subset):
@@ -308,76 +312,38 @@ def main(args):
         x_train = X[train_idx]
         y_train = Y[train_idx]
 
-        # Closed form solution of Shapley from equation (7) in https://proceedings.mlr.press/v130/covert21a/covert21a.pdf
-
         train_size = x_train.shape[0]
 
         for i in range(args.num_runs):
 
             bootstrapped_indices = np.random.choice(train_size, train_size)
-
-            a_hat = np.zeros((dataset_size, dataset_size))
-            b_hat = np.zeros((dataset_size, 1))
-
-            for j in range(train_size):
-                a_hat += np.outer(
-                    x_train[bootstrapped_indices][j], x_train[bootstrapped_indices][j]
-                )
-                b_hat += (
-                    x_train[bootstrapped_indices][j]
-                    * (y_train[bootstrapped_indices][j] - null_model_output)
-                )[:, None]
-
-            a_hat /= train_size
-            b_hat /= train_size
-
-            # Using np.linalg.pinv instead of np.linalg.inv in case of singular matrix
-            a_hat_inv = np.linalg.pinv(a_hat)
-            one = np.ones((dataset_size, 1))
-
-            c = one.T @ a_hat_inv @ b_hat - full_model_output + null_model_output
-            d = one.T @ a_hat_inv @ one
-
-            coef = a_hat_inv @ (b_hat - one @ (c / d))
-
+            coef = data_shapley(
+                x_train[bootstrapped_indices],
+                y_train[bootstrapped_indices],
+                v1,
+                v0
+            )
             coeff.append(coef)
 
         coeff = np.stack(coeff)
         scores = X[val_idx] @ coeff.T
 
     elif args.attribution_method == "clip_score":
-        # Find the highest score for each image in val_samples
-
         if not args.val_samples_dir or not args.train_samples_dir:
             raise FileNotFoundError(
-                "Please specify both val_samples_dir and train_samples_dir for clip score calculation."
+                "Specify both val_samples_dir and train_samples_dir for clip score."
             )
-
-        val_samples = process_images_clip(glob.glob(args.val_samples_dir))
-        train_samples = process_images_clip(glob.glob(args.train_samples_dir))
-
-        scores = clip_score(val_samples, train_samples)
-        scores = np.max(scores, axis=1)
+        # Find the highest score for each image in val_samples
+        scores = clip_score(args.val_samples_dir, args.train_samples_dir)
 
     elif args.attribution_method == "pixel_dist":
-        # Calculate L2 distances and find the highest for each val image
-
         if not args.val_samples_dir or not args.train_samples_dir:
             raise FileNotFoundError(
-                "Please specify both val_samples_dir and train_samples_dir for pixel distance calculation."
+                "Specify both val_samples_dir and train_samples_dir for pixel distance."
             )
-
-        val_images = process_images_np(glob.glob(args.val_samples_dir))
-        train_images = process_images_np(glob.glob(args.train_samples_dir))
-
-        val_images = val_images.reshape(val_images.shape[0], -1)
-        train_images = train_images.reshape(train_images.shape[0], -1)
-
-        scores = np.zeros(val_images.shape[0])
-
-        for i, val_image in enumerate(val_images):
-            distances = np.sqrt(np.sum((train_images - val_image) ** 2, axis=1))
-            scores[i] = np.max(distances)
+        
+        # Calculate L2 distances and find the highest for each val image
+        scores = pixel_distance(args.val_samples_dir, args.train_samples_dir)
 
     elif args.attribution_method == "if":
         raise NotImplementedError

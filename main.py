@@ -449,15 +449,7 @@ def main(args):
         vqvae.requires_grad_(False)
         vqvae = vqvae.to(device)
 
-<<<<<<< HEAD
-=======
-        pipeline = LDMPipeline(
-            unet=model,
-            vqvae=vqvae,
-            scheduler=DDIMScheduler(**config["scheduler_config"]),
-        ).to(device)
         captioner = None
->>>>>>> main
     else:
         pipeline = DDPMPipeline(
             unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
@@ -674,33 +666,10 @@ def main(args):
                             pipeline=pipeline,
                             pipeline_scheduler=pipeline_scheduler,
                         )
-<<<<<<< HEAD
-                    samples = np.concatenate(samples)
-                elif args.dataset == "celeba":
-                    samples = pipeline(
-                        batch_size=config["n_samples"],
-                        num_inference_steps=args.num_inference_steps,
-                        output_type="numpy",
-                    ).images
-                else:
-                    # Speed up sample generation with DDIM pipeline and fewer inference steps for cifar (DDPM).
-                    pipeline = DDIMPipeline(
-                        unet=model,
-                        scheduler=DDIMScheduler(
-                            num_train_timesteps=args.num_train_steps
-                        ),
-                    )
-                    samples = pipeline(
-                        batch_size=config["n_samples"],
-                        num_inference_steps=args.num_inference_steps,
-                        output_type="numpy",
-                    ).images
-=======
                         sampling_time = time.time() - sampling_start_time
                         sampling_info = f"Step[{param_update_steps}/{training_steps}]"
                         sampling_info += f", sampling_time: {sampling_time:.3f}"
                         print(sampling_info, flush=True)
->>>>>>> main
 
                         if args.db is not None:
                             info_dict = vars(args)
