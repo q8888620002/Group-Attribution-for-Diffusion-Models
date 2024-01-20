@@ -380,17 +380,14 @@ def main(args):
         vqvae = vqvae.to(device)
         text_encoder = text_encoder.to(device)
     elif args.dataset == "celeba":
-        model_id = "CompVis/ldm-celebahq-256"
-        vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
+        # The pipeline is of class LDMPipeline.
+        pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256")
+        pipeline.unet = model
 
-        for param in vqvae.parameters():
-            param.requires_grad = False
+        vqvae = pipeline.vqvae
+        vqvae.requires_grad_(False)
+        vqvae = vqvae.to(device)
 
-        pipeline = LDMPipeline(
-            unet=model,
-            vqvae=vqvae,
-            scheduler=DDIMScheduler(**config["scheduler_config"]),
-        ).to(device)
     else:
         pipeline = DDPMPipeline(
             unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
@@ -634,17 +631,13 @@ def main(args):
                         )
                     samples = np.concatenate(samples)
                 elif args.dataset == "celeba":
-                    pipeline = LDMPipeline(
-                        unet=model,
-                        vqvae=vqvae,
-                        scheduler=pipeline_scheduler,
-                    ).to(device)
                     samples = pipeline(
                         batch_size=config["n_samples"],
                         num_inference_steps=args.num_inference_steps,
                         output_type="numpy",
                     ).images
                 else:
+                    # Speed up sample generation with DDIM pipeline and fewer inference steps for cifar (DDPM).
                     pipeline = DDIMPipeline(
                         unet=model,
                         scheduler=DDIMScheduler(
@@ -709,15 +702,6 @@ def main(args):
         if (
             (epoch + 1) % config["ckpt_freq"][args.method] == 0 or (epoch + 1) == epochs
         ) and accelerator.is_main_process:
-            # Remove legacy model checkpoints
-            pattern = os.path.join(model_outdir, "unet_steps_*.pt")
-            for filename in glob.glob(pattern):
-                os.remove(filename)
-
-            pattern = os.path.join(model_outdir, "unet_ema_steps_*.pt")
-            for filename in glob.glob(pattern):
-                os.remove(filename)
-
             # Remove previous checkpoints to keep only the latest checkpoint.
             pattern = os.path.join(model_outdir, "ckpt_steps_*.pt")
             for filename in glob.glob(pattern):

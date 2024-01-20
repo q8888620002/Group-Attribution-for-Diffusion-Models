@@ -180,13 +180,10 @@ def main(args):
         ).to(device)
         pipeline.unet = model.to(device)
     elif args.dataset == "celeba":
-        model_id = "CompVis/ldm-celebahq-256"
-        vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
-        pipeline = LDMPipeline(
-            unet=model,
-            vqvae=vqvae,
-            scheduler=DDIMScheduler(**config["scheduler_config"]),
+        pipeline = DiffusionPipeline.from_pretrained(
+            "CompVis/ldm-celebahq-256"
         ).to(device)
+        pipeline.unet = model.to(device)
     else:
         pipeline = DDIMPipeline(
             unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
