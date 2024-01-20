@@ -183,13 +183,14 @@ def main(args):
     """Main function for pruning and fine-tuning."""
     # loading images for gradient-based pruning
 
-    device = accelerator.device
 
     seed_everything(args.opt_seed, workers=True)
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
     )
+    device = accelerator.device
+
     if accelerator.is_main_process:
         print_args(args)
 
@@ -251,7 +252,9 @@ def main(args):
     if existing_steps is not None:
         # Check if there is an existing checkpoint to resume from. This occurs when
         # model runs are interrupted (e.g., exceeding job time limit).
-        ckpt_path = os.path.join(pre_trained_path, f"ckpt_steps_{existing_steps:0>8}.pt")
+        ckpt_path = os.path.join(
+            pre_trained_path, f"ckpt_steps_{existing_steps:0>8}.pt"
+        )
         ckpt = torch.load(ckpt_path, map_location="cpu")
         model = model_cls(**config["unet_config"])
         model.load_state_dict(ckpt["unet"])
