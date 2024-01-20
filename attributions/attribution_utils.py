@@ -13,7 +13,6 @@ device = "cpu"
 clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 
 
-
 def process_images_clip(file_list):
     """Function to load and process images with clip transform"""
     images = []
@@ -32,7 +31,6 @@ def process_images_np(file_list):
         image = np.array(image).astype(np.float32)
         images.append(image)
     return np.stack(images)
-
 
 
 def datamodel(x_train, y_train, num_runs):
@@ -117,6 +115,7 @@ def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
         coeff.append(coef)
 
     return coef
+
 
 def clip_score(sample_dir, reference_dir):
     """
