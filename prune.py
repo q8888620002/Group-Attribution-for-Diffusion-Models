@@ -60,13 +60,11 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--log_freq",
-        type=int,
-        help="training log message printing frequence",
-        default=20,
+        "--pruning_ratio",
+        type=float, 
+        help="ratio for remaining parameters.",
+        default=0.3
     )
-
-    parser.add_argument("--pruning_ratio", type=float, default=0.3)
 
     parser.add_argument(
         "--pruner",
@@ -77,7 +75,6 @@ def parse_args():
     parser.add_argument(
         "--thr", type=float, default=0.05, help="threshold for diff-pruning"
     )
-
     parser.add_argument(
         "--dropout", type=float, default=0.1, help="The dropout rate for fine-tuning."
     )
@@ -109,6 +106,24 @@ def parse_args():
         type=int,
         default=1,
         help="Number of steps to accumulate before a backward/update pass.",
+    )
+    parser.add_argument(
+        "--ema_inv_gamma",
+        type=float,
+        default=1.0,
+        help="inverse gamma value for EMA decay",
+    )
+    parser.add_argument(
+        "--ema_power",
+        type=float,
+        default=3 / 4,
+        help="power value for EMA decay",
+    )
+    parser.add_argument(
+        "--ema_max_decay",
+        type=float,
+        default=0.9999,
+        help="maximum decay magnitude EMA",
     )
     return parser.parse_args()
 
@@ -183,7 +198,6 @@ def main(args):
     """Main function for pruning and fine-tuning."""
     # loading images for gradient-based pruning
 
-
     seed_everything(args.opt_seed, workers=True)
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
@@ -234,17 +248,13 @@ def main(args):
     clean_images = next(iter(train_dataloader))
     if isinstance(clean_images, (list, tuple)):
         clean_images = clean_images[0]
-    clean_images = clean_images.to(args.device)
+    clean_images = clean_images.to(device)
     noise = torch.randn(clean_images.shape).to(clean_images.device)
 
-    pre_trained_path = os.path.join(
-        args.outdir,
-        args.dataset,
-        "retrain/models/full",
-    )
+    pre_trained_path = args.load
 
     # Loading pretrained(locked) model
-    print("Loading pretrained model from {}".format(pre_trained_path))
+    accelerator.print("Loading pretrained model from {}".format(pre_trained_path))
 
     # load model and scheduler
     training_steps = config["training_steps"]["retrain"]
@@ -258,24 +268,13 @@ def main(args):
         ckpt = torch.load(ckpt_path, map_location="cpu")
         model = model_cls(**config["unet_config"])
         model.load_state_dict(ckpt["unet"])
-        ema_model = EMAModel(
-            model.parameters(),
-            decay=args.ema_max_decay,
-            use_ema_warmup=False,
-            inv_gamma=args.ema_inv_gamma,
-            power=args.ema_power,
-            model_cls=model_cls,
-            model_config=model.config,
-        )
-        ema_model.load_state_dict(ckpt["unet_ema"])
         param_update_steps = 0
 
-        accelerator.print(f"U-Net and U-Net EMA resumed from {ckpt_path}")
+        accelerator.print(f"U-Net resumed from {ckpt_path}")
 
     else:
         raise ValueError(f"No pre-trained checkpoints found at {args.load}")
 
-    ema_model.to(device)
 
     if args.dataset == "imagenette":
         # The pipeline is of class LDMTextToImagePipeline.
@@ -376,7 +375,7 @@ def main(args):
 
         if args.pruner in ["taylor", "diff-pruning"]:
             loss_max = 0
-            print("Accumulating gradients for pruning...")
+            accelerator.print("Accumulating gradients for pruning...")
             for step_k in tqdm(range(pipeline_scheduler.num_train_timesteps)):
                 timesteps = (
                     step_k
@@ -406,9 +405,9 @@ def main(args):
                 m.out_channels == m.conv.out_channels
 
         macs, params = tp.utils.count_ops_and_params(model, example_inputs)
-        print(model)
-        print("#Params: {:.4f} M => {:.4f} M".format(base_params / 1e6, params / 1e6))
-        print("#MACS: {:.4f} G => {:.4f} G".format(base_macs / 1e9, macs / 1e9))
+        accelerator.print(model)
+        accelerator.print("#Params: {:.4f} M => {:.4f} M".format(base_params / 1e6, params / 1e6))
+        accelerator.print("#MACS: {:.4f} G => {:.4f} G".format(base_macs / 1e9, macs / 1e9))
         model.zero_grad()
         del pruner
 
@@ -421,6 +420,19 @@ def main(args):
 
             reset_parameters(model)
 
+    # Initialize EMA model only after pruning; otherwise there will be parameters size mismatch!!
+            
+    ema_model = EMAModel(
+        model.parameters(),
+        decay=args.ema_max_decay,
+        use_ema_warmup=False,
+        inv_gamma=args.ema_inv_gamma,
+        power=args.ema_power,
+        model_cls=model_cls,
+        model_config=model.config,
+    )
+    ema_model.to(device)
+    
     if args.pruning_ratio > 0:
         model_outdir = os.path.join(
             args.outdir, args.dataset, "pruned", "models", pruning_params
@@ -436,7 +448,7 @@ def main(args):
             },
             os.path.join(model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"),
         )
-        print(f"Checkpoint saved at step {param_update_steps}")
+        accelerator.print(f"Checkpoint saved at step {param_update_steps}")
 
     with torch.no_grad():
         # Testing smaple generation after pruning.
@@ -467,6 +479,7 @@ def main(args):
             os.path.join(sample_outdir, f"steps_{param_update_steps:0>8}.png"),
             nrow=img_nrows,
         )
+    accelerator.print("Done pruning!")
 
 
 if __name__ == "__main__":
