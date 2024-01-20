@@ -1,36 +1,32 @@
 """Utility functions for data attribution calculation."""
-import torch
 import glob
-import numpy as np
 import os
 
-import clip 
+import clip
+import numpy as np
+import torch
 from PIL import Image
 from sklearn.linear_model import RidgeCV
-from .utils import (
-    remove_data_by_shapley,
-    remove_data_by_datamodel
-)
+
+from .utils import remove_data_by_datamodel, remove_data_by_shapley
 
 device = "cpu"
-clip_model, clip_transform = clip.load("ViT-B/32", device=device)    
+clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 
 
-def datamodel(
-    x_train,
-    y_train,
-    num_runs
-):
+def datamodel(x_train, y_train, num_runs):
     """
     Function to compute datamodel coefficients with linear regression.
 
     Args:
+    -----
         x_train: indices of subset, n x d
         y_train: model behavior, n x 1
         num_runs: size of bootstrapped sample.
 
     Return:
-        coef: stacks of coefficients for regression. 
+    ------
+        coef: stacks of coefficients for regression.
     """
 
     train_size = len(x_train)
@@ -39,7 +35,7 @@ def datamodel(
     for _ in range(num_runs):
         bootstrapped_indices = np.random.choice(train_size, train_size, replace=True)
         reg = RidgeCV(cv=5, alphas=[0.1, 1.0, 1e1]).fit(
-            x_train[bootstrapped_indices], 
+            x_train[bootstrapped_indices],
             y_train[bootstrapped_indices],
         )
         coeff.append(reg.coef_)
@@ -48,25 +44,21 @@ def datamodel(
 
     return coeff
 
-def data_shapley(
-    dataset_size,
-    x_train,
-    y_train,
-    v1,
-    v0,
-    num_runs
-):
+
+def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
     """
-    Function to compute kernel shap coefficients with closed form solution 
+    Function to compute kernel shap coefficients with closed form solution
     of Shapley from equation (7) in https://proceedings.mlr.press/v130/covert21a/covert21a.pdf
 
     Args:
+    ----
         x_train: indices of subset, n x d
         y_train: model behavior, n x 1
         v1: model behavior with all data presented
         v0: model behavior of null subset
 
     Return:
+    ------
         coef: coefficients for kernel shap
     """
 
@@ -84,12 +76,8 @@ def data_shapley(
         b_hat = np.zeros((dataset_size, 1))
 
         for j in range(train_size):
-            a_hat += np.outer(
-                x_train_boot[j], x_train_boot[j]
-            )
-            b_hat += (
-                x_train_boot[j]* (y_train_boot[j] - v0)
-            )[:, None]
+            a_hat += np.outer(x_train_boot[j], x_train_boot[j])
+            b_hat += (x_train_boot[j] * (y_train_boot[j] - v0))[:, None]
 
         a_hat /= train_size
         b_hat /= train_size
@@ -116,53 +104,54 @@ def process_images_clip(file_list):
         images.append(image)
     return torch.cat(images, dim=0)
 
+
 def process_images_np(file_list):
     """Function to load and process images into numpy"""
     images = []
     for filename in file_list:
-        image = Image.open(filename).convert('RGB')
+        image = Image.open(filename).convert("RGB")
         image = np.array(image).astype(np.float32)
         images.append(image)
     return np.stack(images)
 
-def create_subset_index(
-    n_subset,
-    removal_dist,
 
-):
-    X = np.zeros((n_subset, dataset_size))
-    Y = np.zeros(n_subset)
+# def create_subset_index(
+#     n_subset,
+#     removal_dist,
+# ):
+#     X = np.zeros((n_subset, dataset_size))
+#     Y = np.zeros(n_subset)
 
-    # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
+#     # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
 
-    # Load pre-calculated model behavior
-    for i in range(0, n_subset):
-        
-        if removal_dist == "data shapley":
+#     # Load pre-calculated model behavior
+#     for i in range(0, n_subset):
 
-            removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={i}"
-            remaining_idx, _ = remove_data_by_shapley(full_dataset, seed=i)
+#         if removal_dist == "data shapley":
 
-        elif removal_dist == "datamodel":
-            removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={i}"
-            remaining_idx, _ = remove_data_by_datamodel(
-                full_dataset, alpha=args.datamodel_alpha, seed=i
-            )
+#             removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={i}"
+#             remaining_idx, _ = remove_data_by_shapley(full_dataset, seed=i)
 
-        X[i, remaining_idx] = 1
+#         elif removal_dist == "datamodel":
+#             removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={i}"
+#             remaining_idx, _ = remove_data_by_datamodel(
+#                 full_dataset, alpha=args.datamodel_alpha, seed=i
+#             )
 
-        # Load pre-calculated model behavior
-        model_behavior_dir = os.path.join(
-            args.outdir,
-            args.dataset,
-            args.method,
-            removal_dir,
-            "model_behavior.npy",
-        )
-        model_output = np.load(model_behavior_dir)
-        Y[i] = model_output[args.model_behavior]
+#         X[i, remaining_idx] = 1
 
-    return (X, Y)
+#         # Load pre-calculated model behavior
+#         model_behavior_dir = os.path.join(
+#             args.outdir,
+#             args.dataset,
+#             args.method,
+#             removal_dir,
+#             "model_behavior.npy",
+#         )
+#         model_output = np.load(model_behavior_dir)
+#         Y[i] = model_output[args.model_behavior]
+
+#     return (X, Y)
 
 
 def clip_score(sample_dir, reference_dir):
@@ -171,8 +160,8 @@ def clip_score(sample_dir, reference_dir):
 
     Args:
     ----
-        images1: The first set of images.
-        images2: The second set of images.
+        sample_dir: directory of the first set of images.
+        reference_dir: directory of the second set of images.
 
     Return:
     ------
@@ -194,15 +183,16 @@ def clip_score(sample_dir, reference_dir):
 
     return similarity
 
+
 def pixel_distance(sample_dir, reference_dir):
     """
     Function that calculate CLIP score, cosine similarity between images1 and images2
 
     Args:
     ----
-        images1: The first set of images.
-        images2: The second set of images.
-
+        sample_dir: directory of the first set of images.
+        reference_dir: directory of the second set of images.
+        
     Return:
     ------
         Mean pairwise CLIP score between the two sets of images.

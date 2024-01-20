@@ -7,16 +7,12 @@ import torch
 
 import constants
 from attributions.attribution_utils import (
-    datamodel,
-    data_shapley,
     clip_score,
-    pixel_distance
+    data_shapley,
+    datamodel,
+    pixel_distance,
 )
-from utils import (
-    create_dataset,
-    remove_data_by_datamodel,
-    remove_data_by_shapley,
-)
+from utils import create_dataset, remove_data_by_datamodel, remove_data_by_shapley
 
 
 def parse_args():
@@ -250,7 +246,7 @@ def main(args):
             Y[i] = model_output[args.model_behavior]
 
         # Train datamodels and calculate score for validation sets.
-        coeff = datamodel(X[train_idx],  Y[train_idx], args.num_runs)
+        coeff = datamodel(X[train_idx], Y[train_idx], args.num_runs)
         scores = X[val_idx] @ coeff.T
 
     elif args.attribution_method == "shapley":
@@ -295,12 +291,7 @@ def main(args):
             Y[i] = model_output[args.model_behavior]
 
         coeff = data_shapley(
-            dataset_size,
-            X[train_idx],
-            Y[train_idx],
-            v1,
-            v0,
-            args.num_runs
+            dataset_size, X[train_idx], Y[train_idx], v1, v0, args.num_runs
         )
         scores = X[val_idx] @ coeff.T
 
@@ -317,7 +308,7 @@ def main(args):
             raise FileNotFoundError(
                 "Specify both val_samples_dir and train_samples_dir for pixel distance."
             )
-        
+
         # Calculate L2 distances and find the highest for each val image
         scores = pixel_distance(args.val_samples_dir, args.train_samples_dir)
 
