@@ -13,6 +13,28 @@ device = "cpu"
 clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 
 
+
+def process_images_clip(file_list):
+    """Function to load and process images with clip transform"""
+    images = []
+    for filename in file_list:
+        image = Image.open(filename)
+        image = clip_transform(image).unsqueeze(0).to(device)
+        images.append(image)
+    return torch.cat(images, dim=0)
+
+
+def process_images_np(file_list):
+    """Function to load and process images into numpy"""
+    images = []
+    for filename in file_list:
+        image = Image.open(filename).convert("RGB")
+        image = np.array(image).astype(np.float32)
+        images.append(image)
+    return np.stack(images)
+
+
+
 def datamodel(x_train, y_train, num_runs):
     """
     Function to compute datamodel coefficients with linear regression.
@@ -95,27 +117,6 @@ def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
         coeff.append(coef)
 
     return coef
-
-
-def process_images_clip(file_list):
-    """Function to load and process images with clip transform"""
-    images = []
-    for filename in file_list:
-        image = Image.open(filename)
-        image = clip_transform(image).unsqueeze(0).to(device)
-        images.append(image)
-    return torch.cat(images, dim=0)
-
-
-def process_images_np(file_list):
-    """Function to load and process images into numpy"""
-    images = []
-    for filename in file_list:
-        image = Image.open(filename).convert("RGB")
-        image = np.array(image).astype(np.float32)
-        images.append(image)
-    return np.stack(images)
-
 
 def clip_score(sample_dir, reference_dir):
     """
