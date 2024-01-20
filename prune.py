@@ -61,9 +61,9 @@ def parse_args():
 
     parser.add_argument(
         "--pruning_ratio",
-        type=float, 
+        type=float,
         help="ratio for remaining parameters.",
-        default=0.3
+        default=0.3,
     )
 
     parser.add_argument(
@@ -275,7 +275,6 @@ def main(args):
     else:
         raise ValueError(f"No pre-trained checkpoints found at {args.load}")
 
-
     if args.dataset == "imagenette":
         # The pipeline is of class LDMTextToImagePipeline.
         pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-text2im-large-256")
@@ -406,8 +405,12 @@ def main(args):
 
         macs, params = tp.utils.count_ops_and_params(model, example_inputs)
         accelerator.print(model)
-        accelerator.print("#Params: {:.4f} M => {:.4f} M".format(base_params / 1e6, params / 1e6))
-        accelerator.print("#MACS: {:.4f} G => {:.4f} G".format(base_macs / 1e9, macs / 1e9))
+        accelerator.print(
+            "#Params: {:.4f} M => {:.4f} M".format(base_params / 1e6, params / 1e6)
+        )
+        accelerator.print(
+            "#MACS: {:.4f} G => {:.4f} G".format(base_macs / 1e9, macs / 1e9)
+        )
         model.zero_grad()
         del pruner
 
@@ -420,8 +423,9 @@ def main(args):
 
             reset_parameters(model)
 
-    # Initialize EMA model only after pruning; otherwise there will be parameters size mismatch!!
-            
+    # Initialize EMA model only after pruning; 
+    # otherwise there will be parameters size mismatch!!
+
     ema_model = EMAModel(
         model.parameters(),
         decay=args.ema_max_decay,
@@ -432,7 +436,7 @@ def main(args):
         model_config=model.config,
     )
     ema_model.to(device)
-    
+
     if args.pruning_ratio > 0:
         model_outdir = os.path.join(
             args.outdir, args.dataset, "pruned", "models", pruning_params
