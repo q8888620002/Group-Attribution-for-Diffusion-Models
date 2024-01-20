@@ -21,7 +21,7 @@ def datamodel(x_train, y_train, num_runs):
     ----
         x_train: indices of subset, n x d
         y_train: model behavior, n x 1
-        num_runs: size of bootstrapped sample.
+        num_runs: number of bootstrapped times.
 
     Return:
     ------
@@ -57,6 +57,7 @@ def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
         y_train: model behavior, n x 1
         v1: model behavior with all data presented
         v0: model behavior of null subset
+        num_runs: number of bootstrapped times.
 
     Return:
     ------
@@ -114,45 +115,6 @@ def process_images_np(file_list):
         image = np.array(image).astype(np.float32)
         images.append(image)
     return np.stack(images)
-
-
-# def create_subset_index(
-#     n_subset,
-#     removal_dist,
-# ):
-#     X = np.zeros((n_subset, dataset_size))
-#     Y = np.zeros(n_subset)
-
-#     # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
-
-#     # Load pre-calculated model behavior
-#     for i in range(0, n_subset):
-
-#         if removal_dist == "data shapley":
-
-#             removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={i}"
-#             remaining_idx, _ = remove_data_by_shapley(full_dataset, seed=i)
-
-#         elif removal_dist == "datamodel":
-#             removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={i}"
-#             remaining_idx, _ = remove_data_by_datamodel(
-#                 full_dataset, alpha=args.datamodel_alpha, seed=i
-#             )
-
-#         X[i, remaining_idx] = 1
-
-#         # Load pre-calculated model behavior
-#         model_behavior_dir = os.path.join(
-#             args.outdir,
-#             args.dataset,
-#             args.method,
-#             removal_dir,
-#             "model_behavior.npy",
-#         )
-#         model_output = np.load(model_behavior_dir)
-#         Y[i] = model_output[args.model_behavior]
-
-#     return (X, Y)
 
 
 def clip_score(sample_dir, reference_dir):

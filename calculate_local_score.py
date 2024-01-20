@@ -1,4 +1,4 @@
-"""Functions for calculating attribution scores including D-TRAK, TRAK, Datamodel, Data Shapley"""
+"""Functions for calculating attribution scores"""
 import argparse
 import os
 
@@ -163,7 +163,7 @@ def main(args):
     train_idx = all_idx[:num_selected]
     val_idx = all_idx[num_selected:]
 
-    # Initializing masking array (n, d); 
+    # Initializing masking array (n, d);
     # n is the subset number and d is number of data is the original dataset.
 
     X = np.zeros((n_subset, dataset_size))
@@ -181,7 +181,12 @@ def main(args):
 
             # Step1: load computed gradients for each subset.
             if args.removal_dist == "datamodel":
-                removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={i}"
+                removal_dir = (
+                    f"{args.removal_dist}/"
+                    f"{args.removal_dist}_"
+                    f"alpha={args.datamodel_alpha}"
+                    f"_seed={i}"
+                )
                 remaining_idx, _ = remove_data_by_datamodel(
                     full_dataset, alpha=args.datamodel_alpha, seed=i
                 )
@@ -228,12 +233,13 @@ def main(args):
 
     elif args.attribution_method == "datamodel":
 
-
         for i in range(0, n_subset):
-            removal_dir = f"{args.removal_dist}/" \
-                        f"{args.removal_dist}_"\
-                        f"alpha={args.datamodel_alpha}" \
-                        f"_seed={i}" 
+            removal_dir = (
+                f"{args.removal_dist}/"
+                f"{args.removal_dist}_"
+                f"alpha={args.datamodel_alpha}"
+                f"_seed={i}"
+            )
             model_behavior_dir = os.path.join(
                 args.outdir,
                 args.dataset,
@@ -276,8 +282,7 @@ def main(args):
 
         # Load pre-calculated model behavior
         for i in range(0, n_subset):
-            removal_dir = f"{args.removal_dist}/"\
-                f"{args.removal_dist}_seed={i}"
+            removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={i}"
             remaining_idx, _ = remove_data_by_shapley(full_dataset, seed=i)
 
             X[i, remaining_idx] = 1
