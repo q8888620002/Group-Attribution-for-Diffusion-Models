@@ -423,7 +423,7 @@ def main(args):
 
             reset_parameters(model)
 
-    # Initialize EMA model only after pruning; 
+    # Initialize EMA model only after pruning;
     # otherwise there will be parameters size mismatch!!
 
     ema_model = EMAModel(
