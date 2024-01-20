@@ -1,14 +1,14 @@
-"""Pruning and fine-tuning diffusion models"""
+"""Pruning diffusion models"""
 import argparse
 import math
 import os
 import sys
-import numpy as np
 
+import diffusers
+import numpy as np
 import torch
 import torch.nn as nn
 import torch_pruning as tp
-import diffusers
 from accelerate import Accelerator
 from diffusers import (
     DDIMPipeline,
@@ -19,7 +19,6 @@ from diffusers import (
     LDMPipeline,
     VQModel,
 )
-from diffusers.training_utils import EMAModel
 from diffusers.models.attention import Attention
 from diffusers.models.resnet import Downsample2D, Upsample2D
 from diffusers.optimization import get_scheduler
@@ -31,12 +30,8 @@ from tqdm import tqdm
 
 import constants
 from ddpm_config import DDPMConfig
-from utils import (
-    create_dataset, 
-    get_max_steps,
-    ImagenetteCaptioner,
-    LabelTokenizer,
-)
+from utils import ImagenetteCaptioner, LabelTokenizer, create_dataset, get_max_steps
+
 
 def parse_args():
     """Parsing arguments"""
@@ -124,6 +119,7 @@ def print_args(args):
     for arg in vars(args):
         print(f"\t{arg}={getattr(args, arg)}")
 
+
 def run_inference(
     accelerator,
     model,
@@ -182,6 +178,7 @@ def run_inference(
         ema_model.restore(model.parameters())
     return samples
 
+
 def main(args):
     """Main function for pruning and fine-tuning."""
     # loading images for gradient-based pruning
@@ -199,9 +196,9 @@ def main(args):
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
         example_inputs = {
-                    "sample": torch.randn(1, 3, 32, 32).to(device),
-                    "timestep": torch.ones((1,)).long().to(device),
-                }
+            "sample": torch.randn(1, 3, 32, 32).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
         example_inputs = {
@@ -249,11 +246,12 @@ def main(args):
     print("Loading pretrained model from {}".format(pre_trained_path))
 
     # load model and scheduler
+    training_steps = config["training_steps"]["retrain"]
     existing_steps = get_max_steps(pre_trained_path)
     if existing_steps is not None:
         # Check if there is an existing checkpoint to resume from. This occurs when
         # model runs are interrupted (e.g., exceeding job time limit).
-        ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{existing_steps:0>8}.pt")
+        ckpt_path = os.path.join(pre_trained_path, f"ckpt_steps_{existing_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
         model = model_cls(**config["unet_config"])
         model.load_state_dict(ckpt["unet"])
@@ -313,7 +311,7 @@ def main(args):
         captioner = None
 
     pipeline_scheduler = pipeline.scheduler
-    
+
     optimizer_kwargs = config["optimizer_config"]["kwargs"]
     optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
         model.parameters(), **optimizer_kwargs
@@ -378,7 +376,8 @@ def main(args):
             print("Accumulating gradients for pruning...")
             for step_k in tqdm(range(pipeline_scheduler.num_train_timesteps)):
                 timesteps = (
-                    step_k * torch.ones((config["batch_size"],), device=clean_images.device)
+                    step_k
+                    * torch.ones((config["batch_size"],), device=clean_images.device)
                 ).long()
                 noisy_images = pipeline_scheduler.add_noise(
                     clean_images, noise, timesteps
@@ -421,11 +420,7 @@ def main(args):
 
     if args.pruning_ratio > 0:
         model_outdir = os.path.join(
-            args.outdir, 
-            args.dataset, 
-            "pruned", 
-            "models",
-            pruning_params
+            args.outdir, args.dataset, "pruned", "models", pruning_params
         )
         os.makedirs(model_outdir, exist_ok=True)
 
@@ -436,17 +431,15 @@ def main(args):
                 "optimizer": optimizer.state_dict(),
                 "lr_scheduler": lr_scheduler.state_dict(),
             },
-            os.path.join(
-                model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"
-            ),
+            os.path.join(model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"),
         )
         print(f"Checkpoint saved at step {param_update_steps}")
-    
+
     with torch.no_grad():
         # Testing smaple generation after pruning.
 
         sample_outdir = os.path.join(
-            sample_outdir, args.dataset, "pruned", "samples", pruning_params
+            args.outdir, args.dataset, "pruned", "samples", pruning_params
         )
         os.makedirs(sample_outdir, exist_ok=True)
 
@@ -468,9 +461,7 @@ def main(args):
             img_nrows = captioner.num_classes
         save_image(
             samples,
-            os.path.join(
-                sample_outdir, f"steps_{param_update_steps:0>8}.png"
-            ),
+            os.path.join(sample_outdir, f"steps_{param_update_steps:0>8}.png"),
             nrow=img_nrows,
         )
 
