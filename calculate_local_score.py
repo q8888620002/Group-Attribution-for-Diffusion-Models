@@ -4,11 +4,9 @@ import os
 
 import numpy as np
 import torch
-from sklearn.linear_model import RidgeCV
 
 import constants
-from attributions import (
-    d_trak_grad,
+from attributions.attribution_utils import (
     datamodel,
     data_shapley,
     clip_score,
@@ -162,6 +160,7 @@ def main(args):
     all_idx = np.arange(n_subset)
     num_selected = int(args.train_ratio * n_subset)
 
+    # Train and test split for datamodel and data shapley.
     rng = np.random.RandomState(args.seed)
     rng.shuffle(all_idx)
 
@@ -231,15 +230,10 @@ def main(args):
 
     elif args.attribution_method == "datamodel":
 
-        # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
+        # Load and set input, subset masking indicator, and output, pre-calculated model behavior.
+
         for i in range(0, n_subset):
             removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={i}"
-            remaining_idx, _ = remove_data_by_datamodel(
-                full_dataset, alpha=args.datamodel_alpha, seed=i
-            )
-            X[i, remaining_idx] = 1
-
-            # Load pre-calculated model behavior
             model_behavior_dir = os.path.join(
                 args.outdir,
                 args.dataset,
@@ -248,27 +242,18 @@ def main(args):
                 "model_behavior.npy",
             )
             model_output = np.load(model_behavior_dir)
+
+            remaining_idx, _ = remove_data_by_datamodel(
+                full_dataset, alpha=args.datamodel_alpha, seed=i
+            )
+            X[i, remaining_idx] = 1
             Y[i] = model_output[args.model_behavior]
 
-        # Train datamodels
-        x_train = X[train_idx]
-        y_train = Y[train_idx]
-
-        for i in range(args.num_runs):
-
-            bootstrapped_indices = np.random.choice(n_subset, n_subset)
-            coef = datamodel(
-                x_train[bootstrapped_indices],
-                y_train[bootstrapped_indices],
-            )
-            coeff.append(coef)
-
-        coeff = np.stack(coeff)
+        # Train datamodels and calculate score for validation sets.
+        coeff = datamodel(X[train_idx],  Y[train_idx], args.num_runs)
         scores = X[val_idx] @ coeff.T
 
     elif args.attribution_method == "shapley":
-
-        # Calculate shapley value e.g. shapley sampling with each subset until each player's value converge.
 
         null_behavior_dir = os.path.join(
             args.outdir,
@@ -309,23 +294,14 @@ def main(args):
             model_output = np.load(model_behavior_dir)
             Y[i] = model_output[args.model_behavior]
 
-        x_train = X[train_idx]
-        y_train = Y[train_idx]
-
-        train_size = x_train.shape[0]
-
-        for i in range(args.num_runs):
-
-            bootstrapped_indices = np.random.choice(train_size, train_size)
-            coef = data_shapley(
-                x_train[bootstrapped_indices],
-                y_train[bootstrapped_indices],
-                v1,
-                v0
-            )
-            coeff.append(coef)
-
-        coeff = np.stack(coeff)
+        coeff = data_shapley(
+            dataset_size,
+            X[train_idx],
+            Y[train_idx],
+            v1,
+            v0,
+            args.num_runs
+        )
         scores = X[val_idx] @ coeff.T
 
     elif args.attribution_method == "clip_score":

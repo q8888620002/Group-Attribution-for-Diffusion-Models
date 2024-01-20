@@ -19,13 +19,34 @@ clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 def datamodel(
     x_train,
     y_train,
+    num_runs
 ):
-    
-    reg = RidgeCV(cv=5, alphas=[0.1, 1.0, 1e1]).fit(
-        x_train, y_train
-    )
+    """
+    Function to compute datamodel coefficients with linear regression.
 
-    return reg.coef_
+    Args:
+        x_train: indices of subset, n x d
+        y_train: model behavior, n x 1
+        num_runs: size of bootstrapped sample.
+
+    Return:
+        coef: stacks of coefficients for regression. 
+    """
+
+    train_size = len(x_train)
+    coeff = []
+
+    for _ in range(num_runs):
+        bootstrapped_indices = np.random.choice(train_size, train_size, replace=True)
+        reg = RidgeCV(cv=5, alphas=[0.1, 1.0, 1e1]).fit(
+            x_train[bootstrapped_indices], 
+            y_train[bootstrapped_indices],
+        )
+        coeff.append(reg.coef_)
+
+    coeff = np.stack(coeff)
+
+    return coeff
 
 def data_shapley(
     dataset_size,
@@ -33,6 +54,7 @@ def data_shapley(
     y_train,
     v1,
     v0,
+    num_runs
 ):
     """
     Function to compute kernel shap coefficients with closed form solution 
@@ -47,30 +69,40 @@ def data_shapley(
     Return:
         coef: coefficients for kernel shap
     """
-    train_size, dataset_size = x_train.shape
 
-    a_hat = np.zeros((dataset_size, dataset_size))
-    b_hat = np.zeros((dataset_size, 1))
+    train_size = len(x_train)
+    coeff = []
 
-    for j in range(train_size):
-        a_hat += np.outer(
-            x_train[j], x_train[j]
-        )
-        b_hat += (
-            x_train[j]* (y_train[j] - v0)
-        )[:, None]
+    for _ in range(num_runs):
 
-    a_hat /= train_size
-    b_hat /= train_size
+        bootstrapped_indices = np.random.choice(train_size, train_size, replace=True)
 
-    # Using np.linalg.pinv instead of np.linalg.inv in case of singular matrix
-    a_hat_inv = np.linalg.pinv(a_hat)
-    one = np.ones((dataset_size, 1))
+        x_train_boot = x_train[bootstrapped_indices]
+        y_train_boot = y_train[bootstrapped_indices]
 
-    c = one.T @ a_hat_inv @ b_hat - v1 + v0
-    d = one.T @ a_hat_inv @ one
+        a_hat = np.zeros((dataset_size, dataset_size))
+        b_hat = np.zeros((dataset_size, 1))
 
-    coef = a_hat_inv @ (b_hat - one @ (c / d))
+        for j in range(train_size):
+            a_hat += np.outer(
+                x_train_boot[j], x_train_boot[j]
+            )
+            b_hat += (
+                x_train_boot[j]* (y_train_boot[j] - v0)
+            )[:, None]
+
+        a_hat /= train_size
+        b_hat /= train_size
+
+        # Using np.linalg.pinv instead of np.linalg.inv in case of singular matrix
+        a_hat_inv = np.linalg.pinv(a_hat)
+        one = np.ones((dataset_size, 1))
+
+        c = one.T @ a_hat_inv @ b_hat - v1 + v0
+        d = one.T @ a_hat_inv @ one
+
+        coef = a_hat_inv @ (b_hat - one @ (c / d))
+        coeff.append(coef)
 
     return coef
 
