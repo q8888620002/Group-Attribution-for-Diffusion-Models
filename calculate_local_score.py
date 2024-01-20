@@ -163,7 +163,8 @@ def main(args):
     train_idx = all_idx[:num_selected]
     val_idx = all_idx[num_selected:]
 
-    # Initializing masking array (n, d); n is the subset number and d is number of data is the original dataset.
+    # Initializing masking array (n, d); 
+    # n is the subset number and d is number of data is the original dataset.
 
     X = np.zeros((n_subset, dataset_size))
     Y = np.zeros(n_subset)
@@ -208,7 +209,8 @@ def main(args):
 
             print(dstore_keys.size())
 
-            # Step2: calculate D-TRAK or TRAK for each subset as in https://github.com/sail-sg/d-trak.
+            # Step2: calculate D-TRAK or TRAK for each subset
+            # in https://github.com/sail-sg/d-trak.
 
             kernel = dstore_keys.T @ dstore_keys
             kernel = kernel + 5e-1 * torch.eye(kernel.shape[0]).cuda()
@@ -226,10 +228,12 @@ def main(args):
 
     elif args.attribution_method == "datamodel":
 
-        # Load and set input, subset masking indicator, and output, pre-calculated model behavior.
 
         for i in range(0, n_subset):
-            removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={i}"
+            removal_dir = f"{args.removal_dist}/" \
+                        f"{args.removal_dist}_"\
+                        f"alpha={args.datamodel_alpha}" \
+                        f"_seed={i}" 
             model_behavior_dir = os.path.join(
                 args.outdir,
                 args.dataset,
@@ -272,9 +276,8 @@ def main(args):
 
         # Load pre-calculated model behavior
         for i in range(0, n_subset):
-
-            # Load and set input, subset masking indicator, and output, model behavior eg. FID score.
-            removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={i}"
+            removal_dir = f"{args.removal_dist}/"\
+                f"{args.removal_dist}_seed={i}"
             remaining_idx, _ = remove_data_by_shapley(full_dataset, seed=i)
 
             X[i, remaining_idx] = 1

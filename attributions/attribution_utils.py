@@ -1,6 +1,5 @@
 """Utility functions for data attribution calculation."""
 import glob
-import os
 
 import clip
 import numpy as np
@@ -8,7 +7,7 @@ import torch
 from PIL import Image
 from sklearn.linear_model import RidgeCV
 
-from .utils import remove_data_by_datamodel, remove_data_by_shapley
+# from .utils import remove_data_by_datamodel, remove_data_by_shapley
 
 device = "cpu"
 clip_model, clip_transform = clip.load("ViT-B/32", device=device)
@@ -19,7 +18,7 @@ def datamodel(x_train, y_train, num_runs):
     Function to compute datamodel coefficients with linear regression.
 
     Args:
-    -----
+    ----
         x_train: indices of subset, n x d
         y_train: model behavior, n x 1
         num_runs: size of bootstrapped sample.
@@ -48,10 +47,12 @@ def datamodel(x_train, y_train, num_runs):
 def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
     """
     Function to compute kernel shap coefficients with closed form solution
-    of Shapley from equation (7) in https://proceedings.mlr.press/v130/covert21a/covert21a.pdf
+    of Shapley from equation (7) in
+    https://proceedings.mlr.press/v130/covert21a/covert21a.pdf
 
     Args:
     ----
+        dataset_size: length of reference dataset size
         x_train: indices of subset, n x d
         y_train: model behavior, n x 1
         v1: model behavior with all data presented
@@ -192,7 +193,7 @@ def pixel_distance(sample_dir, reference_dir):
     ----
         sample_dir: directory of the first set of images.
         reference_dir: directory of the second set of images.
-        
+
     Return:
     ------
         Mean pairwise CLIP score between the two sets of images.
