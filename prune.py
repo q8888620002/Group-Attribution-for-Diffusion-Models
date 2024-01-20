@@ -407,17 +407,6 @@ def main(args):
 
             reset_parameters(model)
 
-    optimizer_kwargs = config["optimizer_config"]["kwargs"]
-    optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
-        model.parameters(), **optimizer_kwargs
-    )
-    lr_scheduler_kwargs = config["lr_scheduler_config"]["kwargs"]
-    lr_scheduler = get_scheduler(
-        config["lr_scheduler_config"]["name"],
-        optimizer=optimizer,
-        num_training_steps=training_steps,
-        **lr_scheduler_kwargs,
-    )
     if args.pruning_ratio > 0:
         model_outdir = os.path.join(
             args.outdir, args.dataset, "pruned", "models", pruning_params
@@ -428,8 +417,6 @@ def main(args):
         torch.save(
             {
                 "unet": accelerator.unwrap_model(model),
-                "optimizer": optimizer.state_dict(),
-                "lr_scheduler": lr_scheduler.state_dict(),
             },
             os.path.join(model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"),
         )
