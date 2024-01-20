@@ -182,7 +182,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["retrain", "gd", "ga", "esd"],
+        choices=["retrain", "prune_fine_tune", "gd", "ga", "esd"],
         required=True,
     )
     parser.add_argument(
@@ -387,8 +387,13 @@ def main(args):
         if pretrained_steps is not None:
             ckpt_path = os.path.join(args.load, f"ckpt_steps_{pretrained_steps:0>8}.pt")
             ckpt = torch.load(ckpt_path, map_location="cpu")
-            model = model_cls(**config["unet_config"])
-            model.load_state_dict(ckpt["unet"])
+            
+            # Load full model instead of state_dict for pruned model. 
+            if args.method == "prune_fine_tune":
+                model = ckpt["unet"]
+            else:
+                model = model_cls(**config["unet_config"]) 
+                model.load_state_dict(ckpt["unet"])
 
             # Consider the pre-trained model as model weight initialization, so the EMA
             # starts with the pre-trained model.

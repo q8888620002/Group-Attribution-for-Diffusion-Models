@@ -138,7 +138,6 @@ def print_args(args):
 def run_inference(
     accelerator,
     model,
-    ema_model,
     config,
     args,
     vqvae,
@@ -148,8 +147,6 @@ def run_inference(
 ):
     """Wrapper function for inference. To be run under the accelerator main process."""
     model = accelerator.unwrap_model(model).eval()
-    ema_model.store(model.parameters())
-    ema_model.copy_to(model.parameters())  # The EMA is used for inference.
 
     with torch.no_grad():
         if args.dataset == "imagenette":
@@ -190,7 +187,6 @@ def run_inference(
             ).images
 
         samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
-        ema_model.restore(model.parameters())
     return samples
 
 
@@ -313,18 +309,6 @@ def main(args):
 
     pipeline_scheduler = pipeline.scheduler
 
-    optimizer_kwargs = config["optimizer_config"]["kwargs"]
-    optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
-        model.parameters(), **optimizer_kwargs
-    )
-    lr_scheduler_kwargs = config["lr_scheduler_config"]["kwargs"]
-    lr_scheduler = get_scheduler(
-        config["lr_scheduler_config"]["name"],
-        optimizer=optimizer,
-        num_training_steps=training_steps,
-        **lr_scheduler_kwargs,
-    )
-
     pruning_params = (
         f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}"
     )
@@ -423,30 +407,27 @@ def main(args):
 
             reset_parameters(model)
 
-    # Initialize EMA model only after pruning;
-    # otherwise there will be parameters size mismatch!!
-
-    ema_model = EMAModel(
-        model.parameters(),
-        decay=args.ema_max_decay,
-        use_ema_warmup=False,
-        inv_gamma=args.ema_inv_gamma,
-        power=args.ema_power,
-        model_cls=model_cls,
-        model_config=model.config,
+    optimizer_kwargs = config["optimizer_config"]["kwargs"]
+    optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
+        model.parameters(), **optimizer_kwargs
     )
-    ema_model.to(device)
-
+    lr_scheduler_kwargs = config["lr_scheduler_config"]["kwargs"]
+    lr_scheduler = get_scheduler(
+        config["lr_scheduler_config"]["name"],
+        optimizer=optimizer,
+        num_training_steps=training_steps,
+        **lr_scheduler_kwargs,
+    )
     if args.pruning_ratio > 0:
         model_outdir = os.path.join(
             args.outdir, args.dataset, "pruned", "models", pruning_params
         )
         os.makedirs(model_outdir, exist_ok=True)
 
+        # Here the entire pruned model has to be saved. 
         torch.save(
             {
-                "unet": accelerator.unwrap_model(model).state_dict(),
-                "unet_ema": ema_model.state_dict(),
+                "unet": accelerator.unwrap_model(model),
                 "optimizer": optimizer.state_dict(),
                 "lr_scheduler": lr_scheduler.state_dict(),
             },
@@ -465,7 +446,6 @@ def main(args):
         samples = run_inference(
             accelerator=accelerator,
             model=model,
-            ema_model=ema_model,
             config=config,
             args=args,
             vqvae=vqvae,
