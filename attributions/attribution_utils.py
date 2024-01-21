@@ -14,11 +14,12 @@ clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 
 
 def load_gradient_data(args, subset_index):
-    """
-    Load gradient data based on the removal distribution and subset index.
-    """
+    """Load gradient data based on the removal distribution and subset index."""
     if args.removal_dist == "datamodel":
-        removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={subset_index}"
+        removal_dir = (
+            f"{args.removal_dist}/{args.removal_dist}"
+            f"_alpha={args.datamodel_alpha}_seed={subset_index}"
+        )
         remaining_idx, _ = remove_data_by_datamodel(
             args.dataset, alpha=args.datamodel_alpha, seed=subset_index
         )
