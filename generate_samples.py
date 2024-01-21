@@ -7,10 +7,7 @@ import torch
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
-    DDPMScheduler,
     DiffusionPipeline,
-    LDMPipeline,
-    VQModel,
 )
 from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
@@ -67,8 +64,23 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["retrain", "gd", "ga", "esd"],
+        choices=["retrain", "prune_fine_tune","gd", "ga", "esd"],
         required=True,
+    )
+    parser.add_argument(
+        "--pruning_ratio",
+        type=float,
+        help="ratio for remaining parameters.",
+        default=0.3,
+    )
+    parser.add_argument(
+        "--pruner",
+        type=str,
+        default="magnitude",
+        choices=["taylor", "random", "magnitude", "reinit", "diff-pruning"],
+    )
+    parser.add_argument(
+        "--thr", type=float, default=0.05, help="threshold for diff-pruning"
     )
     parser.add_argument(
         "--seed",
@@ -150,8 +162,24 @@ def main(args):
     if trained_steps is not None:
         ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
-        model = model_cls(**config["unet_config"])
+
+        if args.method == "prune_fine_tune":
+            # Load pruned model
+            pruned_model_path = os.path.join(
+                args.outdir, 
+                args.dataset,
+                "pruned",
+                "model",
+                f"pruner={args.pruner}_pruning_ratio={args.ratio}_threshold={args.thr}",
+                f"ckpt_steps_{0:0>8}.pt"
+            )
+            pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
+            model = pruned_model_ckpt["unet"]
+        else:
+            model = model_cls(**config["unet_config"]) 
+
         model.load_state_dict(ckpt["unet"])
+
         model_str = "U-Net"
 
         if args.use_ema:
@@ -186,7 +214,7 @@ def main(args):
         pipeline.unet = model.to(device)
     else:
         pipeline = DDIMPipeline(
-            unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
+            unet=model, scheduler=DDIMScheduler(num_train_timesteps=args.num_train_steps)
         ).to(device)
 
     # Generate images.
