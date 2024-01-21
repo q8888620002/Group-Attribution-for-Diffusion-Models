@@ -1,16 +1,35 @@
 """Utility functions for data attribution calculation."""
 import glob
+import os
 
 import clip
 import numpy as np
 import torch
 from PIL import Image
-from sklearn.linear_model import RidgeCV
-
-# from .utils import remove_data_by_datamodel, remove_data_by_shapley
+from .utils import (
+    remove_data_by_datamodel, remove_data_by_shapley
+)
 
 device = "cpu"
 clip_model, clip_transform = clip.load("ViT-B/32", device=device)
+
+
+def load_gradient_data(args, subset_index):
+    """
+    Load gradient data based on the removal distribution and subset index.
+    """
+    if args.removal_dist == "datamodel":
+        removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={subset_index}"
+        remaining_idx, _ = remove_data_by_datamodel(args.dataset, alpha=args.datamodel_alpha, seed=subset_index)
+    elif args.removal_dist == "shapley":
+        removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={subset_index}"
+        remaining_idx, _ = remove_data_by_shapley(args.dataset, seed=subset_index)
+    else:
+        raise ValueError(f"Unsupported removal distribution: {args.removal_dist}")
+
+    grad_result_dir = os.path.join(args.outdir, args.dataset, args.method, args.attribution_method, removal_dir, f"f={args.model_behavior}_t={args.t_strategy}")
+
+    return np.memmap(grad_result_dir, dtype=np.float32, mode="r", shape=(len(remaining_idx), args.projector_dim))
 
 
 def process_images_clip(file_list):
@@ -31,91 +50,6 @@ def process_images_np(file_list):
         image = np.array(image).astype(np.float32)
         images.append(image)
     return np.stack(images)
-
-
-def datamodel(x_train, y_train, num_runs):
-    """
-    Function to compute datamodel coefficients with linear regression.
-
-    Args:
-    ----
-        x_train: indices of subset, n x d
-        y_train: model behavior, n x 1
-        num_runs: number of bootstrapped times.
-
-    Return:
-    ------
-        coef: stacks of coefficients for regression.
-    """
-
-    train_size = len(x_train)
-    coeff = []
-
-    for _ in range(num_runs):
-        bootstrapped_indices = np.random.choice(train_size, train_size, replace=True)
-        reg = RidgeCV(cv=5, alphas=[0.1, 1.0, 1e1]).fit(
-            x_train[bootstrapped_indices],
-            y_train[bootstrapped_indices],
-        )
-        coeff.append(reg.coef_)
-
-    coeff = np.stack(coeff)
-
-    return coeff
-
-
-def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
-    """
-    Function to compute kernel shap coefficients with closed form solution
-    of Shapley from equation (7) in
-    https://proceedings.mlr.press/v130/covert21a/covert21a.pdf
-
-    Args:
-    ----
-        dataset_size: length of reference dataset size
-        x_train: indices of subset, n x d
-        y_train: model behavior, n x 1
-        v1: model behavior with all data presented
-        v0: model behavior of null subset
-        num_runs: number of bootstrapped times.
-
-    Return:
-    ------
-        coef: coefficients for kernel shap
-    """
-
-    train_size = len(x_train)
-    coeff = []
-
-    for _ in range(num_runs):
-
-        bootstrapped_indices = np.random.choice(train_size, train_size, replace=True)
-
-        x_train_boot = x_train[bootstrapped_indices]
-        y_train_boot = y_train[bootstrapped_indices]
-
-        a_hat = np.zeros((dataset_size, dataset_size))
-        b_hat = np.zeros((dataset_size, 1))
-
-        for j in range(train_size):
-            a_hat += np.outer(x_train_boot[j], x_train_boot[j])
-            b_hat += (x_train_boot[j] * (y_train_boot[j] - v0))[:, None]
-
-        a_hat /= train_size
-        b_hat /= train_size
-
-        # Using np.linalg.pinv instead of np.linalg.inv in case of singular matrix
-        a_hat_inv = np.linalg.pinv(a_hat)
-        one = np.ones((dataset_size, 1))
-
-        c = one.T @ a_hat_inv @ b_hat - v1 + v0
-        d = one.T @ a_hat_inv @ one
-
-        coef = a_hat_inv @ (b_hat - one @ (c / d))
-        coeff.append(coef)
-
-    return coef
-
 
 def clip_score(sample_dir, reference_dir):
     """
