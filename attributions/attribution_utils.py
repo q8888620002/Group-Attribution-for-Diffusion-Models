@@ -6,9 +6,8 @@ import clip
 import numpy as np
 import torch
 from PIL import Image
-from .utils import (
-    remove_data_by_datamodel, remove_data_by_shapley
-)
+
+from .utils import remove_data_by_datamodel, remove_data_by_shapley
 
 device = "cpu"
 clip_model, clip_transform = clip.load("ViT-B/32", device=device)
@@ -20,16 +19,30 @@ def load_gradient_data(args, subset_index):
     """
     if args.removal_dist == "datamodel":
         removal_dir = f"{args.removal_dist}/{args.removal_dist}_alpha={args.datamodel_alpha}_seed={subset_index}"
-        remaining_idx, _ = remove_data_by_datamodel(args.dataset, alpha=args.datamodel_alpha, seed=subset_index)
+        remaining_idx, _ = remove_data_by_datamodel(
+            args.dataset, alpha=args.datamodel_alpha, seed=subset_index
+        )
     elif args.removal_dist == "shapley":
         removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={subset_index}"
         remaining_idx, _ = remove_data_by_shapley(args.dataset, seed=subset_index)
     else:
         raise ValueError(f"Unsupported removal distribution: {args.removal_dist}")
 
-    grad_result_dir = os.path.join(args.outdir, args.dataset, args.method, args.attribution_method, removal_dir, f"f={args.model_behavior}_t={args.t_strategy}")
+    grad_result_dir = os.path.join(
+        args.outdir,
+        args.dataset,
+        args.method,
+        args.attribution_method,
+        removal_dir,
+        f"f={args.model_behavior}_t={args.t_strategy}",
+    )
 
-    return np.memmap(grad_result_dir, dtype=np.float32, mode="r", shape=(len(remaining_idx), args.projector_dim))
+    return np.memmap(
+        grad_result_dir,
+        dtype=np.float32,
+        mode="r",
+        shape=(len(remaining_idx), args.projector_dim),
+    )
 
 
 def process_images_clip(file_list):
@@ -50,6 +63,7 @@ def process_images_np(file_list):
         image = np.array(image).astype(np.float32)
         images.append(image)
     return np.stack(images)
+
 
 def clip_score(sample_dir, reference_dir):
     """
