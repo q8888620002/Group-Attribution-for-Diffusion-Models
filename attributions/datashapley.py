@@ -4,10 +4,7 @@ import os
 import numpy as np
 
 from attributions.attribution_utils import load_model_behavior
-from utils import (
-    create_dataset, 
-    remove_data_by_shapley,
-)
+from utils import create_dataset, remove_data_by_shapley
 
 
 def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):

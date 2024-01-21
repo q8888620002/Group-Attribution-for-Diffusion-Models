@@ -1,6 +1,4 @@
 """Functions that calculate datamodel score"""
-import os
-
 import numpy as np
 from sklearn.linear_model import RidgeCV
 
