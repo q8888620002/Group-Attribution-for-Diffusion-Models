@@ -12,6 +12,27 @@ from .utils import remove_data_by_datamodel, remove_data_by_shapley
 device = "cpu"
 clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 
+def load_model_behavior(args, subset_index):
+    """Load model behavior based on the removal distribution and subset index."""
+    if args.removal_dist == "datamodel":
+        removal_dir = (
+            f"{args.removal_dist}/"
+            f"{args.removal_dist}_"
+            f"alpha={args.datamodel_alpha}_seed={i}"
+        )
+    elif args.removal_dist == "shapley":
+        removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={subset_index}"
+    else:
+        raise NotImplementedError(
+            f"{args.removal_dist} does not exist."
+        )
+
+    model_behavior_dir = os.path.join(
+        args.outdir, args.dataset, args.method, removal_dir, "model_behavior.npy"
+    )
+    model_output = np.load(model_behavior_dir)
+
+    return model_output
 
 def load_gradient_data(args, subset_index):
     """Load gradient data based on the removal distribution and subset index."""

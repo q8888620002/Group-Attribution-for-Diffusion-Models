@@ -3,7 +3,11 @@ import os
 
 import numpy as np
 
-from utils import create_dataset, remove_data_by_shapley
+from attributions.attribution_utils import load_model_behavior
+from utils import (
+    create_dataset, 
+    remove_data_by_shapley,
+)
 
 
 def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
@@ -91,14 +95,10 @@ def compute_shapley_scores(args, train_idx, val_idx, dataset_size):
     v1 = np.load(full_behavior_dir)
 
     for i in range(args.n_subset):
-        removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={i}"
         remaining_idx, _ = remove_data_by_shapley(args.dataset, seed=i)
-        X[i, remaining_idx] = 1
+        model_output = load_model_behavior(args, remaining_idx)
 
-        model_behavior_dir = os.path.join(
-            args.outdir, args.dataset, args.method, removal_dir, "model_behavior.npy"
-        )
-        model_output = np.load(model_behavior_dir)
+        X[i, remaining_idx] = 1
         Y[i] = model_output[args.model_behavior]
 
     coeff = data_shapley(

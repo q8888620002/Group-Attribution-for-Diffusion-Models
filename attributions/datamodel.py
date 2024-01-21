@@ -4,6 +4,7 @@ import os
 import numpy as np
 from sklearn.linear_model import RidgeCV
 
+from attributions.attribution_utils import load_model_behavior
 from utils import create_dataset, remove_data_by_datamodel
 
 
@@ -60,19 +61,12 @@ def compute_datamodel_scores(args, train_idx, val_idx):
     Y = np.zeros(n_subset)
 
     for i in range(n_subset):
-        removal_dir = (
-            f"{args.removal_dist}/"
-            f"{args.removal_dist}_"
-            f"alpha={args.datamodel_alpha}_seed={i}"
-        )
-        model_behavior_dir = os.path.join(
-            args.outdir, args.dataset, args.method, removal_dir, "model_behavior.npy"
-        )
-        model_output = np.load(model_behavior_dir)
 
         remaining_idx, _ = remove_data_by_datamodel(
             full_dataset, alpha=args.datamodel_alpha, seed=i
         )
+        model_output = load_model_behavior(args, remaining_idx)
+
         X[i, remaining_idx] = 1
         Y[i] = model_output[args.model_behavior]
 
