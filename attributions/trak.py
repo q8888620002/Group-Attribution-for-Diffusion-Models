@@ -1,12 +1,12 @@
 """Calcuation D-TRAK, relative IF, randomized IF"""
-import torch
 import numpy as np
+import torch
+
 from attributions.attribution_utils import load_gradient_data
 
+
 def compute_dtrak_trak_scores(args, train_idx, val_idx):
-    """
-    Compute scores for D-TRAK, TRAK, and influence function.
-    """
+    """Compute scores for D-TRAK, TRAK, and influence function."""
     scores = np.zeros((len(val_idx), 1))
 
     # Iterating only through validation set for D-TRAK/TRAK.
@@ -39,7 +39,7 @@ def compute_dtrak_trak_scores(args, train_idx, val_idx):
         score = dstore_keys @ ((dstore_keys @ kernel).T)
         print(score.size())
 
-        # Normalize based on the meganitude. 
+        # Normalize based on the meganitude.
 
         if args.attribution_method == "relative_if":
             magnitude = np.linalg.norm(dstore_keys @ kernel)
@@ -48,6 +48,6 @@ def compute_dtrak_trak_scores(args, train_idx, val_idx):
         else:
             magnitude = 1
 
-        scores[i] = score.cpu().numpy()/magnitude
+        scores[i] = score.cpu().numpy() / magnitude
 
     return scores

@@ -1,16 +1,13 @@
 """Functions for calculating attribution scores"""
 import argparse
+
 import numpy as np
 
 import constants
-
+from attributions.attribution_utils import clip_score, pixel_distance
 from attributions.datamodel import compute_datamodel_scores
-from attributions.trak import compute_dtrak_trak_scores
 from attributions.datashapley import compute_shapley_scores
-from attributions.attribution_utils import (
-    clip_score,
-    pixel_distance,
-)
+from attributions.trak import compute_dtrak_trak_scores
 
 
 def parse_args():
@@ -104,7 +101,15 @@ def parse_args():
         "--attribution_method",
         type=str,
         default=None,
-        choices=["shapley", "d-trak", "relative_if", "randomized_if", "datamodel", "clip_score", "pixel_dist",],
+        choices=[
+            "shapley",
+            "d-trak",
+            "relative_if",
+            "randomized_if",
+            "datamodel",
+            "clip_score",
+            "pixel_dist",
+        ],
         help="Specification for attribution score methods",
     )
     parser.add_argument(
@@ -145,7 +150,7 @@ def main(args):
     train_idx = all_idx[:num_selected]
     val_idx = all_idx[num_selected:]
 
-    if args.attribution_method in ["d-trak", "relative_if", "randomized_if","trak"] :
+    if args.attribution_method in ["d-trak", "relative_if", "randomized_if", "trak"]:
 
         scores = compute_dtrak_trak_scores(args, train_idx, val_idx)
 

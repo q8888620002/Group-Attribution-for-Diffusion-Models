@@ -1,10 +1,10 @@
 """Function that calculate data shapley"""
-import numpy as np
 import os
-from utils import (
-    create_dataset,
-    remove_data_by_shapley
-)
+
+import numpy as np
+
+from utils import create_dataset, remove_data_by_shapley
+
 
 def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
     """
@@ -58,16 +58,19 @@ def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
 
     return coef
 
+
 def compute_shapley_scores(args, train_idx, val_idx, dataset_size):
     """
     Compute scores for the data shapley.
-    
+
     Args:
+    ----
         args: Command line arguments.
         train_idx: Indices for the training subset.
         val_idx: Indices for the validation subset.
 
-    Returns:
+    Returns
+    -------
         Scores calculated using the data shapley.
     """
 
@@ -78,8 +81,12 @@ def compute_shapley_scores(args, train_idx, val_idx, dataset_size):
     Y = np.zeros(args.n_subset)
 
     # Load v(0) and v(1) for Shapley values
-    null_behavior_dir = os.path.join(args.outdir, args.dataset, args.method, "null/model_behavior.npy")
-    full_behavior_dir = os.path.join(args.outdir, args.dataset, args.method, "full/model_behavior.npy")
+    null_behavior_dir = os.path.join(
+        args.outdir, args.dataset, args.method, "null/model_behavior.npy"
+    )
+    full_behavior_dir = os.path.join(
+        args.outdir, args.dataset, args.method, "full/model_behavior.npy"
+    )
     v0 = np.load(null_behavior_dir)
     v1 = np.load(full_behavior_dir)
 
@@ -88,9 +95,13 @@ def compute_shapley_scores(args, train_idx, val_idx, dataset_size):
         remaining_idx, _ = remove_data_by_shapley(args.dataset, seed=i)
         X[i, remaining_idx] = 1
 
-        model_behavior_dir = os.path.join(args.outdir, args.dataset, args.method, removal_dir, "model_behavior.npy")
+        model_behavior_dir = os.path.join(
+            args.outdir, args.dataset, args.method, removal_dir, "model_behavior.npy"
+        )
         model_output = np.load(model_behavior_dir)
         Y[i] = model_output[args.model_behavior]
 
-    coeff = data_shapley(dataset_size, X[train_idx], Y[train_idx], v1, v0, args.num_runs)
+    coeff = data_shapley(
+        dataset_size, X[train_idx], Y[train_idx], v1, v0, args.num_runs
+    )
     return X[val_idx] @ coeff.T
