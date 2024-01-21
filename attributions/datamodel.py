@@ -1,6 +1,7 @@
 """Functions that calculate datamodel score"""
-import numpy as np
 import os
+
+import numpy as np
 from sklearn.linear_model import RidgeCV
 
 from utils import create_dataset, remove_data_by_datamodel
