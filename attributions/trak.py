@@ -9,10 +9,8 @@ def compute_dtrak_trak_scores(args, train_idx, val_idx):
     """Compute scores for D-TRAK, TRAK, and influence function."""
     scores = np.zeros((len(val_idx), 1))
 
-    # Iterating only through validation set for D-TRAK/TRAK.
-
     for i in train_idx:
-        # obtain kernel from training subset
+        # Step1: obtain kernel from training subset
 
         dstore_keys = load_gradient_data(args, i)
         dstore_keys = torch.from_numpy(dstore_keys).cuda()
