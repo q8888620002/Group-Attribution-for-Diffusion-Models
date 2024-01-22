@@ -166,17 +166,17 @@ def main(args):
         if args.method == "prune_fine_tune":
             # Load pruned model
             pruned_model_path = os.path.join(
-                args.outdir, 
+                args.outdir,
                 args.dataset,
                 "pruned",
                 "model",
-                f"pruner={args.pruner}_pruning_ratio={args.ratio}_threshold={args.thr}",
+                f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}",
                 f"ckpt_steps_{0:0>8}.pt"
             )
             pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
             model = pruned_model_ckpt["unet"]
         else:
-            model = model_cls(**config["unet_config"]) 
+            model = model_cls(**config["unet_config"])
 
         model.load_state_dict(ckpt["unet"])
 

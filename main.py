@@ -387,8 +387,8 @@ def main(args):
                 args.outdir,
                 args.dataset,
                 "pruned",
-                "model",
-                f"pruner={args.pruner}_pruning_ratio={args.ratio}_threshold={args.thr}",
+                "models",
+                f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}",
                 f"ckpt_steps_{0:0>8}.pt"
             )
             pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
@@ -417,6 +417,7 @@ def main(args):
         if pretrained_steps is not None:
             ckpt_path = os.path.join(args.load, f"ckpt_steps_{pretrained_steps:0>8}.pt")
             ckpt = torch.load(ckpt_path, map_location="cpu")
+
             model = model_cls(**config["unet_config"])
             model.load_state_dict(ckpt["unet"])
 
