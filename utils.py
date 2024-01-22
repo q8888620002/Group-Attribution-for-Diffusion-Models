@@ -7,6 +7,7 @@ from typing import List, Tuple
 
 import clip
 import numpy as np
+import pynvml
 import torch
 from PIL import Image
 from scipy.linalg import sqrtm
@@ -20,7 +21,8 @@ import constants
 
 # Load CLIP model and transformation outside of the function for efficiency
 # device = "cuda:2" if torch.cuda.is_available() else "cpu"
-clip_model, clip_transform = clip.load("ViT-B/32", device="cpu")
+device = "cpu"
+clip_model, clip_transform = clip.load("ViT-B/32", device=device)
 
 
 def print_args(args):
@@ -28,6 +30,14 @@ def print_args(args):
     print(f"Running {sys.argv[0]} with arguments")
     for arg in vars(args):
         print(f"\t{arg}={getattr(args, arg)}")
+
+
+def get_memory_free_MiB(gpu_index):
+    """Method for monitoring GPU usage when debugging."""
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(int(gpu_index))
+    mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    return mem_info.free // 1024 ** 2
 
 
 class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
@@ -480,33 +490,3 @@ def preprocess_clip_mnist(batch_images):
     batch_processed = torch.stack([transform(img) for img in batch_images])
 
     return batch_processed
-
-
-def clip_score(images1, images2):
-    """
-    Function that calculate CLIP score, cosine similarity between images1 and images2
-
-    Args:
-    ----
-        images1: The first set of images.
-        images2: The second set of images.
-
-    Return:
-    ------
-        Mean pairwise CLIP score between the two sets of images.
-    """
-
-    images1 = preprocess_clip_mnist(images1)
-    images2 = preprocess_clip_mnist(images2)
-
-    # Get the model's visual features (without text features)
-
-    with torch.no_grad():
-        features1 = clip_model.encode_image(images1)
-        features2 = clip_model.encode_image(images2)
-
-    features1 = features1 / features1.norm(dim=-1, keepdim=True)
-    features2 = features2 / features2.norm(dim=-1, keepdim=True)
-    similarity = (features1 @ features2.T).cpu().numpy()
-
-    return similarity.mean()
