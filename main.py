@@ -213,6 +213,21 @@ def parse_args():
         help="Number of steps to accumulate before a backward/update pass.",
     )
     parser.add_argument(
+        "--pruning_ratio",
+        type=float,
+        help="ratio for remaining parameters.",
+        default=0.3,
+    )
+    parser.add_argument(
+        "--pruner",
+        type=str,
+        default="magnitude",
+        choices=["taylor", "random", "magnitude", "reinit", "diff-pruning"],
+    )
+    parser.add_argument(
+        "--thr", type=float, default=0.05, help="threshold for diff-pruning"
+    )
+    parser.add_argument(
         "--mixed_precision",
         type=str,
         default="no",
@@ -365,7 +380,22 @@ def main(args):
         # model runs are interrupted (e.g., exceeding job time limit).
         ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{existing_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
-        model = model_cls(**config["unet_config"])
+        # Load full model instead of state_dict for pruned model.
+        if args.method != "retrain":
+        # Load pruned model
+            pruned_model_path = os.path.join(
+                args.outdir,
+                args.dataset,
+                "pruned",
+                "models",
+                f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}",
+                f"ckpt_steps_{0:0>8}.pt"
+            )
+            pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
+            model = pruned_model_ckpt["unet"]
+        else:
+            model = model_cls(**config["unet_config"])
+        
         model.load_state_dict(ckpt["unet"])
         ema_model = EMAModel(
             model.parameters(),
@@ -387,7 +417,22 @@ def main(args):
         if pretrained_steps is not None:
             ckpt_path = os.path.join(args.load, f"ckpt_steps_{pretrained_steps:0>8}.pt")
             ckpt = torch.load(ckpt_path, map_location="cpu")
-            model = model_cls(**config["unet_config"])
+
+            if args.method != "retrain":
+            # Load pruned model
+                pruned_model_path = os.path.join(
+                    args.outdir,
+                    args.dataset,
+                    "pruned",
+                    "models",
+                    f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}",
+                    f"ckpt_steps_{0:0>8}.pt"
+                )
+                pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
+                model = pruned_model_ckpt["unet"]
+            else:
+                model = model_cls(**config["unet_config"])
+            
             model.load_state_dict(ckpt["unet"])
 
             # Consider the pre-trained model as model weight initialization, so the EMA

@@ -169,8 +169,8 @@ def main(args):
                 args.outdir, 
                 args.dataset,
                 "pruned",
-                "model",
-                f"pruner={args.pruner}_pruning_ratio={args.ratio}_threshold={args.thr}",
+                "models",
+                f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}",
                 f"ckpt_steps_{0:0>8}.pt"
             )
             pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
@@ -214,7 +214,7 @@ def main(args):
         pipeline.unet = model.to(device)
     else:
         pipeline = DDIMPipeline(
-            unet=model, scheduler=DDIMScheduler(num_train_timesteps=args.num_train_steps)
+            unet=model, scheduler=DDIMScheduler()
         ).to(device)
 
     # Generate images.
