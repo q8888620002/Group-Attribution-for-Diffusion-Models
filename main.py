@@ -418,7 +418,21 @@ def main(args):
             ckpt_path = os.path.join(args.load, f"ckpt_steps_{pretrained_steps:0>8}.pt")
             ckpt = torch.load(ckpt_path, map_location="cpu")
 
-            model = model_cls(**config["unet_config"])
+            if args.method != "retrain":
+            # Load pruned model
+                pruned_model_path = os.path.join(
+                    args.outdir,
+                    args.dataset,
+                    "pruned",
+                    "models",
+                    f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}",
+                    f"ckpt_steps_{0:0>8}.pt"
+                )
+                pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
+                model = pruned_model_ckpt["unet"]
+            else:
+                model = model_cls(**config["unet_config"])
+            
             model.load_state_dict(ckpt["unet"])
 
             # Consider the pre-trained model as model weight initialization, so the EMA
