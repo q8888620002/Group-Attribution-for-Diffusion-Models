@@ -340,6 +340,7 @@ def main(args):
 
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
+    total_steps_time = 0
     training_steps = config["training_steps"][args.method]
     existing_steps = get_max_steps(model_outdir)
     if existing_steps is not None:
@@ -363,6 +364,7 @@ def main(args):
 
         remaining_idx = ckpt["remaining_idx"].numpy()
         removed_idx = ckpt["removed_idx"].numpy()
+        total_steps_time = ckpt["total_steps_time"]
 
         accelerator.print(f"U-Net and U-Net EMA resumed from {ckpt_path}")
     elif args.load:
@@ -627,6 +629,8 @@ def main(args):
                         and accelerator.is_main_process
                     ):
                         steps_time = time.time() - steps_start_time
+                        total_steps_time += steps_time
+
                         info = f"Step[{param_update_steps}/{training_steps}]"
                         info += f", steps_time: {steps_time:.3f}"
                         info += f", loss: {loss.detach().cpu().item():.5f}"
@@ -724,6 +728,7 @@ def main(args):
                                 "lr_scheduler": lr_scheduler.state_dict(),
                                 "remaining_idx": torch.from_numpy(remaining_idx),
                                 "removed_idx": torch.from_numpy(removed_idx),
+                                "total_steps_time": total_steps_time,
                             },
                             os.path.join(
                                 model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"
