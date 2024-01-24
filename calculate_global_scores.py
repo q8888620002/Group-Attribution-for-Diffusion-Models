@@ -1,6 +1,7 @@
 """Calculate model behavior scores for diffusion models."""
 import argparse
 import json
+import os
 
 from pytorch_fid import fid_score
 
@@ -49,24 +50,57 @@ def parse_args():
 
 def main(args):
     """Main function for calculating global model behaviors."""
-    print("Calculating the FID score...")
-    fid_value = fid_score.calculate_fid_given_paths(
-        paths=[args.sample_dir, args.reference_dir],
-        batch_size=args.batch_size,
-        device=args.device,
-        dims=2048,
-    )
-    fid_value_str = f"{fid_value:.4f}"
-
-    # TODO: Calculate Precision and Recall to capture generated image fidelity and
-    # diversity, respectively.
-
-    # Print model behaviors.
-    print(f"FID score: {fid_value_str}")
-
-    # Record model behaviors in the database.
     info_dict = vars(args)
-    info_dict["fid_value"] = fid_value_str
+    # Check if subdirectories exist for conditional image generation.
+    subdir_list = [
+        entry
+        for entry in os.listdir(args.sample_dir)
+        if os.path.isdir(os.path.join(args.sample_dir, entry))
+    ]
+    if len(subdir_list) == 0:
+        # Aggregate FID score. This is the standard practice even for conditional image
+        # generation. For example, see
+        # https://huggingface.co/docs/diffusers/main/en/conceptual/evaluation#class-conditioned-image-generation
+        print("Calculating the FID score...")
+        fid_value = fid_score.calculate_fid_given_paths(
+            paths=[args.sample_dir, args.reference_dir],
+            batch_size=args.batch_size,
+            device=args.device,
+            dims=2048,
+        )
+        fid_value_str = f"{fid_value:.4f}"
+
+        # TODO: Calculate Precision and Recall to capture generated image fidelity and
+        # diversity, respectively.
+
+        print(f"FID score: {fid_value_str}")
+        info_dict["fid_value"] = fid_value_str
+
+    else:
+        # Class-wise FID scores. If each class has too few reference samples, the
+        # scores can be unstable.
+        avg_fid_value = 0
+        for subdir in subdir_list:
+            print(f"Calculating the FID score for class {subdir}...")
+            fid_value = fid_score.calculate_fid_given_paths(
+                paths=[
+                    os.path.join(args.sample_dir, subdir),
+                    os.path.join(args.reference_dir, subdir),
+                ],
+                batch_size=args.batch_size,
+                device=args.device,
+                dims=2048,
+            )
+            fid_value_str = f"{fid_value:.4f}"
+            avg_fid_value += fid_value
+
+            print(f"FID score for {subdir}: {fid_value_str}")
+            info_dict[f"fid_value/{subdir}"] = fid_value_str
+
+        avg_fid_value /= len(subdir_list)
+        avg_fid_value_str = f"{avg_fid_value:.4f}"
+        print(f"Average FID score: {avg_fid_value_str}")
+        info_dict["avg_fid_value"] = avg_fid_value_str
 
     with open(args.db, "a+") as f:
         f.write(json.dumps(info_dict) + "\n")

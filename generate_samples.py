@@ -4,11 +4,7 @@ import os
 
 import diffusers
 import torch
-from diffusers import (
-    DDIMPipeline,
-    DDIMScheduler,
-    DiffusionPipeline,
-)
+from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline
 from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
 from torchvision.utils import save_image
@@ -64,7 +60,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["retrain", "prune_fine_tune","gd", "ga", "esd"],
+        choices=["retrain", "prune_fine_tune", "gd", "ga", "esd"],
         required=True,
     )
     parser.add_argument(
@@ -90,6 +86,12 @@ def parse_args():
     )
     parser.add_argument(
         "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
+    )
+    parser.add_argument(
+        "--pretrained",
+        help="whether to generate samples for a pre-trained model",
+        action="store_true",
+        default=False,
     )
     parser.add_argument(
         "--num_inference_steps",
@@ -141,20 +143,34 @@ def main(args):
             removal_dir += f"_alpha={args.datamodel_alpha}"
         removal_dir += f"_seed={args.removal_seed}"
 
-    model_loaddir = os.path.join(
-        args.outdir,
-        args.dataset,
-        args.method,
-        "models",
-        removal_dir,
-    )
-    sample_outdir = os.path.join(
-        args.outdir,
-        args.dataset,
-        args.method,
-        "ema_generated_samples" if args.use_ema else "generated_samples",
-        removal_dir,
-    )
+    if args.pretrained:
+        model_loaddir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "pretrained",
+            "models",
+        )
+        sample_outdir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "pretrained",
+            "ema_generated_samples" if args.use_ema else "generated_samples",
+        )
+    else:
+        model_loaddir = os.path.join(
+            args.outdir,
+            args.dataset,
+            args.method,
+            "models",
+            removal_dir,
+        )
+        sample_outdir = os.path.join(
+            args.outdir,
+            args.dataset,
+            args.method,
+            "ema_generated_samples" if args.use_ema else "generated_samples",
+            removal_dir,
+        )
     os.makedirs(sample_outdir, exist_ok=True)
 
     # Load the trained U-Net model or U-Net EMA.
@@ -166,17 +182,21 @@ def main(args):
         if args.method == "prune_fine_tune":
             # Load pruned model
             pruned_model_path = os.path.join(
-                args.outdir, 
+                args.outdir,
                 args.dataset,
                 "pruned",
                 "models",
-                f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}",
-                f"ckpt_steps_{0:0>8}.pt"
+                (
+                    f"pruner={args.pruner}"
+                    + f"_pruning_ratio={args.pruning_ratio}"
+                    + f"_threshold={args.thr}"
+                ),
+                f"ckpt_steps_{0:0>8}.pt",
             )
             pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
             model = pruned_model_ckpt["unet"]
         else:
-            model = model_cls(**config["unet_config"]) 
+            model = model_cls(**config["unet_config"])
 
         model.load_state_dict(ckpt["unet"])
 
@@ -208,14 +228,12 @@ def main(args):
         ).to(device)
         pipeline.unet = model.to(device)
     elif args.dataset == "celeba":
-        pipeline = DiffusionPipeline.from_pretrained(
-            "CompVis/ldm-celebahq-256"
-        ).to(device)
+        pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256").to(
+            device
+        )
         pipeline.unet = model.to(device)
     else:
-        pipeline = DDIMPipeline(
-            unet=model, scheduler=DDIMScheduler()
-        ).to(device)
+        pipeline = DDIMPipeline(unet=model, scheduler=DDIMScheduler()).to(device)
 
     # Generate images.
     batch_size_list = [args.batch_size] * (args.n_samples // args.batch_size)
