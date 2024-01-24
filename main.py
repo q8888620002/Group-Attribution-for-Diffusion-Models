@@ -382,14 +382,18 @@ def main(args):
         ckpt = torch.load(ckpt_path, map_location="cpu")
         # Load full model instead of state_dict for pruned model.
         if args.method != "retrain":
-        # Load pruned model
+            # Load pruned model
             pruned_model_path = os.path.join(
                 args.outdir,
                 args.dataset,
                 "pruned",
                 "models",
-                f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}",
-                f"ckpt_steps_{0:0>8}.pt"
+                (
+                    f"pruner={args.pruner}"
+                    + f"_pruning_ratio={args.pruning_ratio}"
+                    + f"_threshold={args.thr}"
+                ),
+                f"ckpt_steps_{0:0>8}.pt",
             )
             pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
             model = pruned_model_ckpt["unet"]
@@ -419,14 +423,18 @@ def main(args):
             ckpt = torch.load(ckpt_path, map_location="cpu")
 
             if args.method != "retrain":
-            # Load pruned model
+                # Load pruned model
                 pruned_model_path = os.path.join(
                     args.outdir,
                     args.dataset,
                     "pruned",
                     "models",
-                    f"pruner={args.pruner}_pruning_ratio={args.pruning_ratio}_threshold={args.thr}",
-                    f"ckpt_steps_{0:0>8}.pt"
+                    (
+                        f"pruner={args.pruner}"
+                        + f"_pruning_ratio={args.pruning_ratio}"
+                        + f"_threshold={args.thr}"
+                    ),
+                    f"ckpt_steps_{0:0>8}.pt",
                 )
                 pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
                 model = pruned_model_ckpt["unet"]

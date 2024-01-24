@@ -179,7 +179,7 @@ def main(args):
         ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
 
-        if args.method == "prune_fine_tune":
+        if args.method != "retrain":
             # Load pruned model
             pruned_model_path = os.path.join(
                 args.outdir,
