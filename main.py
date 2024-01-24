@@ -158,6 +158,7 @@ def parse_args():
         "--removal_dist",
         type=str,
         help="distribution for removing data",
+        choices=["uniform", "datamodel", "shapley"],
         default=None,
     )
     parser.add_argument(
@@ -338,26 +339,8 @@ def main(args):
         remaining_idx, removed_idx = removed_idx, remaining_idx
 
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
-    remaining_dataloader = DataLoader(
-        Subset(train_dataset, remaining_idx),
-        batch_size=config["batch_size"],
-        shuffle=True,
-        num_workers=1,
-    )
-    if args.method == "esd":
-        # Only esd requires the removed data loader.
-        # Note that each epoch will iterate though the data loader with the smaller
-        # number of steps.
-        removed_dataloader = DataLoader(
-            Subset(train_dataset, removed_idx),
-            batch_size=config["batch_size"],
-            shuffle=True,
-            num_workers=1,
-        )
-    else:
-        # Hack to ensure that all the remaining data are used in each epoch.
-        removed_dataloader = remaining_dataloader
 
+    total_steps_time = 0
     training_steps = config["training_steps"][args.method]
     existing_steps = get_max_steps(model_outdir)
     if existing_steps is not None:
@@ -378,6 +361,10 @@ def main(args):
         )
         ema_model.load_state_dict(ckpt["unet_ema"])
         param_update_steps = existing_steps
+
+        remaining_idx = ckpt["remaining_idx"].numpy()
+        removed_idx = ckpt["removed_idx"].numpy()
+        total_steps_time = ckpt["total_steps_time"]
 
         accelerator.print(f"U-Net and U-Net EMA resumed from {ckpt_path}")
     elif args.load:
@@ -423,6 +410,26 @@ def main(args):
         param_update_steps = 0
         accelerator.print("Model randomly initialized")
     ema_model.to(device)
+
+    remaining_dataloader = DataLoader(
+        Subset(train_dataset, remaining_idx),
+        batch_size=config["batch_size"],
+        shuffle=True,
+        num_workers=1,
+    )
+    if args.method == "esd":
+        # Only esd requires the removed data loader.
+        # Note that each epoch will iterate though the data loader with the smaller
+        # number of steps.
+        removed_dataloader = DataLoader(
+            Subset(train_dataset, removed_idx),
+            batch_size=config["batch_size"],
+            shuffle=True,
+            num_workers=1,
+        )
+    else:
+        # Hack to ensure that all the remaining data are used in each epoch.
+        removed_dataloader = remaining_dataloader
 
     if args.dataset == "imagenette":
         # The pipeline is of class LDMTextToImagePipeline.
@@ -622,6 +629,8 @@ def main(args):
                         and accelerator.is_main_process
                     ):
                         steps_time = time.time() - steps_start_time
+                        total_steps_time += steps_time
+
                         info = f"Step[{param_update_steps}/{training_steps}]"
                         info += f", steps_time: {steps_time:.3f}"
                         info += f", loss: {loss.detach().cpu().item():.5f}"
@@ -717,6 +726,9 @@ def main(args):
                                 "unet_ema": ema_model.state_dict(),
                                 "optimizer": optimizer.state_dict(),
                                 "lr_scheduler": lr_scheduler.state_dict(),
+                                "remaining_idx": torch.from_numpy(remaining_idx),
+                                "removed_idx": torch.from_numpy(removed_idx),
+                                "total_steps_time": total_steps_time,
                             },
                             os.path.join(
                                 model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"
