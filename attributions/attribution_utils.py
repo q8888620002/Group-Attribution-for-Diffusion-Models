@@ -12,12 +12,12 @@ from .utils import remove_data_by_datamodel, remove_data_by_shapley
 
 
 class CLIPScore:
+
     """
     Class for initializing CLIP model and calculating clip score.
     """
-  def __init__(self, device):
-
-    self.clip_model, self.clip_transform = clip.load("ViT-B/32", device=device)
+    def __init__(self, device):
+        self.clip_model, self.clip_transform = clip.load("ViT-B/32", device=device)
 
     def process_images_clip(self, file_list):
         """Function to load and process images with clip transform"""
