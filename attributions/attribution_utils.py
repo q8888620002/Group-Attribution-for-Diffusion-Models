@@ -1,8 +1,8 @@
 """Utility functions for data attribution calculation."""
 import glob
+import json
 import os
 
-import json
 import clip
 import numpy as np
 import torch
