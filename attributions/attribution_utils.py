@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from utils import remove_data_by_datamodel, remove_data_by_shapley, create_dataset
+from utils import create_dataset, remove_data_by_datamodel, remove_data_by_shapley
 
 
 class CLIPScore:
