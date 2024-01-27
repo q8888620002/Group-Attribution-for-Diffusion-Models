@@ -77,9 +77,10 @@ def compute_shapley_scores(args, train_idx, val_idx, dataset_size):
 
     full_dataset = create_dataset(dataset_name=args.dataset, train=True)
     dataset_size = len(full_dataset)
+    train_val_index = train_idx + val_idx
 
-    X = np.zeros((args.n_subset, dataset_size))
-    Y = np.zeros(args.n_subset)
+    X = np.zeros((len(train_val_index), dataset_size))
+    Y = np.zeros(len(train_val_index))
 
     # Load v(0) and v(1) for Shapley values
     null_behavior_dir = os.path.join(
@@ -91,9 +92,9 @@ def compute_shapley_scores(args, train_idx, val_idx, dataset_size):
     v0 = np.load(null_behavior_dir)
     v1 = np.load(full_behavior_dir)
 
-    for i in range(args.n_subset):
+    for i in train_val_index:
         remaining_idx, _ = remove_data_by_shapley(args.dataset, seed=i)
-        model_output = load_model_behavior(args, remaining_idx)
+        model_output = load_model_behavior(args, i)
 
         X[i, remaining_idx] = 1
         Y[i] = model_output[args.model_behavior]

@@ -19,12 +19,6 @@ from transformers import PreTrainedTokenizer
 
 import constants
 
-# Load CLIP model and transformation outside of the function for efficiency
-# device = "cuda:2" if torch.cuda.is_available() else "cpu"
-device = "cpu"
-clip_model, clip_transform = clip.load("ViT-B/32", device=device)
-
-
 def print_args(args):
     """Print script name and args."""
     print(f"Running {sys.argv[0]} with arguments")

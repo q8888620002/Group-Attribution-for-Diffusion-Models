@@ -52,18 +52,19 @@ def compute_datamodel_scores(args, train_idx, val_idx):
         Scores calculated using the datamodel method.
     """
     full_dataset = create_dataset(dataset_name=args.dataset, train=True)
+
+    train_val_index = train_idx + val_idx
     dataset_size = len(full_dataset)
-    n_subset = len(train_idx) + len(val_idx)
 
-    X = np.zeros((n_subset, dataset_size))
-    Y = np.zeros(n_subset)
+    X = np.zeros((len(train_val_index), dataset_size))
+    Y = np.zeros(len(train_val_index))
 
-    for i in range(n_subset):
+    for i in train_val_index:
 
         remaining_idx, _ = remove_data_by_datamodel(
             full_dataset, alpha=args.datamodel_alpha, seed=i
         )
-        model_output = load_model_behavior(args, remaining_idx)
+        model_output = load_model_behavior(args, i)
 
         X[i, remaining_idx] = 1
         Y[i] = model_output[args.model_behavior]

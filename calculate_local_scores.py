@@ -4,7 +4,7 @@ import argparse
 import numpy as np
 
 import constants
-from attributions.attribution_utils import clip_score, pixel_distance
+from attributions.attribution_utils import CLIPScore,pixel_distance
 from attributions.datamodel import compute_datamodel_scores
 from attributions.datashapley import compute_shapley_scores
 from attributions.trak import compute_dtrak_trak_scores
@@ -168,7 +168,9 @@ def main(args):
                 "Specify both val_samples_dir and train_samples_dir for clip score."
             )
         # Find the highest score for each image in val_samples
-        scores = clip_score(args.val_samples_dir, args.train_samples_dir)
+
+        clip = CLIPScore(args.device)
+        scores = clip.clip_score(args.val_samples_dir, args.train_samples_dir)
 
     elif args.attribution_method == "pixel_dist":
         if not args.val_samples_dir or not args.train_samples_dir:

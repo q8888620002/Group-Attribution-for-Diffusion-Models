@@ -20,8 +20,8 @@ class DDPMConfig:
         },
         "batch_size": 128,
         "training_steps": {"retrain": 200000, "prune_fine_tune": 200000, "ga": 2000, "gd": 4000, "esd": 5000},
-        "ckpt_freq": {"retrain": 20000, "prune_fine_tune": 200000, "ga": 400, "gd": 400, "esd": 1000},
-        "sample_freq": {"retrain": 20000, "prune_fine_tune": 200000, "ga": 400, "gd": 400, "esd": 1000},
+        "ckpt_freq": {"retrain": 10000, "prune_fine_tune": 10000, "ga": 400, "gd": 400, "esd": 1000},
+        "sample_freq": {"retrain": 200000, "prune_fine_tune": 200000, "ga": 2000, "gd": 4000, "esd": 5000},
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
@@ -93,8 +93,8 @@ class DDPMConfig:
         },
         "batch_size": 32,
         "training_steps": {"retrain": 200000, "ga": 5, "gd": 10, "esd": 500},
-        "ckpt_freq": {"retrain": 10000, "ga": 1, "gd": 1, "esd": 100},
-        "sample_freq": {"retrain": 10000, "ga": 1, "gd": 1, "esd": 100},
+        "ckpt_freq": {"retrain": 5000, "ga": 1, "gd": 1, "esd": 100},
+        "sample_freq": {"retrain": 5000, "ga": 1, "gd": 1, "esd": 100},
         "n_samples": 32,
         "unet_config": {
             "_class_name": "UNet2DModel",

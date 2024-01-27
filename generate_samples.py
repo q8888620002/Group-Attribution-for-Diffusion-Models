@@ -57,6 +57,12 @@ def parse_args():
         default=0,
     )
     parser.add_argument(
+        "--trained_steps",
+        type=int,
+        help="steps for specific ckeck points",
+        default=None,
+    )
+    parser.add_argument(
         "--method",
         type=str,
         help="training or unlearning method",
@@ -174,7 +180,9 @@ def main(args):
     os.makedirs(sample_outdir, exist_ok=True)
 
     # Load the trained U-Net model or U-Net EMA.
-    trained_steps = get_max_steps(model_loaddir)
+
+    trained_steps = args.trained_steps if args.trained_steps else get_max_steps(model_loaddir)
+    
     if trained_steps is not None:
         ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
