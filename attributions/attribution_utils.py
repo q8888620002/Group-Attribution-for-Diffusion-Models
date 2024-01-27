@@ -12,7 +12,7 @@ from .utils import remove_data_by_datamodel, remove_data_by_shapley
 
 
 class CLIPScore:
-    """Class for initializing CLIP model and calculating clip score. """
+    """Class for initializing CLIP model and calculating clip score."""
 
     def __init__(self, device):
         self.device = device
@@ -29,7 +29,7 @@ class CLIPScore:
 
     def clip_score(self, sample_dir, reference_dir):
         """
-        Function that calculate CLIP score, cosine similarity between images1 and images2
+        Function that calculate CLIP score between images1 and images2
 
         Args:
         ----
@@ -59,6 +59,9 @@ class CLIPScore:
 
 def create_removal_path(args, seed_index):
     """Create removal directory based on removal distribution and subset index."""
+
+    full_dataset = create_dataset(dataset_name=args.dataset, train=True)
+
     if args.removal_dist == "datamodel":
         removal_dir = (
             f"{args.removal_dist}/"
@@ -66,11 +69,11 @@ def create_removal_path(args, seed_index):
             f"alpha={args.datamodel_alpha}_seed={seed_index}"
         )
         remaining_idx, _ = remove_data_by_datamodel(
-            full_dataset, alpha=args.datamodel_alpha, seed=i
+            full_dataset, alpha=args.datamodel_alpha, seed=seed_index
         )
     elif args.removal_dist == "shapley":
         removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={seed_index}"
-        remaining_idx, _ = remove_data_by_shapley(args.dataset, seed=i)
+        remaining_idx, _ = remove_data_by_shapley(full_dataset, seed=seed_index)
     else:
         raise NotImplementedError(f"{args.removal_dist} does not exist.")
 

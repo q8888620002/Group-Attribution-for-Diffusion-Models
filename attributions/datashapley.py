@@ -93,7 +93,7 @@ def compute_shapley_scores(args, train_idx, val_idx, dataset_size):
     v1 = np.load(full_behavior_dir)
 
     for i in train_val_index:
-        remaining_idx, _ = remove_data_by_shapley(args.dataset, seed=i)
+        remaining_idx, _ = remove_data_by_shapley(full_dataset, seed=i)
         model_output = load_model_behavior(args, i)
 
         X[i, remaining_idx] = 1
