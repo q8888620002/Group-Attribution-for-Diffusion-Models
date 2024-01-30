@@ -41,6 +41,7 @@ def compute_datamodel_scores(args, model_behavior, train_idx, val_idx):
     Args:
     ----
         args: Command line arguments.
+        model_behavior: pre_calculated model behavior for each subset.
         train_idx: Indices for the training subset.
         val_idx: Indices for the validation subset.
 
@@ -48,12 +49,13 @@ def compute_datamodel_scores(args, model_behavior, train_idx, val_idx):
     -------
         Scores calculated using the datamodel method.
     """
-    total_num_data = len(model_behavior[0].get(["remaining_idx"])) + len(
+    total_data_num = len(model_behavior[0].get(["remaining_idx"])) + len(
         model_behavior[0].get(["removed_idx"])
     )
 
     train_val_index = train_idx + val_idx
-    X = np.zeros((len(train_val_index), total_num_data))
+
+    X = np.zeros((len(train_val_index), total_data_num))
     Y = np.zeros(len(train_val_index))
 
     for i in train_val_index:
