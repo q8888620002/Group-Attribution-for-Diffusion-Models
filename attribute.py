@@ -138,7 +138,7 @@ def main(args):
     model_behavior_path = os.path.join(
         args.dataset, constants.GLOBAL_MODEL_BEHAVIOR_DIR, "full_model_db.json"
     )
-    
+
     # Load pre-calculated model behavior for a give experiment
 
     with open(model_behavior_path, "r") as f:
