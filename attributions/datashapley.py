@@ -1,6 +1,8 @@
 """Function that calculate data shapley"""
 import os
+
 import numpy as np
+
 
 def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
     """

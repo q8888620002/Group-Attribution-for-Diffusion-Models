@@ -2,6 +2,7 @@
 import numpy as np
 from sklearn.linear_model import RidgeCV
 
+
 def datamodel(x_train, y_train, num_runs):
     """
     Function to compute datamodel coefficients with linear regression.

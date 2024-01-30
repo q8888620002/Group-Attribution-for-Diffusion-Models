@@ -1,7 +1,8 @@
 """Functions for calculating attribution scores"""
 import argparse
-import os
 import json
+import os
+
 import numpy as np
 
 import constants
