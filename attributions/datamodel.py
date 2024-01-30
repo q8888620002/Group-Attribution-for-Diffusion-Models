@@ -37,7 +37,7 @@ def datamodel(x_train, y_train, num_runs):
     return coeff
 
 
-def compute_datamodel_scores(args, train_idx, val_idx):
+def compute_datamodel_scores(args, model_behavior, train_idx, val_idx):
     """
     Compute scores for the datamodel method.
 
@@ -51,23 +51,17 @@ def compute_datamodel_scores(args, train_idx, val_idx):
     -------
         Scores calculated using the datamodel method.
     """
-    full_dataset = create_dataset(dataset_name=args.dataset, train=True)
+    total_num_data = len(model_behavior[0].get(['remaining_idx'])) + len(model_behavior[0].get(['removed_idx']))
 
     train_val_index = train_idx + val_idx
-    dataset_size = len(full_dataset)
-
-    X = np.zeros((len(train_val_index), dataset_size))
+    X = np.zeros((len(train_val_index), total_num_data))
     Y = np.zeros(len(train_val_index))
 
     for i in train_val_index:
 
-        remaining_idx, _ = remove_data_by_datamodel(
-            full_dataset, alpha=args.datamodel_alpha, seed=i
-        )
-        model_output = load_model_behavior(args, i)
-
+        remaining_idx = model_behavior[i].get('remaining_idx')
         X[i, remaining_idx] = 1
-        Y[i] = model_output[args.model_behavior]
+        Y[i] = model_behavior[i].get(args.model_behavior)
 
-    coefficients = datamodel(X[train_idx], Y[train_idx], args.num_runs)
-    return X[val_idx] @ coefficients.T
+    coefficients = datamodel(X[train_idx, : ], Y[train_idx], args.num_runs)
+    return X[val_idx, :] @ coefficients.T

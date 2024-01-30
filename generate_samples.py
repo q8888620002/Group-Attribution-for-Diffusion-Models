@@ -182,7 +182,8 @@ def main(args):
     # Load the trained U-Net model or U-Net EMA.
 
     trained_steps = args.trained_steps if args.trained_steps else get_max_steps(model_loaddir)
-    
+    sample_outdir = os.path.join(sample_outdir, trained_steps)
+
     if trained_steps is not None:
         ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")

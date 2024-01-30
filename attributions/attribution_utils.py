@@ -8,6 +8,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+import constants
+
 from utils import create_dataset, remove_data_by_datamodel, remove_data_by_shapley
 
 
@@ -79,21 +81,7 @@ def create_removal_path(args, seed_index):
 
     return removal_dir, remaining_idx
 
-
-def load_model_behavior(args, seed_index):
-    """Load model behavior based on the removal distribution and subset index."""
-
-    removal_dir, _ = create_removal_path(args, seed_index)
-
-    model_behavior_path = os.path.join(
-        args.outdir, args.dataset, args.method, removal_dir
-    )
-
-    with open(os.path.join(model_behavior_path, "model_behavior.json")) as f:
-        model_behavior = json.load(f)
-
-    return model_behavior
-
+    raise ValueError(f"No record found for sample_dir: {removal_dir}")
 
 def load_gradient_data(args, seed_index):
     """Load gradient data based on the removal distribution and subset index."""

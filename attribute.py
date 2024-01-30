@@ -43,12 +43,6 @@ def parse_args():
         default="mnist",
     )
     parser.add_argument(
-        "--n_subset",
-        type=int,
-        help="Number of subsests for attribution score calculation",
-        default=None,
-    )
-    parser.add_argument(
         "--train_ratio",
         type=float,
         help="Ratio of subsets for shapley & datamodel calculation.",
@@ -139,16 +133,22 @@ def parse_args():
 def main(args):
     """Main function for computing D-TRAK, TRAK, Datamodel, and Data Shapley."""
 
-    n_subset = args.n_subset
-    all_idx = np.arange(n_subset)
-    num_selected = int(args.train_ratio * n_subset)
+    model_behavior_path = os.path.join(
+        args.dataset, constants.GLOBAL_MODEL_BEHAVIOR_DIR, "full_model_db.json"
+    )
+
+    with open(model_behavior_path, "r") as f:
+        model_behavior = json.loads(line)
+        model_behavior = [row for row in model_behavior if row.get("exp_name") == args.exp_name]
 
     # Train and test split for datamodel and data shapley.
+    all_idx = [i for i in len(model_behavior)]
+
     rng = np.random.RandomState(args.seed)
     rng.shuffle(all_idx)
 
-    train_idx = all_idx[:num_selected]
-    val_idx = all_idx[num_selected:]
+    train_idx = all_idx[:train_ratio*len(all_idx)]
+    val_idx = all_idx[train_ratio*len(all_idx):]
 
     if args.attribution_method in ["d-trak", "relative_if", "randomized_if", "trak"]:
 
@@ -156,11 +156,11 @@ def main(args):
 
     elif args.attribution_method == "shapley":
 
-        scores = compute_shapley_scores(args, train_idx, val_idx)
+        scores = compute_shapley_scores(args, model_behavior, train_idx, val_idx)
 
     elif args.attribution_method == "datamodel":
 
-        scores = compute_datamodel_scores(args, train_idx, val_idx)
+        scores = compute_datamodel_scores(args, model_behavior, train_idx, val_idx)
 
     elif args.attribution_method == "clip_score":
         if not args.val_samples_dir or not args.train_samples_dir:
