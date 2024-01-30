@@ -1,14 +1,11 @@
 """Utility functions for data attribution calculation."""
 import glob
-import json
 import os
 
 import clip
 import numpy as np
 import torch
 from PIL import Image
-
-import constants
 
 from utils import create_dataset, remove_data_by_datamodel, remove_data_by_shapley
 
@@ -82,6 +79,7 @@ def create_removal_path(args, seed_index):
     return removal_dir, remaining_idx
 
     raise ValueError(f"No record found for sample_dir: {removal_dir}")
+
 
 def load_gradient_data(args, seed_index):
     """Load gradient data based on the removal distribution and subset index."""

@@ -1,11 +1,6 @@
 """Function that calculate data shapley"""
 import os
-
 import numpy as np
-
-from attributions.attribution_utils import load_model_behavior
-from utils import create_dataset, remove_data_by_shapley
-
 
 def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
     """
@@ -75,7 +70,9 @@ def compute_shapley_scores(args, model_behavior, train_idx, val_idx):
         Scores calculated using the data shapley.
     """
 
-    total_num_data = len(model_behavior[0].get(['remaining_idx'])) + len(model_behavior[0].get(['removed_idx']))
+    total_num_data = len(model_behavior[0].get(["remaining_idx"])) + len(
+        model_behavior[0].get(["removed_idx"])
+    )
 
     train_val_index = train_idx + val_idx
     X = np.zeros((len(train_val_index), total_num_data))
@@ -93,11 +90,11 @@ def compute_shapley_scores(args, model_behavior, train_idx, val_idx):
 
     for i in train_val_index:
 
-        remaining_idx = model_behavior[i].get('remaining_idx')
+        remaining_idx = model_behavior[i].get("remaining_idx")
         X[i, remaining_idx] = 1
         Y[i] = model_behavior[i].get(args.model_behavior)
 
     coeff = data_shapley(
-        total_num_data, X[train_idx,:], Y[train_idx], v1, v0, args.num_runs
+        total_num_data, X[train_idx, :], Y[train_idx], v1, v0, args.num_runs
     )
-    return X[val_idx,: ] @ coeff.T
+    return X[val_idx, :] @ coeff.T

@@ -2,10 +2,6 @@
 import numpy as np
 from sklearn.linear_model import RidgeCV
 
-from attributions.attribution_utils import load_model_behavior
-from utils import create_dataset, remove_data_by_datamodel
-
-
 def datamodel(x_train, y_train, num_runs):
     """
     Function to compute datamodel coefficients with linear regression.
@@ -51,7 +47,9 @@ def compute_datamodel_scores(args, model_behavior, train_idx, val_idx):
     -------
         Scores calculated using the datamodel method.
     """
-    total_num_data = len(model_behavior[0].get(['remaining_idx'])) + len(model_behavior[0].get(['removed_idx']))
+    total_num_data = len(model_behavior[0].get(["remaining_idx"])) + len(
+        model_behavior[0].get(["removed_idx"])
+    )
 
     train_val_index = train_idx + val_idx
     X = np.zeros((len(train_val_index), total_num_data))
@@ -59,9 +57,9 @@ def compute_datamodel_scores(args, model_behavior, train_idx, val_idx):
 
     for i in train_val_index:
 
-        remaining_idx = model_behavior[i].get('remaining_idx')
+        remaining_idx = model_behavior[i].get("remaining_idx")
         X[i, remaining_idx] = 1
         Y[i] = model_behavior[i].get(args.model_behavior)
 
-    coefficients = datamodel(X[train_idx, : ], Y[train_idx], args.num_runs)
+    coefficients = datamodel(X[train_idx, :], Y[train_idx], args.num_runs)
     return X[val_idx, :] @ coefficients.T

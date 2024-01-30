@@ -1,10 +1,11 @@
 """Functions for calculating attribution scores"""
 import argparse
-
+import os
+import json
 import numpy as np
 
 import constants
-from attributions.attribution_utils import CLIPScore,pixel_distance
+from attributions.attribution_utils import CLIPScore, pixel_distance
 from attributions.datamodel import compute_datamodel_scores
 from attributions.datashapley import compute_shapley_scores
 from attributions.trak import compute_dtrak_trak_scores
@@ -138,17 +139,19 @@ def main(args):
     )
 
     with open(model_behavior_path, "r") as f:
-        model_behavior = json.loads(line)
-        model_behavior = [row for row in model_behavior if row.get("exp_name") == args.exp_name]
+        model_behavior = json.loads(f)
+        model_behavior = [
+            row for row in model_behavior if row.get("exp_name") == args.exp_name
+        ]
 
     # Train and test split for datamodel and data shapley.
     all_idx = [i for i in len(model_behavior)]
 
     rng = np.random.RandomState(args.seed)
     rng.shuffle(all_idx)
-
-    train_idx = all_idx[:train_ratio*len(all_idx)]
-    val_idx = all_idx[train_ratio*len(all_idx):]
+    train_ratio = 0.8
+    train_idx = all_idx[: train_ratio * len(all_idx)]
+    val_idx = all_idx[train_ratio * len(all_idx) :]
 
     if args.attribution_method in ["d-trak", "relative_if", "randomized_if", "trak"]:
 
