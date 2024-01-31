@@ -73,23 +73,26 @@ def compute_shapley_scores(args, model_behavior_all, train_idx, val_idx):
         Scores calculated using the data shapley.
     """
 
-    total_num_data = len(model_behavior_all[0].get(["remaining_idx"])) + len(
-        model_behavior_all[0].get(["removed_idx"])
-    )
+    total_data_num = len(model_behavior_all[0]["remaining_idx"] + model_behavior_all[0]["removed_idx"])
 
     train_val_index = train_idx + val_idx
-    X = np.zeros((len(train_val_index), total_num_data))
+    X = np.zeros((len(train_val_index), total_data_num))
     Y = np.zeros(len(train_val_index))
 
     # Load v(0) and v(1) for Shapley values
-    null_behavior_dir = os.path.join(
-        args.outdir, args.dataset, args.method, "null/model_behavior.npy"
-    )
-    full_behavior_dir = os.path.join(
-        args.outdir, args.dataset, args.method, "full/model_behavior.npy"
-    )
-    v0 = np.load(null_behavior_dir)
-    v1 = np.load(full_behavior_dir)
+    # null_behavior_dir = os.path.join(
+    #     args.outdir, args.dataset, args.method, "wo_train"
+    # )
+    # full_behavior_dir = os.path.join(
+    #     args.outdir, args.dataset, args.method,
+    # )
+    # v0 = None
+    # v1 = None
+    
+    v1, v0 = 1, 20
+
+    if v0 is None or v1 is None:
+        print("Warning: full or null behaviors were not found.")
 
     for i in train_val_index:
 
@@ -98,6 +101,6 @@ def compute_shapley_scores(args, model_behavior_all, train_idx, val_idx):
         Y[i] = model_behavior_all[i].get(args.model_behavior)
 
     coeff = data_shapley(
-        total_num_data, X[train_idx, :], Y[train_idx], v1, v0, args.num_runs
+        total_data_num, X[train_idx, :], Y[train_idx], v1, v0, args.num_runs
     )
     return X[val_idx, :] @ coeff.T

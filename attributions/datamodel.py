@@ -34,14 +34,14 @@ def datamodel(x_train, y_train, num_runs):
     return coeff
 
 
-def compute_datamodel_scores(args, model_behavior, train_idx, val_idx):
+def compute_datamodel_scores(args, model_behavior_all, train_idx, val_idx):
     """
     Compute scores for the datamodel method.
 
     Args:
     ----
         args: Command line arguments.
-        model_behavior: pre_calculated model behavior for each subset.
+        model_behavior_all: pre_calculated model behavior for each subset.
         train_idx: Indices for the training subset.
         val_idx: Indices for the validation subset.
 
@@ -49,9 +49,7 @@ def compute_datamodel_scores(args, model_behavior, train_idx, val_idx):
     -------
         Scores calculated using the datamodel method.
     """
-    total_data_num = len(model_behavior[0].get(["remaining_idx"])) + len(
-        model_behavior[0].get(["removed_idx"])
-    )
+    total_data_num = len(model_behavior_all[0]["remaining_idx"] + model_behavior_all[0]["removed_idx"])
 
     train_val_index = train_idx + val_idx
 
@@ -60,9 +58,10 @@ def compute_datamodel_scores(args, model_behavior, train_idx, val_idx):
 
     for i in train_val_index:
 
-        remaining_idx = model_behavior[i].get("remaining_idx")
+        remaining_idx = model_behavior_all[i].get("remaining_idx")
         X[i, remaining_idx] = 1
-        Y[i] = model_behavior[i].get(args.model_behavior)
+        Y[i] = model_behavior_all[i].get(args.model_behavior)
 
-    coefficients = datamodel(X[train_idx, :], Y[train_idx], args.num_runs)
-    return X[val_idx, :] @ coefficients.T
+    coeff = datamodel(X[train_idx, :], Y[train_idx], args.num_runs)
+
+    return X[val_idx, :] @ coeff.T

@@ -16,26 +16,9 @@ def parse_args():
     """Parse command line arguments."""
 
     parser = argparse.ArgumentParser(description="Computing data attribution.")
-    parser.add_argument(
-        "--load",
-        type=str,
-        help="directory path for loading pre-trained model",
-        default=None,
-    )
+
     parser.add_argument(
         "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
-    )
-    parser.add_argument(
-        "--val_sample_dir",
-        type=str,
-        help="directory for validation samples",
-        default=None,
-    )
-    parser.add_argument(
-        "--train_sample_dir",
-        type=str,
-        help="directory for training samples",
-        default=None,
     )
     parser.add_argument(
         "--dataset",
@@ -45,16 +28,11 @@ def parse_args():
         default="mnist",
     )
     parser.add_argument(
-        "--train_ratio",
-        type=float,
-        help="Ratio of subsets for shapley & datamodel calculation.",
-        default=0.8,
-    )
-    parser.add_argument(
-        "--seed",
-        type=int,
-        help="random seed for splitting train and validation set.",
-        default=42,
+        "--method",
+        type=str,
+        help="training or unlearning method",
+        choices=["retrain", "gd", "ga", "esd"],
+        required=True,
     )
     parser.add_argument(
         "--excluded_class",
@@ -74,25 +52,16 @@ def parse_args():
         help="proportion of full dataset to keep in the datamodel distribution",
         default=0.5,
     )
+
     parser.add_argument(
-        "--method",
+        "--exp_name",
         type=str,
-        help="training or unlearning method",
-        choices=["retrain", "gd", "ga", "esd"],
-        required=True,
+        help="dataset for training or unlearning",
+        required=True
     )
-    parser.add_argument(
-        "--projector_dim",
-        type=int,
-        default=1024,
-        help="Dimension for TRAK projector",
-    )
-    parser.add_argument(
-        "--num_runs",
-        type=int,
-        default=1000,
-        help="Number of runs for obtain confidence interval",
-    )
+
+    # Methods to calculate data attribution
+
     parser.add_argument(
         "--attribution_method",
         type=str,
@@ -109,6 +78,24 @@ def parse_args():
         help="Specification for attribution score methods",
     )
     parser.add_argument(
+        "--train_ratio",
+        type=float,
+        help="Ratio of training subsets for data attribution.",
+        default=0.8,
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        help="random seed for splitting train and validation sets.",
+        default=42,
+    )
+    parser.add_argument(
+        "--num_runs",
+        type=int,
+        default=1000,
+        help="Number of runs to obtain confidence interval",
+    )
+    parser.add_argument(
         "--model_behavior",
         type=str,
         default=None,
@@ -118,43 +105,50 @@ def parse_args():
             "l1-norm",
             "l2-norm",
             "linf-norm",
-            "fid",
+            "fid_value",
         ],
         help="Specification for model behavior.",
+        required=True
     )
-
+    parser.add_argument(
+        "--projector_dim",
+        type=int,
+        default=1024,
+        help="Dimension for TRAK projector",
+    )
     parser.add_argument(
         "--t_strategy",
         type=str,
         default=None,
         help="strategy for sampling time steps for D-TRAK.",
     )
+
     return parser.parse_args()
 
 
 def main(args):
     """Main function for computing D-TRAK, TRAK, Datamodel, and Data Shapley."""
 
-    model_behavior_path = os.path.join(
-        args.dataset, constants.GLOBAL_MODEL_BEHAVIOR_DIR, "full_model_db.json"
+    full_model_behavior_path = os.path.join(
+        constants.GLOBAL_MODEL_BEHAVIOR_DIR, args.dataset, "full_model_db.jsonl"
     )
 
     # Load pre-calculated model behavior for a give experiment
-
-    with open(model_behavior_path, "r") as f:
-        model_behavior_all = json.loads(f)
-        model_behavior_all = [
-            row for row in model_behavior_all if row.get("exp_name") == args.exp_name
-        ]
+    model_behavior_all = []
+    with open(full_model_behavior_path, "r") as f:
+        for line in f:
+            row = json.loads(line)
+            if row["exp_name"] == args.exp_name:
+                model_behavior_all.append(row)
 
     # Train and test split for datamodel and data shapley.
-    all_idx = [i for i in len(model_behavior_all)]
+    all_idx = [i for i in range(len(model_behavior_all))]
 
     rng = np.random.RandomState(args.seed)
     rng.shuffle(all_idx)
 
-    train_idx = all_idx[: args.train_ratio * len(all_idx)]
-    val_idx = all_idx[args.train_ratio * len(all_idx) :]
+    train_idx = all_idx[: int(args.train_ratio * len(all_idx))]
+    val_idx = all_idx[int(args.train_ratio * len(all_idx)) :]
 
     if args.attribution_method in ["d-trak", "relative_if", "randomized_if", "trak"]:
 

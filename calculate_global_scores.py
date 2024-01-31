@@ -77,6 +77,7 @@ def parse_args():
         type=str,
         help="experiment name to record in the database file",
         default=None,
+        required=True
     )
     parser.add_argument(
         "--batch_size",
