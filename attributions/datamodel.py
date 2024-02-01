@@ -1,7 +1,9 @@
 """Functions that calculate datamodel score"""
 import numpy as np
 from sklearn.linear_model import RidgeCV
+
 from utils import create_dataset
+
 
 def datamodel(x_train, y_train, num_runs):
     """

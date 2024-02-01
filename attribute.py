@@ -5,7 +5,11 @@ import os
 import numpy as np
 
 import constants
-from attributions.attribution_utils import load_filtered_behaviors, CLIPScore, pixel_distance
+from attributions.attribution_utils import (
+    CLIPScore,
+    load_filtered_behaviors,
+    pixel_distance,
+)
 from attributions.datamodel import compute_datamodel_scores
 from attributions.datashapley import compute_shapley_scores
 from attributions.trak import compute_dtrak_trak_scores
