@@ -2,9 +2,9 @@
 import os
 
 import numpy as np
+from attribution.attribution_utils import load_filtered_behaviors
 
 from utils import create_dataset
-from attribution.attribution_utils import load_filtered_behaviors
 
 
 def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
@@ -113,7 +113,9 @@ def compute_shapley_scores(args, model_behavior_all, train_idx, val_idx):
             remaining_idx = model_behavior_all[i].get("remaining_idx", [])
             removed_idx = model_behavior_all[i].get("removed_idx", [])
 
-            assert total_data_num == len(remaining_idx) + len(removed_idx), "Total data number mismatch."
+            assert total_data_num == len(remaining_idx) + len(
+                removed_idx
+            ), "Total data number mismatch."
 
             X[i, remaining_idx] = 1
             Y[i] = model_behavior_all[i].get(args.model_behavior)
