@@ -1,7 +1,7 @@
 """Functions that calculate datamodel score"""
 import numpy as np
 from sklearn.linear_model import RidgeCV
-
+from utils import create_dataset
 
 def datamodel(x_train, y_train, num_runs):
     """
@@ -62,7 +62,9 @@ def compute_datamodel_scores(args, model_behavior_all, train_idx, val_idx):
             remaining_idx = model_behavior_all[i].get("remaining_idx", [])
             removed_idx = model_behavior_all[i].get("removed_idx", [])
 
-            assert total_data_num == len(remaining_idx) + len(removed_idx), "Total data number mismatch."
+            assert total_data_num == len(remaining_idx) + len(
+                removed_idx
+            ), "Total data number mismatch."
 
             X[i, remaining_idx] = 1
             Y[i] = model_behavior_all[i].get(args.model_behavior)

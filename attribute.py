@@ -1,12 +1,11 @@
 """Functions for calculating attribution scores"""
 import argparse
-import json
 import os
 
 import numpy as np
 
 import constants
-from attributions.attribution_utils import CLIPScore, pixel_distance
+from attributions.attribution_utils import load_filtered_behaviors, CLIPScore, pixel_distance
 from attributions.datamodel import compute_datamodel_scores
 from attributions.datashapley import compute_shapley_scores
 from attributions.trak import compute_dtrak_trak_scores
@@ -54,10 +53,7 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--exp_name",
-        type=str,
-        help="dataset for training or unlearning",
-        required=True
+        "--exp_name", type=str, help="dataset for training or unlearning", required=True
     )
 
     # Methods to calculate data attribution
@@ -108,7 +104,7 @@ def parse_args():
             "fid_value",
         ],
         help="Specification for model behavior.",
-        required=True
+        required=True,
     )
     parser.add_argument(
         "--projector_dim",
@@ -134,7 +130,9 @@ def main(args):
     )
 
     # Load pre-calculated model behavior for a give experiment
-    model_behavior_all = load_filtered_behaviors(full_model_behavior_path, args.exp_name)
+    model_behavior_all = load_filtered_behaviors(
+        full_model_behavior_path, args.exp_name
+    )
 
     # Train and test split for datamodel and data shapley.
     all_idx = [i for i in range(len(model_behavior_all))]
