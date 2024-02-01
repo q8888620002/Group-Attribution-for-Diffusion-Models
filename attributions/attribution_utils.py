@@ -1,6 +1,7 @@
 """Utility functions for data attribution calculation."""
 import glob
 import os
+import jsonl
 
 import clip
 import numpy as np
@@ -55,6 +56,16 @@ class CLIPScore:
 
         return similarity
 
+def load_filtered_behaviors(file_path, exp_name):
+    """Define function to load and filter model behaviors based on experiment name"""
+
+    filtered_behaviors = []
+    with open(file_path, "r") as f:
+        for line in f:
+            row = json.loads(line)
+            if row.get("exp_name") == exp_name:
+                filtered_behaviors.append(row)
+    return filtered_behaviors
 
 def create_removal_path(args, seed_index):
     """Create removal directory based on removal distribution and subset index."""
@@ -136,6 +147,6 @@ def pixel_distance(sample_dir, reference_dir):
 
     for i, sample in enumerate(sample_images):
         distance = np.sqrt(np.sum((ref_images - sample) ** 2, axis=1))
-        similarity[i] = np.min(distance)
+        similarity[i] = np.mean(distance)
 
     return similarity

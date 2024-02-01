@@ -134,12 +134,7 @@ def main(args):
     )
 
     # Load pre-calculated model behavior for a give experiment
-    model_behavior_all = []
-    with open(full_model_behavior_path, "r") as f:
-        for line in f:
-            row = json.loads(line)
-            if row["exp_name"] == args.exp_name:
-                model_behavior_all.append(row)
+    model_behavior_all = load_filtered_behaviors(full_model_behavior_path, args.exp_name)
 
     # Train and test split for datamodel and data shapley.
     all_idx = [i for i in range(len(model_behavior_all))]
