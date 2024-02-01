@@ -1,9 +1,9 @@
 """Utility functions for data attribution calculation."""
 import glob
 import os
-import jsonl
 
 import clip
+import json
 import numpy as np
 import torch
 from PIL import Image
@@ -56,6 +56,7 @@ class CLIPScore:
 
         return similarity
 
+
 def load_filtered_behaviors(file_path, exp_name):
     """Define function to load and filter model behaviors based on experiment name"""
 
@@ -66,6 +67,7 @@ def load_filtered_behaviors(file_path, exp_name):
             if row.get("exp_name") == exp_name:
                 filtered_behaviors.append(row)
     return filtered_behaviors
+
 
 def create_removal_path(args, seed_index):
     """Create removal directory based on removal distribution and subset index."""

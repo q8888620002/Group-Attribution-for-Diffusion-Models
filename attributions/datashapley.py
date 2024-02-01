@@ -1,9 +1,9 @@
 """Function that calculate data shapley"""
 import os
 
-
 import numpy as np
 from attribution.attribution_utils import load_filtered_behaviors
+
 
 def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
     """
@@ -74,7 +74,9 @@ def compute_shapley_scores(args, model_behavior_all, train_idx, val_idx):
         Scores calculated using the data shapley.
     """
 
-    total_data_num = len(model_behavior_all[0]["remaining_idx"] + model_behavior_all[0]["removed_idx"])
+    total_data_num = len(
+        model_behavior_all[0]["remaining_idx"] + model_behavior_all[0]["removed_idx"]
+    )
 
     train_val_index = train_idx + val_idx
     X = np.zeros((len(train_val_index), total_data_num))
@@ -91,8 +93,16 @@ def compute_shapley_scores(args, model_behavior_all, train_idx, val_idx):
     model_behavior_full = load_filtered_behaviors(full_behavior_dir, args.exp_name)
     model_behavior_null = load_filtered_behaviors(null_behavior_path, args.exp_name)
 
-    v0 = model_behavior_null[0].get(args.model_behavior) if model_behavior_null and args.model_behavior in model_behavior_null[0] else None
-    v1 = model_behavior_full[0].get(args.model_behavior) if model_behavior_full and args.model_behavior in model_behavior_full[0] else None
+    v0 = (
+        model_behavior_null[0].get(args.model_behavior)
+        if model_behavior_null and args.model_behavior in model_behavior_null[0]
+        else None
+    )
+    v1 = (
+        model_behavior_full[0].get(args.model_behavior)
+        if model_behavior_full and args.model_behavior in model_behavior_full[0]
+        else None
+    )
 
     if v0 is None or v1 is None:
         raise ValueError("Warning: full or null behaviors were not found.")
