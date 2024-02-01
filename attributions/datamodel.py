@@ -49,7 +49,7 @@ def compute_datamodel_scores(args, model_behavior_all, train_idx, val_idx):
     -------
         Scores calculated using the datamodel method.
     """
-    total_data_num = len(model_behavior_all[0]["remaining_idx"] + model_behavior_all[0]["removed_idx"])
+    total_data_num = len(create_dataset(dataset_name=args.dataset, train=True))
 
     train_val_index = train_idx + val_idx
 
@@ -57,10 +57,19 @@ def compute_datamodel_scores(args, model_behavior_all, train_idx, val_idx):
     Y = np.zeros(len(train_val_index))
 
     for i in train_val_index:
+        try:
 
-        remaining_idx = model_behavior_all[i].get("remaining_idx")
-        X[i, remaining_idx] = 1
-        Y[i] = model_behavior_all[i].get(args.model_behavior)
+            remaining_idx = model_behavior_all[i].get("remaining_idx", [])
+            removed_idx = model_behavior_all[i].get("removed_idx", [])
+
+            assert total_data_num == len(remaining_idx) + len(removed_idx), "Total data number mismatch."
+
+            X[i, remaining_idx] = 1
+            Y[i] = model_behavior_all[i].get(args.model_behavior)
+
+        except AssertionError as e:
+            # Handle cases where total_data_num does not match the sum of indices
+            print(f"AssertionError for index {i}: {e}")
 
     coeff = datamodel(X[train_idx, :], Y[train_idx], args.num_runs)
 

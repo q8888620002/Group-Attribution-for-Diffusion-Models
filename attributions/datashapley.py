@@ -2,6 +2,8 @@
 import os
 
 import numpy as np
+
+from utils import create_dataset
 from attribution.attribution_utils import load_filtered_behaviors
 
 
@@ -74,9 +76,7 @@ def compute_shapley_scores(args, model_behavior_all, train_idx, val_idx):
         Scores calculated using the data shapley.
     """
 
-    total_data_num = len(
-        model_behavior_all[0]["remaining_idx"] + model_behavior_all[0]["removed_idx"]
-    )
+    total_data_num = len(create_dataset(dataset_name=args.dataset, train=True))
 
     train_val_index = train_idx + val_idx
     X = np.zeros((len(train_val_index), total_data_num))
@@ -108,10 +108,19 @@ def compute_shapley_scores(args, model_behavior_all, train_idx, val_idx):
         raise ValueError("Warning: full or null behaviors were not found.")
 
     for i in train_val_index:
+        try:
 
-        remaining_idx = model_behavior_all[i].get("remaining_idx")
-        X[i, remaining_idx] = 1
-        Y[i] = model_behavior_all[i].get(args.model_behavior)
+            remaining_idx = model_behavior_all[i].get("remaining_idx", [])
+            removed_idx = model_behavior_all[i].get("removed_idx", [])
+
+            assert total_data_num == len(remaining_idx) + len(removed_idx), "Total data number mismatch."
+
+            X[i, remaining_idx] = 1
+            Y[i] = model_behavior_all[i].get(args.model_behavior)
+
+        except AssertionError as e:
+            # Handle cases where total_data_num does not match the sum of indices
+            print(f"AssertionError for index {i}: {e}")
 
     coeff = data_shapley(
         total_data_num, X[train_idx, :], Y[train_idx], v1, v0, args.num_runs
