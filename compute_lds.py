@@ -1,13 +1,15 @@
 import json
 import re
-import numpy as np
 
-from sklearn.linear_model import RidgeCV
+import numpy as np
 from scipy.stats import spearmanr
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.model_selection import KFold
 
-def datamodel_modified(x_train, y_train, num_runs, alphas=[1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1], k_folds=5):
+
+def datamodel_modified(
+    x_train, y_train, num_runs, alphas=[1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1], k_folds=5
+):
     """
     Function to compute datamodel coefficients with linear regression and select the best
     based on Spearman rank correlation across a range of alphas.
@@ -41,8 +43,14 @@ def datamodel_modified(x_train, y_train, num_runs, alphas=[1e-6, 1e-5, 1e-4, 1e-
             corr_sum = 0
 
             for train_index, val_index in kf.split(bootstrapped_x):
-                x_train_k, x_val_k = bootstrapped_x[train_index], bootstrapped_x[val_index]
-                y_train_k, y_val_k = bootstrapped_y[train_index], bootstrapped_y[val_index]
+                x_train_k, x_val_k = (
+                    bootstrapped_x[train_index],
+                    bootstrapped_x[val_index],
+                )
+                y_train_k, y_val_k = (
+                    bootstrapped_y[train_index],
+                    bootstrapped_y[val_index],
+                )
 
                 model = Ridge(alpha=alpha)
                 model.fit(x_train_k, y_train_k)
@@ -63,6 +71,7 @@ def datamodel_modified(x_train, y_train, num_runs, alphas=[1e-6, 1e-5, 1e-4, 1e-
         coeff.append(best_coef)
 
     return np.stack(coeff)
+
 
 def datamodel(x_train, y_train, num_runs):
     """
@@ -95,7 +104,7 @@ def datamodel(x_train, y_train, num_runs):
     return coeff
 
 
-def compute_datamodel_scores(subset_indices, global_behavior ,train_seeds, test_seeds):
+def compute_datamodel_scores(subset_indices, global_behavior, train_seeds, test_seeds):
     """
     Compute scores for the datamodel method.
 
@@ -119,34 +128,27 @@ def compute_datamodel_scores(subset_indices, global_behavior ,train_seeds, test_
 
     for idx, seed in enumerate(all_seeds):
 
-      X[idx, subset_indices[seed]] = 1
-      Y[idx] = global_behavior[seed]
+        X[idx, subset_indices[seed]] = 1
+        Y[idx] = global_behavior[seed]
 
-    coeff = datamodel_modified(X[:len(train_seeds), :], Y[:len(train_seeds)], 5)
+    coeff = datamodel_modified(X[: len(train_seeds), :], Y[: len(train_seeds)], 5)
 
-    return np.mean(X[len(train_seeds):, :] @ coeff.T, axis=1)
+    return np.mean(X[len(train_seeds) :, :] @ coeff.T, axis=1)
 
 
 if __name__ == "__main__":
 
     random_states = [42, 10, 5, 2, 20]
 
-    results  = {
-        "retrain_vs_train_fid": [],
-        "gd_vs_train_fid" : []
-    }
+    results = {"retrain_vs_train_fid": [], "gd_vs_train_fid": []}
 
     for random_state in random_states:
-        subset_indices = {
-            'retrain_vs_train_fid': {}, 
-            'gd_vs_train_fid': {}
-        }
-        global_behavior = {
-            'retrain_vs_train_fid': {}, 
-            'gd_vs_train_fid': {}
-        }
+        subset_indices = {"retrain_vs_train_fid": {}, "gd_vs_train_fid": {}}
+        global_behavior = {"retrain_vs_train_fid": {}, "gd_vs_train_fid": {}}
 
-        model_behavior = "/gscratch/aims/diffusion-attr/results_ming/cifar/full_model_db.jsonl"
+        model_behavior = (
+            "/gscratch/aims/diffusion-attr/results_ming/cifar/full_model_db.jsonl"
+        )
 
         with open(model_behavior, "r") as f:
             for line in f:
@@ -160,10 +162,12 @@ if __name__ == "__main__":
                     seed = int(match.group(1))
 
                     if seed not in subset_indices[exp_name].keys():
-                        subset_indices[exp_name][seed] = np.asarray(row.get("remaining_idx"))
-                        global_behavior[exp_name][seed] = float(row['fid_value'])
+                        subset_indices[exp_name][seed] = np.asarray(
+                            row.get("remaining_idx")
+                        )
+                        global_behavior[exp_name][seed] = float(row["fid_value"])
 
-        retrain_seeds =  list(subset_indices["retrain_vs_train_fid"].keys())
+        retrain_seeds = list(subset_indices["retrain_vs_train_fid"].keys())
         gd_seets = list(subset_indices["gd_vs_train_fid"].keys())
 
         common_seeds = list(set(gd_seets) & set(retrain_seeds))
@@ -172,25 +176,33 @@ if __name__ == "__main__":
         rng.shuffle(common_seeds)
 
         test_seeds = [seed for seed in common_seeds[:64]]
-        train_seeds = { 
-            "retrain_vs_train_fid": [seed for seed in retrain_seeds if seed not in test_seeds][:30],
-            "gd_vs_train_fid": [seed for seed in gd_seets if seed not in test_seeds]              
+        train_seeds = {
+            "retrain_vs_train_fid": [
+                seed for seed in retrain_seeds if seed not in test_seeds
+            ][:30],
+            "gd_vs_train_fid": [seed for seed in gd_seets if seed not in test_seeds],
         }
 
-        test_values = [global_behavior["retrain_vs_train_fid"][seed] for seed in test_seeds]
+        test_values = [
+            global_behavior["retrain_vs_train_fid"][seed] for seed in test_seeds
+        ]
 
         for method in ["retrain", "gd"]:
             pre_fix = f"{method}_vs_train_fid"
 
             predicted_behavior = compute_datamodel_scores(
                 subset_indices[pre_fix],
-                global_behavior[pre_fix], 
-                train_seeds[pre_fix], 
-                test_seeds
+                global_behavior[pre_fix],
+                train_seeds[pre_fix],
+                test_seeds,
             )
-            rho = spearmanr(predicted_behavior , test_values).statistic
+            rho = spearmanr(predicted_behavior, test_values).statistic
 
             results[pre_fix].append(rho)
-        
-    print(f"LDS: retrain, {np.mean(results['retrain_vs_train_fid']), np.std(results['retrain_vs_train_fid'])}")
-    print(f"LDS: gd, {np.mean(results['gd_vs_train_fid']), np.std(results['gd_vs_train_fid'])}")
+
+    print(
+        f"LDS: retrain, {np.mean(results['retrain_vs_train_fid']), np.std(results['retrain_vs_train_fid'])}"
+    )
+    print(
+        f"LDS: gd, {np.mean(results['gd_vs_train_fid']), np.std(results['gd_vs_train_fid'])}"
+    )
