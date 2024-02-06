@@ -121,7 +121,7 @@ def main(args):
             removal_dir,
         )
         sample_dir = os.path.join(
-            args.outdir,
+            "/gscratch/cse/mingyulu/",
             args.dataset,
             args.method,
             "ema_generated_samples" if args.use_ema else "generated_samples",

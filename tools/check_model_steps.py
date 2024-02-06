@@ -98,8 +98,18 @@ def main(args):
 
         results[model_outdir] = steps
 
-    with open("/gscratch/aims/diffusion-attr/results_ming/cifar/train_steps.jsonl", "a+") as f:
+    with open(f"/gscratch/aims/diffusion-attr/results_ming/{args.dataset}/train_steps.jsonl", "w") as f:
         f.write(json.dumps(results) + "\n")
+
+    steps = [ v if v else 0 for _, v in results.items() ]
+    values, counts = np.unique(steps, return_counts=True)
+
+    count_dict = {}
+
+    for _, (value, count) in enumerate(zip(values, counts)):
+        count_dict[value] = count
+
+    print(count_dict)
 
 if __name__ == "__main__":
     args = parse_args()
