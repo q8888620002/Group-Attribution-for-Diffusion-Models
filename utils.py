@@ -19,11 +19,6 @@ from transformers import PreTrainedTokenizer
 
 import constants
 
-# Load CLIP model and transformation outside of the function for efficiency
-# device = "cuda:2" if torch.cuda.is_available() else "cpu"
-clip_model, clip_transform = clip.load("ViT-B/32", device="cpu")
-
-
 def print_args(args):
     """Print script name and args."""
     print(f"Running {sys.argv[0]} with arguments")
@@ -364,7 +359,6 @@ def remove_data_by_shapley(
     removed_idx = all_idx[remaining_size:]
     return remaining_idx, removed_idx
 
-
 def get_max_step_file(folder_path):
     """Get maximum number of training steps for results in a folder."""
     path_pattern = os.path.join(folder_path, "steps_*.pt")
@@ -490,33 +484,3 @@ def preprocess_clip_mnist(batch_images):
     batch_processed = torch.stack([transform(img) for img in batch_images])
 
     return batch_processed
-
-
-def clip_score(images1, images2):
-    """
-    Function that calculate CLIP score, cosine similarity between images1 and images2
-
-    Args:
-    ----
-        images1: The first set of images.
-        images2: The second set of images.
-
-    Return:
-    ------
-        Mean pairwise CLIP score between the two sets of images.
-    """
-
-    images1 = preprocess_clip_mnist(images1)
-    images2 = preprocess_clip_mnist(images2)
-
-    # Get the model's visual features (without text features)
-
-    with torch.no_grad():
-        features1 = clip_model.encode_image(images1)
-        features2 = clip_model.encode_image(images2)
-
-    features1 = features1 / features1.norm(dim=-1, keepdim=True)
-    features2 = features2 / features2.norm(dim=-1, keepdim=True)
-    similarity = (features1 @ features2.T).cpu().numpy()
-
-    return similarity.mean()

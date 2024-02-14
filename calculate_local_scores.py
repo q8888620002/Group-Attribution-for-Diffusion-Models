@@ -23,6 +23,10 @@ from utils import get_max_steps, print_args
 def load_model_ckpt(model, ckpt_dir, use_ema, return_ckpt: bool = False):
     """Load model parameters from the latest checkpoint in a directory."""
     steps = get_max_steps(ckpt_dir)
+
+    if steps != 200000:
+        raise NameError("The steps needs to be 200000.")
+
     if steps is None:
         raise RuntimeError(f"No checkpoints found in {ckpt_dir}")
     ckpt_path = os.path.join(ckpt_dir, f"ckpt_steps_{steps:0>8}.pt")
@@ -240,6 +244,7 @@ def main(args):
             "models",
             removal_dir,
         )
+        info_dict["removal_model_dir"] = removal_model_dir
 
     # Load full and removal model checkpoints.
     print("Loading full model checkpoint...")
