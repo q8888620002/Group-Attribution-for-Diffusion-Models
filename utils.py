@@ -58,12 +58,7 @@ class ImageDataset(Dataset):
 
 
 class TensorDataset(Dataset):
-    """
-    Wraps tensor data for easy dataset operations.
-
-    Args:
-        data (Tensor): Dataset tensor.
-    """
+    """Wraps tensor data for easy dataset operations."""
 
     def __init__(self, data):
         """Initializes dataset with data tensor."""

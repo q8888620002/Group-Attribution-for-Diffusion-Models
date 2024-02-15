@@ -15,9 +15,8 @@ from functools import partial
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.hub import download_url_to_file, get_dir
-from torch.utils.data import DataLoader, Dataset, Subset
-from torchvision import transforms
+from torch.hub import download_url_to_file
+from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
 import constants
@@ -245,8 +244,10 @@ def calc_pr(
 ):
     """
     Args:
-        manifold_1: generated manifold namedtuple(support points, radii of k-th neighborhood (inclusive))
-        manifold_2: ground truth manifold namedtuple(support points, radii of k-th neighborhood (inclusive))
+        manifold_1: generated manifold namedtuple
+        (support points, radii of k-th neighborhood (inclusive))
+        manifold_2: ground truth manifold namedtuple
+        (support points, radii of k-th neighborhood (inclusive))
         row_batch_size: literally
         col_batch_size: literally
 
@@ -298,7 +299,6 @@ def eval_pr(
 ):
     eval_total_size = 50000
     decimal_places = math.ceil(math.log(eval_total_size, 10))
-    str_fmt = f".{decimal_places}f"
 
     _ManifoldBuilder = partial(
         ManifoldBuilder,
