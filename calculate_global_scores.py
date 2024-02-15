@@ -230,9 +230,9 @@ def main(args):
             if os.path.isdir(os.path.join(args.sample_dir, entry))
         ]
         if len(subdir_list) == 0:
-        # Aggregate FID score. This is the standard practice even for conditional image
-        # generation. For example, see
-        # https://huggingface.co/docs/diffusers/main/en/conceptual/evaluation#class-conditioned-image-generation
+            # Aggregate FID score. This is the standard practice even for conditional image
+            # generation. For example, see
+            # https://huggingface.co/docs/diffusers/main/en/conceptual/evaluation#class-conditioned-image-generation
             print("Calculating the FID score...")
             fid_value = fid_score.calculate_fid_given_paths(
                 paths=[args.sample_dir, args.reference_dir],
