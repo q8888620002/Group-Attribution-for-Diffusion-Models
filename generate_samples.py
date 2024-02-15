@@ -118,7 +118,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def generate_samples(args):
+def main(args):
     """Main function to generate samples from a diffusion model."""
     seed_everything(args.seed)
     device = args.device
@@ -299,5 +299,5 @@ def generate_samples(args):
 
 if __name__ == "__main__":
     args = parse_args()
-    generate_samples(args)
+    main(args)
     print("Sample generation completed!")
