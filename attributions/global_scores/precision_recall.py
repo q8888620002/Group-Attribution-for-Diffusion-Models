@@ -54,6 +54,7 @@ class VGGFeatureExtractor(nn.Module):
 def compute_distance(
     row_features, col_features, row_batch_size, col_batch_size, device
 ):
+    """Compute distance between row and col features."""
     dist = []
     for row_batch in row_features.split(row_batch_size, dim=0):
         dist_batch = []
@@ -72,6 +73,7 @@ def compute_distance(
 
 
 def to_uint8(x):
+    """Convert x to RGB scale and torch unit8."""
     return (x * 127.5 + 128).clamp(0, 255).to(torch.uint8)
 
 
@@ -244,6 +246,8 @@ def calc_pr(
 ):
     """
     Args:
+    ----
+
         manifold_1: generated manifold namedtuple
         (support points, radii of k-th neighborhood (inclusive))
         manifold_2: ground truth manifold namedtuple
@@ -251,7 +255,8 @@ def calc_pr(
         row_batch_size: literally
         col_batch_size: literally
 
-    Returns:
+    Returns
+    -------
         precision and recall
     """
     # ======= precision ======= #
@@ -297,6 +302,7 @@ def eval_pr(
     device="cuda:0",
     reference_dir=None,
 ):
+    """Evaluate precision and recall for a given dataset and a reference set"""
     eval_total_size = 50000
     decimal_places = math.ceil(math.log(eval_total_size, 10))
 
