@@ -91,6 +91,7 @@ def build_pipeline(args, model):
 
 
 def generate_images(args, pipeline):
+    """Generate numpy images from a pipeline."""
 
     results = []
 
