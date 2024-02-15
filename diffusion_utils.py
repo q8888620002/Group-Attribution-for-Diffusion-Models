@@ -1,18 +1,23 @@
 """Utilities for duffusion pipeline"""
-import torch
 import os
 
-from tqdm import tqdm
-from  torchvision import transforms
+import torch
 from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline
 from diffusers.training_utils import EMAModel
+from torchvision import transforms
+from tqdm import tqdm
 
 from utils import ImagenetteCaptioner, create_dataset, get_max_steps
+
 
 def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
     """Load model parameters from the latest checkpoint in a directory."""
 
-    trained_steps = args.trained_steps if args.trained_steps is not None else get_max_steps(model_loaddir)
+    trained_steps = (
+        args.trained_steps
+        if args.trained_steps is not None
+        else get_max_steps(model_loaddir)
+    )
 
     if trained_steps is not None:
         ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
@@ -58,13 +63,13 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
         print(f"\t{model_str} loaded from {ckpt_path}")
     else:
         raise ValueError(f"No trained checkpoints found at {model_loaddir}")
-    
+
     return model, remaining_idx, removed_idx
 
 
 def build_pipeline(args, model):
     """Build the diffusion pipeline for the sepcific dataset and U-Net model."""
-        # Get the diffusion model pipeline for inference.
+    # Get the diffusion model pipeline for inference.
     if args.dataset == "imagenette":
         # The pipeline is of class LDMTextToImagePipeline.
         train_dataset = create_dataset(dataset_name=args.dataset, train=True)
@@ -84,6 +89,7 @@ def build_pipeline(args, model):
 
     return pipeline
 
+
 def generate_images(args, pipeline):
 
     results = []
@@ -95,25 +101,32 @@ def generate_images(args, pipeline):
         batch_size_list.append(remaining_sample_size)
 
     if args.dataset != "imagenette":
-    # For unconditional diffusion models.
+        # For unconditional diffusion models.
         with torch.no_grad():
-            counter = 0 
+            counter = 0
             for batch_size in tqdm(batch_size_list):
-                noise_generator = torch.Generator(device=args.device).manual_seed(counter)
+                noise_generator = torch.Generator(device=args.device).manual_seed(
+                    counter
+                )
                 images = pipeline(
                     batch_size=batch_size,
                     num_inference_steps=args.num_inference_steps,
                     output_type="numpy",
-                    generator = noise_generator
+                    generator=noise_generator,
                 ).images
 
                 counter += 1
                 for image in images:
                     image = torch.from_numpy(image).permute([2, 0, 1])
-                    # Align with image saving process in generate_samples.py 
-                    permuted_image = image.mul(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to("cpu", torch.uint8).numpy()
-                    results.append(
-                        transforms.ToTensor()(permuted_image)
+                    # Align with image saving process in generate_samples.py
+                    permuted_image = (
+                        image.mul(255)
+                        .add_(0.5)
+                        .clamp_(0, 255)
+                        .permute(1, 2, 0)
+                        .to("cpu", torch.uint8)
+                        .numpy()
                     )
+                    results.append(transforms.ToTensor()(permuted_image))
 
     return torch.stack(results).float()

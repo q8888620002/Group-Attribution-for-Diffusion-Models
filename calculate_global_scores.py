@@ -2,20 +2,19 @@
 import argparse
 import json
 import os
-from tqdm import tqdm
-
 import pickle
-import diffusers
 
+import diffusers
 from lightning.pytorch import seed_everything
 from pytorch_fid import fid_score
 from pytorch_fid.fid_score import calculate_frechet_distance
 from pytorch_fid.inception import InceptionV3
+from tqdm import tqdm
 
 import constants
 from ddpm_config import DDPMConfig
-from utils import  print_args, compute_features_stats
-from diffusion_utils import build_pipeline, load_ckpt_model, generate_images
+from diffusion_utils import build_pipeline, generate_images, load_ckpt_model
+from utils import compute_features_stats, print_args
 
 
 def parse_args():
@@ -85,7 +84,7 @@ def parse_args():
         type=str,
         help="experiment name to record in the database file",
         default=None,
-        required=True
+        required=True,
     )
     parser.add_argument(
         "--batch_size",
@@ -158,8 +157,8 @@ def main(args):
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
-        
-        with open('misc/cifar_train.pkl', 'rb') as file:
+
+        with open("misc/cifar_train.pkl", "rb") as file:
             cifar_train = pickle.load(file)
         mu, sigma = cifar_train["mu"], cifar_train["sigma"]
 
@@ -200,14 +199,16 @@ def main(args):
         )
         model_strc = model_cls(**config["unet_config"])
 
-        model, remaining_idx, removed_idx = load_ckpt_model(args, model_cls, model_strc, model_loaddir)
+        model, remaining_idx, removed_idx = load_ckpt_model(
+            args, model_cls, model_strc, model_loaddir
+        )
         pipeline = build_pipeline(args, model)
 
         generated_images = generate_images(args, pipeline)
 
         block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[dims]
         inceptionNet = InceptionV3([block_idx]).to(device)
-        inceptionNet.eval() # Important: .eval() is needed to turn off dropout
+        inceptionNet.eval()  # Important: .eval() is needed to turn off dropout
 
         # Calculate mu and sigma for generated_images
 
@@ -280,6 +281,7 @@ def main(args):
     with open(args.db, "a+") as f:
         f.write(json.dumps(info_dict) + "\n")
     print(f"Results saved to the database at {args.db}")
+
 
 if __name__ == "__main__":
     args = parse_args()
