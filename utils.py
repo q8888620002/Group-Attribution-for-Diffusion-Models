@@ -3,11 +3,8 @@
 import glob
 import os
 import sys
-
 from typing import List, Tuple
-from tqdm import tqdm 
 
-import clip
 import numpy as np
 import pynvml
 import torch
@@ -17,9 +14,11 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST, ImageFolder
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
+from tqdm import tqdm
 from transformers import PreTrainedTokenizer
 
 import constants
+
 
 def print_args(args):
     """Print script name and args."""
@@ -361,6 +360,7 @@ def remove_data_by_shapley(
     removed_idx = all_idx[remaining_size:]
     return remaining_idx, removed_idx
 
+
 def get_max_step_file(folder_path):
     """Get maximum number of training steps for results in a folder."""
     path_pattern = os.path.join(folder_path, "steps_*.pt")
@@ -436,6 +436,7 @@ def get_features(dataloader, mean, std, model, n_samples, device) -> np.ndarray:
     # Trim the features if necessary
     return features[:n_samples]
 
+
 def compute_features_stats(args, images, model):
     """Function to extract InceptionNet Features"""
 
@@ -451,7 +452,7 @@ def compute_features_stats(args, images, model):
     start_idx = 0
 
     for batch_size in tqdm(batch_size_list):
-        batch = images[start_idx:start_idx + batch_size, : ,: ,: ].to(args.device)
+        batch = images[start_idx : start_idx + batch_size, :, :, :].to(args.device)
 
         with torch.no_grad():
             pred = model(batch)[0]
@@ -463,13 +464,14 @@ def compute_features_stats(args, images, model):
             pred = adaptive_avg_pool2d(pred, output_size=(1, 1))
 
         pred = pred.squeeze(3).squeeze(2).cpu().numpy()
-        pred_arr[start_idx:start_idx + pred.shape[0]] = pred
+        pred_arr[start_idx : start_idx + pred.shape[0]] = pred
         start_idx = start_idx + pred.shape[0]
 
     mu = np.mean(pred_arr, axis=0)
     sigma = np.cov(pred_arr, rowvar=False)
 
     return mu, sigma
+
 
 def calculate_fid(real_features, fake_features):
     """

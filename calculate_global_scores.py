@@ -9,7 +9,6 @@ from lightning.pytorch import seed_everything
 from pytorch_fid import fid_score
 from pytorch_fid.fid_score import calculate_frechet_distance
 from pytorch_fid.inception import InceptionV3
-from tqdm import tqdm
 
 import constants
 from ddpm_config import DDPMConfig
