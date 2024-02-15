@@ -296,8 +296,8 @@ def main(args):
                 avg_recall_value += recall
 
                 print(
-                    f"FID/Precision/Recall score for {subdir}:
-                    {fid_value_str}/{precision}/{recall}"
+                    f"FID/Precision/Recall score for {subdir}:"
+                    f"{fid_value_str}/{precision}/{recall}"
                 )
 
                 info_dict[f"fid_value/{subdir}"] = fid_value_str
