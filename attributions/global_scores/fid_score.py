@@ -3,6 +3,8 @@ import pickle as pkl
 
 import numpy as np
 import torch
+
+from torch.nn.functional import adaptive_avg_pool2d
 from pytorch_fid.fid_score import (
     calculate_fid_given_paths,
     calculate_frechet_distance,
@@ -13,7 +15,7 @@ from tqdm import tqdm
 
 
 def calculate_fid(dataset, generated_images, batch_size, device, reference_dir=None):
-    """calculate fid given a set of generated images."""
+    """Calculate fid given a set of generated images."""
 
     dims = 2048
     block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[dims]
