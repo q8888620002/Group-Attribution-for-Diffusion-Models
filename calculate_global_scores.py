@@ -2,12 +2,20 @@
 import argparse
 import json
 import os
+from tqdm import tqdm
 
-import torch
+import pickle
+import diffusers
+
+from lightning.pytorch import seed_everything
 from pytorch_fid import fid_score
+from pytorch_fid.fid_score import calculate_frechet_distance
+from pytorch_fid.inception import InceptionV3
 
 import constants
-from utils import get_max_steps, print_args
+from ddpm_config import DDPMConfig
+from utils import  print_args, compute_features_stats
+from diffusion_utils import build_pipeline, load_ckpt_model, generate_images
 
 
 def parse_args():
@@ -89,10 +97,54 @@ def parse_args():
         "--device", type=str, help="device used for computation", default="cuda:0"
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        help="random seed for image sample generation",
+        default=42,
+    )
+    # params for sample generation
+    parser.add_argument(
+        "--generate_samples",
+        help="whether to generate samples",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--n_samples", type=int, default=100000, help="number of generated samples"
+    )
+    parser.add_argument(
+        "--num_inference_steps",
+        type=int,
+        default=100,
+        help="number of diffusion steps for generating images",
+    )
+    parser.add_argument(
         "--use_ema",
         help="whether to use the EMA model",
         action="store_true",
         default=False,
+    )
+    parser.add_argument(
+        "--trained_steps",
+        type=int,
+        help="steps for specific ckeck points",
+        default=None,
+    )
+    # params for loading the pruned model
+    parser.add_argument(
+        "--pruning_ratio",
+        type=float,
+        help="ratio for remaining parameters.",
+        default=0.3,
+    )
+    parser.add_argument(
+        "--pruner",
+        type=str,
+        default="magnitude",
+        choices=["taylor", "random", "magnitude", "reinit", "diff-pruning"],
+    )
+    parser.add_argument(
+        "--thr", type=float, default=0.05, help="threshold for diff-pruning"
     )
     args = parser.parse_args()
     return args
@@ -100,10 +152,36 @@ def parse_args():
 
 def main(args):
     """Main function for calculating global model behaviors."""
+    seed_everything(args.seed)
+    device = args.device
+    info_dict = vars(args)
 
-    sample_dir = args.sample_dir
+    if args.dataset == "cifar":
+        config = {**DDPMConfig.cifar_config}
+        
+        with open('misc/cifar_train.pkl', 'rb') as file:
+            cifar_train = pickle.load(file)
+        mu, sigma = cifar_train["mu"], cifar_train["sigma"]
 
-    if not sample_dir:
+    elif args.dataset == "celeba":
+        config = {**DDPMConfig.celeba_config}
+    elif args.dataset == "mnist":
+        config = {**DDPMConfig.mnist_config}
+    elif args.dataset == "imagenette":
+        config = {**DDPMConfig.imagenette_config}
+    else:
+        raise ValueError(
+            (
+                f"dataset={args.dataset} is not one of "
+                "['cifar', 'mnist', 'celeba', 'imagenette']"
+            )
+        )
+    model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
+
+    # Check if there's need to generate samples.
+    dims = 2048
+
+    if not args.sample_dir:
         removal_dir = "full"
         if args.excluded_class is not None:
             removal_dir = f"excluded_{args.excluded_class}"
@@ -120,83 +198,88 @@ def main(args):
             "models",
             removal_dir,
         )
-        sample_dir = os.path.join(
-            "/gscratch/cse/mingyulu/",
-            args.dataset,
-            args.method,
-            "ema_generated_samples" if args.use_ema else "generated_samples",
-            removal_dir,
+        model_strc = model_cls(**config["unet_config"])
+
+        model, remaining_idx, removed_idx = load_ckpt_model(args, model_cls, model_strc, model_loaddir)
+        pipeline = build_pipeline(args, model)
+
+        generated_images = generate_images(args, pipeline)
+
+        block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[dims]
+        inceptionNet = InceptionV3([block_idx]).to(device)
+        inceptionNet.eval() # Important: .eval() is needed to turn off dropout
+
+        # Calculate mu and sigma for generated_images
+
+        mu1, sigma1 = compute_features_stats(
+            args,
+            generated_images,
+            inceptionNet,
         )
 
-        existing_steps = get_max_steps(model_loaddir)
-        if existing_steps is not None:
-            ckpt_path = os.path.join(
-                model_loaddir, f"ckpt_steps_{existing_steps:0>8}.pt"
-            )
-            ckpt = torch.load(ckpt_path, map_location="cpu")
-            remaining_idx = ckpt["remaining_idx"].numpy().tolist()
-            removed_idx = ckpt["removed_idx"].numpy().tolist()
-
-    info_dict = vars(args)
-    # Check if subdirectories exist for conditional image generation.
-    subdir_list = [
-        entry
-        for entry in os.listdir(sample_dir)
-        if os.path.isdir(os.path.join(sample_dir, entry))
-    ]
-    if len(subdir_list) == 0:
-        # Aggregate FID score. This is the standard practice even for conditional image
-        # generation. For example, see
-        # https://huggingface.co/docs/diffusers/main/en/conceptual/evaluation#class-conditioned-image-generation
-        print("Calculating the FID score...")
-        fid_value = fid_score.calculate_fid_given_paths(
-            paths=[sample_dir, args.reference_dir],
-            batch_size=args.batch_size,
-            device=args.device,
-            dims=2048,
-        )
-        fid_value_str = f"{fid_value:.4f}"
-
-        # TODO: Calculate Precision and Recall to capture generated image fidelity and
-        # diversity, respectively.
-
+        fid_value_str = calculate_frechet_distance(mu1, sigma1, mu, sigma)
         print(f"FID score: {fid_value_str}")
         info_dict["fid_value"] = fid_value_str
 
     else:
-        # Class-wise FID scores. If each class has too few reference samples, the
-        # scores can be unstable.
-        avg_fid_value = 0
-        for subdir in subdir_list:
-            print(f"Calculating the FID score for class {subdir}...")
+        # Check if subdirectories exist for conditional image generation.
+        subdir_list = [
+            entry
+            for entry in os.listdir(args.sample_dir)
+            if os.path.isdir(os.path.join(args.sample_dir, entry))
+        ]
+        if len(subdir_list) == 0:
+            # Aggregate FID score. This is the standard practice even for conditional image
+            # generation. For example, see
+            # https://huggingface.co/docs/diffusers/main/en/conceptual/evaluation#class-conditioned-image-generation
+            print("Calculating the FID score...")
             fid_value = fid_score.calculate_fid_given_paths(
-                paths=[
-                    os.path.join(sample_dir, subdir),
-                    os.path.join(args.reference_dir, subdir),
-                ],
+                paths=[args.sample_dir, args.reference_dir],
                 batch_size=args.batch_size,
                 device=args.device,
-                dims=2048,
+                dims=dims,
             )
             fid_value_str = f"{fid_value:.4f}"
-            avg_fid_value += fid_value
 
-            print(f"FID score for {subdir}: {fid_value_str}")
-            info_dict[f"fid_value/{subdir}"] = fid_value_str
+            # TODO: Calculate Precision and Recall to capture generated image fidelity and
+            # diversity, respectively.
 
-        avg_fid_value /= len(subdir_list)
-        avg_fid_value_str = f"{avg_fid_value:.4f}"
-        print(f"Average FID score: {avg_fid_value_str}")
-        info_dict["avg_fid_value"] = avg_fid_value_str
+            print(f"FID score: {fid_value_str}")
+            info_dict["fid_value"] = fid_value_str
 
-    info_dict["sample_dir"] = sample_dir
+        else:
+            # Class-wise FID scores. If each class has too few reference samples, the
+            # scores can be unstable.
+            avg_fid_value = 0
+            for subdir in subdir_list:
+                print(f"Calculating the FID score for class {subdir}...")
+                fid_value = fid_score.calculate_fid_given_paths(
+                    paths=[
+                        os.path.join(args.sample_dir, subdir),
+                        os.path.join(args.reference_dir, subdir),
+                    ],
+                    batch_size=args.batch_size,
+                    device=args.device,
+                    dims=dims,
+                )
+                fid_value_str = f"{fid_value:.4f}"
+                avg_fid_value += fid_value
+
+                print(f"FID score for {subdir}: {fid_value_str}")
+                info_dict[f"fid_value/{subdir}"] = fid_value_str
+
+            avg_fid_value /= len(subdir_list)
+            avg_fid_value_str = f"{avg_fid_value:.4f}"
+            print(f"Average FID score: {avg_fid_value_str}")
+            info_dict["avg_fid_value"] = avg_fid_value_str
+
+    info_dict["sample_dir"] = args.sample_dir
     info_dict["remaining_idx"] = remaining_idx
     info_dict["removed_idx"] = removed_idx
 
     with open(args.db, "a+") as f:
         f.write(json.dumps(info_dict) + "\n")
     print(f"Results saved to the database at {args.db}")
-
 
 if __name__ == "__main__":
     args = parse_args()
