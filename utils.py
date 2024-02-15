@@ -437,42 +437,6 @@ def get_features(dataloader, mean, std, model, n_samples, device) -> np.ndarray:
     return features[:n_samples]
 
 
-def compute_features_stats(args, images, model):
-    """Function to extract InceptionNet Features"""
-
-    batch_size_list = [args.batch_size] * (args.n_samples // args.batch_size)
-    remaining_sample_size = args.n_samples % args.batch_size
-
-    if remaining_sample_size > 0:
-        batch_size_list.append(remaining_sample_size)
-
-    dims = 2048
-    pred_arr = np.empty((len(images), dims))
-
-    start_idx = 0
-
-    for batch_size in tqdm(batch_size_list):
-        batch = images[start_idx : start_idx + batch_size, :, :, :].to(args.device)
-
-        with torch.no_grad():
-            pred = model(batch)[0]
-
-        # If model output is not scalar, apply global spatial average pooling.
-        # This happens if you choose a dimensionality not equal 2048.
-
-        if pred.size(2) != 1 or pred.size(3) != 1:
-            pred = adaptive_avg_pool2d(pred, output_size=(1, 1))
-
-        pred = pred.squeeze(3).squeeze(2).cpu().numpy()
-        pred_arr[start_idx : start_idx + pred.shape[0]] = pred
-        start_idx = start_idx + pred.shape[0]
-
-    mu = np.mean(pred_arr, axis=0)
-    sigma = np.cov(pred_arr, rowvar=False)
-
-    return mu, sigma
-
-
 def calculate_fid(real_features, fake_features):
     """
     Calculating fid score, squared Wasserstein metric between two multidimensional

@@ -6,14 +6,13 @@ import pickle
 
 import diffusers
 from lightning.pytorch import seed_everything
-from pytorch_fid import fid_score
-from pytorch_fid.fid_score import calculate_frechet_distance
-from pytorch_fid.inception import InceptionV3
 
 import constants
 from ddpm_config import DDPMConfig
+
+from attributions.global_scores import precision_recall, fid_score
 from diffusion_utils import build_pipeline, generate_images, load_ckpt_model
-from utils import compute_features_stats, print_args
+from utils import print_args
 
 
 def parse_args():
@@ -29,7 +28,7 @@ def parse_args():
         "--reference_dir",
         type=str,
         help="directory path of reference samples, from a dataset or a diffusion model",
-        required=True,
+        default=None
     )
     parser.add_argument(
         "--outdir", type=str, help="results parent directory", default=constants.OUTDIR
@@ -156,11 +155,6 @@ def main(args):
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
-
-        with open("misc/cifar_train.pkl", "rb") as file:
-            cifar_train = pickle.load(file)
-        mu, sigma = cifar_train["mu"], cifar_train["sigma"]
-
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -196,6 +190,8 @@ def main(args):
             "models",
             removal_dir,
         )
+        sample_dir = None
+
         model_strc = model_cls(**config["unet_config"])
 
         model, remaining_idx, removed_idx = load_ckpt_model(
@@ -203,23 +199,31 @@ def main(args):
         )
         pipeline = build_pipeline(args, model)
 
-        generated_images = generate_images(args, pipeline)
+        generated_samples = generate_images(args, pipeline)
 
-        block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[dims]
-        inceptionNet = InceptionV3([block_idx]).to(device)
-        inceptionNet.eval()  # Important: .eval() is needed to turn off dropout
-
-        # Calculate mu and sigma for generated_images
-
-        mu1, sigma1 = compute_features_stats(
-            args,
-            generated_images,
-            inceptionNet,
+        precision, recall = precision_recall.eval_pr(
+            args.dataset,
+            generated_samples,
+            args.batch_size,
+            row_batch_size=10000,
+            col_batch_size=10000,
+            nhood_size=3,
+            device=args.device,
+            reference_dir=args.reference_dir
         )
 
-        fid_value_str = calculate_frechet_distance(mu1, sigma1, mu, sigma)
-        print(f"FID score: {fid_value_str}")
+        fid_value_str = fid_score.calculate_fid(
+            args.dataset,
+            generated_samples,
+            args.batch_size,
+            args.device,
+            args.reference_dir
+        )
+
+        print(f"FID score: {fid_value_str}; Precision:{precision}; Recall:{recall}")
         info_dict["fid_value"] = fid_value_str
+        info_dict["precision"] = precision
+        info_dict["recall"] = recall
 
     else:
         # Check if subdirectories exist for conditional image generation.
@@ -239,13 +243,26 @@ def main(args):
                 device=args.device,
                 dims=dims,
             )
+            precision, recall = precision_recall.eval_pr(
+                args.dataset,
+                args.sample_dir,
+                args.batch_size,
+                row_batch_size=10000,
+                col_batch_size=10000,
+                nhood_size=3,
+                device=args.device,
+                reference_dir=args.reference_dir
+            )
+
             fid_value_str = f"{fid_value:.4f}"
 
             # TODO: Calculate Precision and Recall to capture generated image fidelity and
             # diversity, respectively.
 
-            print(f"FID score: {fid_value_str}")
+            print(f"FID score: {fid_value_str}; Precision:{precision}; Recall:{recall}")
             info_dict["fid_value"] = fid_value_str
+            info_dict["precision"] = precision
+            info_dict["recall"] = recall
 
         else:
             # Class-wise FID scores. If each class has too few reference samples, the
@@ -262,18 +279,38 @@ def main(args):
                     device=args.device,
                     dims=dims,
                 )
+                precision, recall = precision_recall.eval_pr(
+                    args.dataset,
+                    os.path.join(args.sample_dir, subdir),
+                    args.batch_size,
+                    row_batch_size=10000,
+                    col_batch_size=10000,
+                    nhood_size=3,
+                    device=args.device,
+                    reference_dir=os.path.join(args.reference_dir, subdir)
+                )
+
                 fid_value_str = f"{fid_value:.4f}"
                 avg_fid_value += fid_value
+                avg_precision_value += precision
+                avg_recall_value += recall
 
-                print(f"FID score for {subdir}: {fid_value_str}")
+                print(f"FID/Precision/Recall score for {subdir}: {fid_value_str}/{precision}/{recall}")
+
                 info_dict[f"fid_value/{subdir}"] = fid_value_str
+                info_dict[f"precision/{subdir}"] = precision
+                info_dict[f"recall/{subdir}"] = recall
+
 
             avg_fid_value /= len(subdir_list)
+            avg_precision_value /= len(subdir_list)
+            avg_recall_value /= len(subdir_list)
+
             avg_fid_value_str = f"{avg_fid_value:.4f}"
             print(f"Average FID score: {avg_fid_value_str}")
             info_dict["avg_fid_value"] = avg_fid_value_str
 
-    info_dict["sample_dir"] = args.sample_dir
+    info_dict["sample_dir"] = sample_dir
     info_dict["remaining_idx"] = remaining_idx
     info_dict["removed_idx"] = removed_idx
 
