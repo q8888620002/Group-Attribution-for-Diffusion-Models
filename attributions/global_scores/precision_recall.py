@@ -30,6 +30,7 @@ from utils import (
 Manifold = namedtuple("Manifold", ["features", "kth"])
 
 class VGGFeatureExtractor(nn.Module):
+    """VGG network to extract features"""
     WEIGHTS_URL = "https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metrics/vgg16.pt"
 
     def __init__(self):
@@ -92,6 +93,7 @@ class ManifoldBuilder:
         num_workers=0,
         device=torch.device("cpu"),  # set to cuda if available for the best performance
     ):
+    """Initialize data manifold for a given dataset"""
         if features is None:
             num_extr_batches = math.ceil(max_sample_size / extr_batch_size)
             if model is None:
