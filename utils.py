@@ -33,6 +33,7 @@ def get_memory_free_MiB(gpu_index):
     mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
     return mem_info.free // 1024 ** 2
 
+
 class ImageDataset(Dataset):
     """
     Loads and transforms images from a directory.
@@ -49,7 +50,11 @@ class ImageDataset(Dataset):
         Initializes dataset with image directory and transform.
         """
         self.img_dir = img_dir
-        self.img_list = [img for img in os.listdir(img_dir) if img.split(".")[-1] in {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}]
+        self.img_list = [
+            img
+            for img in os.listdir(img_dir)
+            if img.split(".")[-1] in {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
+        ]
         self.transform = transform
 
     def __getitem__(self, idx):

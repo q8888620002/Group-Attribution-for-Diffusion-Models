@@ -21,11 +21,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 import constants
-from utils import (
-    create_dataset,
-    ImageDataset,
-    TensorDataset
-)
+from utils import ImageDataset, TensorDataset, create_dataset
 
 Manifold = namedtuple("Manifold", ["features", "kth"])
 
@@ -79,6 +75,8 @@ def to_uint8(x):
 
 
 class ManifoldBuilder:
+    """Initialize data manifold for a given dataset"""
+
     def __init__(
         self,
         data=None,
@@ -93,7 +91,6 @@ class ManifoldBuilder:
         num_workers=0,
         device=torch.device("cpu"),  # set to cuda if available for the best performance
     ):
-    """Initialize data manifold for a given dataset"""
         if features is None:
             num_extr_batches = math.ceil(max_sample_size / extr_batch_size)
             if model is None:
