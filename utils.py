@@ -33,6 +33,35 @@ def get_memory_free_MiB(gpu_index):
     mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
     return mem_info.free // 1024 ** 2
 
+class ImageDataset(Dataset):
+    """Dataloader for ImageDataset"""
+    def __init__(self, img_dir, transform=transforms.PILToTensor()):
+        self.img_dir = img_dir
+        self.img_list = [
+            img
+            for img in os.listdir(img_dir)
+            if img.split(".")[-1] in {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
+        ]
+        self.transform = transform
+
+    def __getitem__(self, idx):
+        with Image.open(os.path.join(self.img_dir, self.img_list[idx])) as im:
+            return self.transform(im)
+
+    def __len__(self):
+        return len(self.img_list)
+
+class TensorDataset(Dataset):
+    def __init__(self, data):
+        self.data = data
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+
 
 class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
     """

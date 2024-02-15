@@ -21,39 +21,13 @@ from torchvision import transforms
 from tqdm import tqdm
 
 import constants
-from utils import create_dataset
+from utils import (
+    create_dataset,
+    ImageDataset,
+    TensorDataset
+)
 
 Manifold = namedtuple("Manifold", ["features", "kth"])
-
-
-class ImageDataset(Dataset):
-    def __init__(self, img_dir, transform=transforms.PILToTensor()):
-        self.img_dir = img_dir
-        self.img_list = [
-            img
-            for img in os.listdir(img_dir)
-            if img.split(".")[-1] in {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
-        ]
-        self.transform = transform
-
-    def __getitem__(self, idx):
-        with Image.open(os.path.join(self.img_dir, self.img_list[idx])) as im:
-            return self.transform(im)
-
-    def __len__(self):
-        return len(self.img_list)
-
-
-class TensorDataset(Dataset):
-    def __init__(self, data):
-        self.data = data
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        return self.data[idx]
-
 
 class VGGFeatureExtractor(nn.Module):
     WEIGHTS_URL = "https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metrics/vgg16.pt"

@@ -3,14 +3,13 @@ import pickle as pkl
 
 import numpy as np
 import torch
-
-from torch.nn.functional import adaptive_avg_pool2d
 from pytorch_fid.fid_score import (
     calculate_fid_given_paths,
     calculate_frechet_distance,
     compute_statistics_of_path,
 )
 from pytorch_fid.inception import InceptionV3
+from torch.nn.functional import adaptive_avg_pool2d
 from tqdm import tqdm
 
 
