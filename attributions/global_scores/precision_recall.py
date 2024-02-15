@@ -304,7 +304,7 @@ def eval_pr(
 ):
     """Evaluate precision and recall for a given dataset and a reference set"""
     eval_total_size = 50000
-    decimal_places = math.ceil(math.log(eval_total_size, 10))
+    # decimal_places = math.ceil(math.log(eval_total_size, 10))
 
     _ManifoldBuilder = partial(
         ManifoldBuilder,
