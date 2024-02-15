@@ -2,15 +2,13 @@
 import argparse
 import json
 import os
-import pickle
 
 import diffusers
 from lightning.pytorch import seed_everything
 
 import constants
+from attributions.global_scores import fid_score, precision_recall
 from ddpm_config import DDPMConfig
-
-from attributions.global_scores import precision_recall, fid_score
 from diffusion_utils import build_pipeline, generate_images, load_ckpt_model
 from utils import print_args
 
@@ -28,7 +26,7 @@ def parse_args():
         "--reference_dir",
         type=str,
         help="directory path of reference samples, from a dataset or a diffusion model",
-        default=None
+        default=None,
     )
     parser.add_argument(
         "--outdir", type=str, help="results parent directory", default=constants.OUTDIR
@@ -150,7 +148,6 @@ def parse_args():
 def main(args):
     """Main function for calculating global model behaviors."""
     seed_everything(args.seed)
-    device = args.device
     info_dict = vars(args)
 
     if args.dataset == "cifar":
@@ -209,7 +206,7 @@ def main(args):
             col_batch_size=10000,
             nhood_size=3,
             device=args.device,
-            reference_dir=args.reference_dir
+            reference_dir=args.reference_dir,
         )
 
         fid_value_str = fid_score.calculate_fid(
@@ -217,7 +214,7 @@ def main(args):
             generated_samples,
             args.batch_size,
             args.device,
-            args.reference_dir
+            args.reference_dir,
         )
 
         print(f"FID score: {fid_value_str}; Precision:{precision}; Recall:{recall}")
@@ -251,7 +248,7 @@ def main(args):
                 col_batch_size=10000,
                 nhood_size=3,
                 device=args.device,
-                reference_dir=args.reference_dir
+                reference_dir=args.reference_dir,
             )
 
             fid_value_str = f"{fid_value:.4f}"
@@ -268,6 +265,9 @@ def main(args):
             # Class-wise FID scores. If each class has too few reference samples, the
             # scores can be unstable.
             avg_fid_value = 0
+            avg_precision_value = 0
+            avg_recall_value = 0
+
             for subdir in subdir_list:
                 print(f"Calculating the FID score for class {subdir}...")
                 fid_value = fid_score.calculate_fid_given_paths(
@@ -287,7 +287,7 @@ def main(args):
                     col_batch_size=10000,
                     nhood_size=3,
                     device=args.device,
-                    reference_dir=os.path.join(args.reference_dir, subdir)
+                    reference_dir=os.path.join(args.reference_dir, subdir),
                 )
 
                 fid_value_str = f"{fid_value:.4f}"
@@ -295,12 +295,14 @@ def main(args):
                 avg_precision_value += precision
                 avg_recall_value += recall
 
-                print(f"FID/Precision/Recall score for {subdir}: {fid_value_str}/{precision}/{recall}")
+                print(
+                    f"FID/Precision/Recall score for {subdir}:
+                    {fid_value_str}/{precision}/{recall}"
+                )
 
                 info_dict[f"fid_value/{subdir}"] = fid_value_str
                 info_dict[f"precision/{subdir}"] = precision
                 info_dict[f"recall/{subdir}"] = recall
-
 
             avg_fid_value /= len(subdir_list)
             avg_precision_value /= len(subdir_list)

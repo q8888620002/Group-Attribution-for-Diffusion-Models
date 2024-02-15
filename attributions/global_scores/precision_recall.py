@@ -7,17 +7,18 @@ the implementation is based on the code of stylegan2-ada-pytorch [^2]
 """  # noqa
 
 import math
-import numpy as np
 import os
+from collections import namedtuple
+from copy import deepcopy
+from functools import partial
+
+import numpy as np
 import torch
 import torch.nn as nn
-from collections import namedtuple
-from torch.hub import get_dir, download_url_to_file
-from torch.utils.data import Subset, DataLoader, Dataset
+from torch.hub import download_url_to_file, get_dir
+from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import transforms
-from functools import partial
 from tqdm import tqdm
-from copy import deepcopy
 
 import constants
 from utils import create_dataset
@@ -29,8 +30,10 @@ class ImageDataset(Dataset):
     def __init__(self, img_dir, transform=transforms.PILToTensor()):
         self.img_dir = img_dir
         self.img_list = [
-            img for img in os.listdir(img_dir)
-            if img.split(".")[-1] in {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}]
+            img
+            for img in os.listdir(img_dir)
+            if img.split(".")[-1] in {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
+        ]
         self.transform = transform
 
     def __getitem__(self, idx):
@@ -39,6 +42,7 @@ class ImageDataset(Dataset):
 
     def __len__(self):
         return len(self.img_list)
+
 
 class TensorDataset(Dataset):
     def __init__(self, data):
@@ -51,7 +55,6 @@ class TensorDataset(Dataset):
         return self.data[idx]
 
 
-
 class VGGFeatureExtractor(nn.Module):
     WEIGHTS_URL = "https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metrics/vgg16.pt"
 
@@ -60,7 +63,10 @@ class VGGFeatureExtractor(nn.Module):
         self.model = self._load_model()
 
     def _load_model(self):
-        model_path = os.path.join("/gscratch/aims/diffusion-attr/pretrained_models", os.path.basename(self.WEIGHTS_URL))
+        model_path = os.path.join(
+            "/gscratch/aims/diffusion-attr/pretrained_models",
+            os.path.basename(self.WEIGHTS_URL),
+        )
         if not os.path.exists(model_path):
             download_url_to_file(self.WEIGHTS_URL, model_path)
         model = torch.jit.load(model_path).eval()
@@ -73,15 +79,20 @@ class VGGFeatureExtractor(nn.Module):
         return self.model(x, return_features=True)
 
 
-def compute_distance(row_features, col_features, row_batch_size, col_batch_size, device):
+def compute_distance(
+    row_features, col_features, row_batch_size, col_batch_size, device
+):
     dist = []
     for row_batch in row_features.split(row_batch_size, dim=0):
         dist_batch = []
         for col_batch in col_features.split(col_batch_size, dim=0):
-            dist_batch.append(torch.cdist(
-                row_batch.to(device).unsqueeze(0),
-                col_batch.to(device).unsqueeze(0)
-            ).squeeze(0).cpu())
+            dist_batch.append(
+                torch.cdist(
+                    row_batch.to(device).unsqueeze(0), col_batch.to(device).unsqueeze(0)
+                )
+                .squeeze(0)
+                .cpu()
+            )
         dist_batch = torch.cat(dist_batch, dim=1)
         dist.append(dist_batch)
     dist = torch.cat(dist, dim=0)
@@ -94,38 +105,50 @@ def to_uint8(x):
 
 class ManifoldBuilder:
     def __init__(
-            self,
-            data=None,
-            model=None,
-            features=None,
-            extr_batch_size=128,
-            max_sample_size=50000,
-            nhood_size=3,
-            row_batch_size=10000,
-            col_batch_size=10000,
-            random_state=1234,
-            num_workers=0,
-            device=torch.device("cpu")  # set to cuda if available for the best performance
+        self,
+        data=None,
+        model=None,
+        features=None,
+        extr_batch_size=128,
+        max_sample_size=50000,
+        nhood_size=3,
+        row_batch_size=10000,
+        col_batch_size=10000,
+        random_state=1234,
+        num_workers=0,
+        device=torch.device("cpu"),  # set to cuda if available for the best performance
     ):
         if features is None:
             num_extr_batches = math.ceil(max_sample_size / extr_batch_size)
             if model is None:
-                if hasattr(data, "__getitem__") and hasattr(data, "__len__"):  # map-style dataset
+                if hasattr(data, "__getitem__") and hasattr(
+                    data, "__len__"
+                ):  # map-style dataset
                     data_size = len(data)
                     if data_size > max_sample_size:
                         np.random.seed(random_state)
-                        inds = torch.as_tensor(np.random.choice(data_size, size=max_sample_size, replace=False))
+                        inds = torch.as_tensor(
+                            np.random.choice(
+                                data_size, size=max_sample_size, replace=False
+                            )
+                        )
                         data = Subset(data, indices=inds)
 
                     def dataloader():
                         _dataloader = DataLoader(
-                            data, batch_size=extr_batch_size, shuffle=False,
-                            num_workers=num_workers, drop_last=False, pin_memory=True)
+                            data,
+                            batch_size=extr_batch_size,
+                            shuffle=False,
+                            num_workers=num_workers,
+                            drop_last=False,
+                            pin_memory=True,
+                        )
                         for x in _dataloader:
                             if isinstance(x, (list, tuple)):
                                 yield x[0]
                             else:
                                 yield x
+
                 else:
                     assert isinstance(data, (np.ndarray, torch.Tensor, str))
                     if isinstance(data, str) and os.path.exists(data):
@@ -139,26 +162,38 @@ class ManifoldBuilder:
                     data_size = data.shape[0]
                     if data_size > max_sample_size:
                         np.random.seed(random_state)
-                        inds = torch.as_tensor(np.random.choice(data_size, size=max_sample_size, replace=False))
+                        inds = torch.as_tensor(
+                            np.random.choice(
+                                data_size, size=max_sample_size, replace=False
+                            )
+                        )
                         data = data[inds]
 
                     def dataloader():
                         for i in range(num_extr_batches):
                             if i == num_extr_batches - 1:
-                                yield data[i * extr_batch_size: max_sample_size]
+                                yield data[i * extr_batch_size : max_sample_size]
                             else:
-                                yield data[i * extr_batch_size: (i + 1) * extr_batch_size]
+                                yield data[
+                                    i * extr_batch_size : (i + 1) * extr_batch_size
+                                ]
+
             else:
+
                 def dataloader():
                     for i in range(num_extr_batches):
                         if i == num_extr_batches - 1:
-                            yield to_uint8(model.sample_x(max_sample_size - extr_batch_size * i))
+                            yield to_uint8(
+                                model.sample_x(max_sample_size - extr_batch_size * i)
+                            )
                         else:
                             yield to_uint8(model.sample_x(extr_batch_size))
 
             self.op_device = input_device = device
             if isinstance(device, list):
-                self.extractor = nn.DataParallel(VGGFeatureExtractor().to(device[0]), device_ids=device)
+                self.extractor = nn.DataParallel(
+                    VGGFeatureExtractor().to(device[0]), device_ids=device
+                )
                 self.op_device = device[0]
                 input_device = "cpu"
             else:
@@ -166,12 +201,16 @@ class ManifoldBuilder:
 
             features = []
             with torch.inference_mode():
-                for x in tqdm(dataloader(), desc="Extracting features", total=num_extr_batches):
+                for x in tqdm(
+                    dataloader(), desc="Extracting features", total=num_extr_batches
+                ):
                     features.append(self.extractor(x.to(input_device)).cpu())
             features = torch.cat(features, dim=0)
         else:
             assert isinstance(features, torch.Tensor) and features.grad_fn is None
-        features = features.to(torch.float16)  # half precision for faster distance computation?
+        features = features.to(
+            torch.float16
+        )  # half precision for faster distance computation?
 
         self.nhood_size = nhood_size
         self.row_batch_size = row_batch_size
@@ -183,18 +222,31 @@ class ManifoldBuilder:
 
     def compute_distance(self, row_features, col_features):
         return compute_distance(
-            row_features, col_features,
-            row_batch_size=self.row_batch_size, col_batch_size=self.col_batch_size, device=self.op_device)
+            row_features,
+            col_features,
+            row_batch_size=self.row_batch_size,
+            col_batch_size=self.col_batch_size,
+            device=self.op_device,
+        )
 
-    def compute_kth(self, row_features: torch.Tensor, col_features: torch.Tensor = None):
+    def compute_kth(
+        self, row_features: torch.Tensor, col_features: torch.Tensor = None
+    ):
         if col_features is None:
             col_features = row_features
         kth = []
 
-
-        for row_batch in tqdm(row_features.split(self.row_batch_size, dim=0), desc="Computing k-th radii"):
-            dist_batch = self.compute_distance(row_features=row_batch, col_features=col_features)
-            kth.append(dist_batch.to(torch.float32).kthvalue(self.nhood_size + 1, dim=1).values.to(torch.float16))  # nhood_size + 1 to exclude itself
+        for row_batch in tqdm(
+            row_features.split(self.row_batch_size, dim=0), desc="Computing k-th radii"
+        ):
+            dist_batch = self.compute_distance(
+                row_features=row_batch, col_features=col_features
+            )
+            kth.append(
+                dist_batch.to(torch.float32)
+                .kthvalue(self.nhood_size + 1, dim=1)
+                .values.to(torch.float16)
+            )  # nhood_size + 1 to exclude itself
         kth = torch.cat(kth)
         return kth
 
@@ -214,7 +266,7 @@ def calc_pr(
     manifold_2: Manifold,
     row_batch_size: int,
     col_batch_size: int,
-    device
+    device,
 ):
     """
     Args:
@@ -228,23 +280,36 @@ def calc_pr(
     """
     # ======= precision ======= #
     pred = []
-    for probe_batch in tqdm(manifold_1.features.split(row_batch_size), desc="Calculating precision"):
+    for probe_batch in tqdm(
+        manifold_1.features.split(row_batch_size), desc="Calculating precision"
+    ):
         dist_batch = compute_distance(
-            probe_batch, manifold_2.features,
-            row_batch_size=row_batch_size, col_batch_size=col_batch_size, device=device)
+            probe_batch,
+            manifold_2.features,
+            row_batch_size=row_batch_size,
+            col_batch_size=col_batch_size,
+            device=device,
+        )
         pred.append((dist_batch <= manifold_2.kth.unsqueeze(0)).any(dim=1))
     precision = torch.cat(pred).to(torch.float32).mean()
 
     # ======= recall ======= #
     pred.clear()
-    for probe_batch in tqdm(manifold_2.features.split(row_batch_size), desc="Calculating recall"):
+    for probe_batch in tqdm(
+        manifold_2.features.split(row_batch_size), desc="Calculating recall"
+    ):
         dist_batch = compute_distance(
-            probe_batch, manifold_1.features,
-            row_batch_size=row_batch_size, col_batch_size=col_batch_size, device=device)
+            probe_batch,
+            manifold_1.features,
+            row_batch_size=row_batch_size,
+            col_batch_size=col_batch_size,
+            device=device,
+        )
         pred.append((dist_batch <= manifold_1.kth.unsqueeze(0)).any(dim=1))
     recall = torch.cat(pred).to(torch.float32).mean()
 
     return precision, recall
+
 
 def eval_pr(
     dataset,
@@ -268,7 +333,7 @@ def eval_pr(
         col_batch_size=col_batch_size,
         nhood_size=nhood_size,
         num_workers=1,
-        device=device
+        device=device,
     )
 
     generated_sample = TensorDataset(images)
@@ -280,9 +345,7 @@ def eval_pr(
         if not os.path.exists(manifold_path):
 
             imageloader = ImageDataset(reference_dir)
-            manifold_builder = _ManifoldBuilder(
-                data=imageloader
-            )
+            manifold_builder = _ManifoldBuilder(data=imageloader)
             manifold_builder.save(manifold_path)
             true_manifold = deepcopy(manifold_builder.manifold)
             del manifold_builder
@@ -292,10 +355,7 @@ def eval_pr(
         # using args.dataset as default reference sets.
 
         manifold_path = os.path.join(
-            constants.DATASET_DIR,
-            dataset,
-            "manifold",
-            f"pr_manifold_{dataset}.pt"
+            constants.DATASET_DIR, dataset, "manifold", f"pr_manifold_{dataset}.pt"
         )
         if os.path.exists(manifold_path):
             true_manifold = torch.load(manifold_path)
@@ -312,7 +372,7 @@ def eval_pr(
         true_manifold,
         row_batch_size=row_batch_size,
         col_batch_size=col_batch_size,
-        device=device
+        device=device,
     )
 
     return precision, recall

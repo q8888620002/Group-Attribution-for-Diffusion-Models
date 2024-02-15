@@ -14,7 +14,6 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, MNIST, ImageFolder
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
-from tqdm import tqdm
 from transformers import PreTrainedTokenizer
 
 import constants

@@ -1,23 +1,18 @@
-import numpy as np
+"""FID calculation"""
 import pickle as pkl
+
+import numpy as np
 import torch
-
-from tqdm import tqdm
-
-from pytorch_fid.inception import InceptionV3
 from pytorch_fid.fid_score import (
+    calculate_fid_given_paths,
     calculate_frechet_distance,
     compute_statistics_of_path,
-    calculate_fid_given_paths
 )
+from pytorch_fid.inception import InceptionV3
+from tqdm import tqdm
 
-def calculate_fid(
-    dataset,
-    generated_images,
-    batch_size,
-    device,
-    reference_dir=None
-):
+
+def calculate_fid(dataset, generated_images, batch_size, device, reference_dir=None):
     """calculate fid given a set of generated images."""
 
     dims = 2048
@@ -29,11 +24,7 @@ def calculate_fid(
 
     if reference_dir is not None:
         mu, sigma = compute_statistics_of_path(
-            reference_dir,
-            inceptionNet,
-            batch_size,
-            dims,
-            device
+            reference_dir, inceptionNet, batch_size, dims, device
         )
     else:
         if dataset == "cifar":
@@ -50,24 +41,15 @@ def calculate_fid(
             )
 
     mu1, sigma1 = compute_features_stats(
-        generated_images,
-        inceptionNet,
-        batch_size,
-        dims,
-        device
+        generated_images, inceptionNet, batch_size, dims, device
     )
 
     fid = calculate_frechet_distance(mu1, sigma1, mu, sigma)
 
     return fid
 
-def compute_features_stats(
-    images,
-    model,
-    batch_size,
-    dims,
-    device
-):
+
+def compute_features_stats(images, model, batch_size, dims, device):
     """Function to extract InceptionNet Features"""
 
     batch_size_list = [batch_size] * (len(images) // batch_size)
