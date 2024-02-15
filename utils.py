@@ -35,20 +35,10 @@ def get_memory_free_MiB(gpu_index):
 
 
 class ImageDataset(Dataset):
-    """
-    Loads and transforms images from a directory.
-
-    Args:
-        img_dir (str): Path to image directory.
-        transform (callable, optional): Transform to apply to each image. Defaults to converting PIL Images to tensors.
-
-    Only includes images with extensions: 'jpg', 'jpeg', 'png', 'bmp', 'webp', 'tiff'.
-    """
+    """Loads and transforms images from a directory."""
 
     def __init__(self, img_dir, transform=transforms.PILToTensor()):
-        """
-        Initializes dataset with image directory and transform.
-        """
+        """Initializes dataset with image directory and transform."""
         self.img_dir = img_dir
         self.img_list = [
             img
@@ -58,16 +48,12 @@ class ImageDataset(Dataset):
         self.transform = transform
 
     def __getitem__(self, idx):
-        """
-        Returns transformed image at index `idx`.
-        """
+        """Returns transformed image at index `idx`."""
         with Image.open(os.path.join(self.img_dir, self.img_list[idx])) as im:
             return self.transform(im)
 
     def __len__(self):
-        """
-        Returns total number of images.
-        """
+        """Returns total number of images."""
         return len(self.img_list)
 
 
@@ -80,21 +66,15 @@ class TensorDataset(Dataset):
     """
 
     def __init__(self, data):
-        """
-        Initializes dataset with data tensor.
-        """
+        """Initializes dataset with data tensor."""
         self.data = data
 
     def __len__(self):
-        """
-        Returns dataset size.
-        """
+        """Returns dataset size."""
         return len(self.data)
 
     def __getitem__(self, idx):
-        """
-        Retrieves sample at index `idx`.
-        """
+        """Retrieves sample at index `idx`."""
         return self.data[idx]
 
 

@@ -25,8 +25,10 @@ from utils import ImageDataset, TensorDataset, create_dataset
 
 Manifold = namedtuple("Manifold", ["features", "kth"])
 
+
 class VGGFeatureExtractor(nn.Module):
     """VGG network to extract features"""
+
     WEIGHTS_URL = "https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metrics/vgg16.pt"
 
     def __init__(self):
