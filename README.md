@@ -31,9 +31,9 @@ python main.py --dataset [dataset] --method [unlearning/retrain]
 ### Training with Unlearning
 For training with the unlearning method, use this command:
 ```bash
-python main.py --dataset [dataset] --method [unlearning] --
+python main.py --dataset [dataset] --method [unlearning]
 ```
-Replace `[dataset]`, `[excluded_class]`, and `[path_to_pretrained]` with appropriate values.
+Replace `[dataset]` and `[method]` with appropriate values.
 
 ## Converting Pre-trained CIFAR-10 Checkpoint for DDPMpipeline on Huggingface
 
