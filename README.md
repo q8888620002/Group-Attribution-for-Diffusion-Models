@@ -28,12 +28,12 @@ To train a diffusion model from scratch, use the following command:
 python main.py --dataset [dataset] --method [unlearning/retrain]
 ```
 
-### Training with Unlearning
+### Training with Unlearning with a removal distribution
 For training with the unlearning method, use this command:
 ```bash
-python main.py --dataset [dataset] --method [unlearning]
+python main.py --dataset [dataset] --method [unlearning] --removal_dist [removal_dist]
 ```
-Replace `[dataset]` and `[method]` with appropriate values.
+Replace `[dataset]`, `[method]`, and `[removal_dist]` with appropriate values.
 
 ## Converting Pre-trained CIFAR-10 Checkpoint for DDPMpipeline on Huggingface
 
