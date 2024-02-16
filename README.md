@@ -1,6 +1,6 @@
-# Data Attribution - MNIST Diffusion
+# Data Attribution via Sparsified Unlearning
 
-This README provides instructions for training diffusion models, including from scratch and with unlearning, as well as steps for converting pre-trained CIFAR-10 checkpoints for use with DDPMpipeline on Huggingface.
+This README provides instructions for training diffusion models, including from retraining (exact unlearning) and **sparsified unlearning**, as well as steps for converting pre-trained checkpoints checkpoints for use with DDPMpipeline on Huggingface.
 
 ## Training Instructions
 
@@ -25,13 +25,13 @@ MAX_NUM_SAMPLE_IMAGES_TO_SAVE = 64
 ### Training a Diffusion Model from Scratch
 To train a diffusion model from scratch, use the following command:
 ```bash
-python main_new.py --dataset cifar --device cuda:0 --method retrain --excluded_class 0 --num_inference_steps 1000
+python main.py --dataset [dataset] --method [unlearning/retrain]
 ```
 
 ### Training with Unlearning
 For training with the unlearning method, use this command:
 ```bash
-python main_new.py --dataset [dataset] --device cuda:1 --excluded_class [excluded_class] --load [path_to_pretrained]/pruned --method esd
+python main.py --dataset [dataset] --method [unlearning] --
 ```
 Replace `[dataset]`, `[excluded_class]`, and `[path_to_pretrained]` with appropriate values.
 
