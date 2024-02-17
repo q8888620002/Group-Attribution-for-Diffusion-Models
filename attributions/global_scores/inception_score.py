@@ -1,4 +1,4 @@
-"""Function to compute inception score. """
+"""Function to compute inception score."""
 import numpy as np
 import torch
 import torch.utils.data
@@ -14,7 +14,7 @@ def eval_is(images_dataset, batch_size=32, resize=False, normalize=False, splits
 
     Args:
     ----
-        images_dataset: Torch dataset of (3xHxW) numpy images normalized in the range [-1, 1]
+        images_dataset: Torch dataset of (3xHxW) numpy images
         batch_size: batch size for feeding into Inception v3
         resize: whether resize images to 299 x 299
         normalize: thether to normalize the image to scale [-1, 1]
