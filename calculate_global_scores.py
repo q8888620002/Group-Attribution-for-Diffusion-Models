@@ -223,7 +223,7 @@ def main(args):
             args.reference_dir,
         )
 
-        print(f"FID score: {fid_value_str}; Precision:{precision}; Recall:{recall}")
+            print(f"FID score: {fid_value_str}; Precision:{precision}; Recall:{recall}; inception score: {is_value}")
         info_dict["fid_value"] = fid_value_str
         info_dict["precision"] = precision
         info_dict["recall"] = recall
@@ -266,20 +266,31 @@ def main(args):
 
             fid_value_str = f"{fid_value:.4f}"
 
-            print(f"FID score: {fid_value_str}; Precision:{precision}; Recall:{recall}")
+            print(f"FID score: {fid_value_str}; Precision:{precision}; Recall:{recall}; inception score: {is_value}")
             info_dict["fid_value"] = fid_value_str
             info_dict["precision"] = precision
             info_dict["recall"] = recall
+            info_dict["is"] = is_value
+
 
         else:
             # Class-wise FID scores. If each class has too few reference samples, the
             # scores can be unstable.
+
+            avg_is_value = 0
             avg_fid_value = 0
             avg_precision_value = 0
             avg_recall_value = 0
 
             for subdir in subdir_list:
                 print(f"Calculating the FID score for class {subdir}...")
+
+                sample_images = ImageDataset(os.path.join(args.sample_dir, subdir))
+
+                is_value = inception_score.eval_is(
+                    sample_images, args.batch_size, resize=True, normalize=True
+                )
+
                 fid_value = fid_score.calculate_fid_given_paths(
                     paths=[
                         os.path.join(args.sample_dir, subdir),
@@ -291,7 +302,7 @@ def main(args):
                 )
                 precision, recall = precision_recall.eval_pr(
                     args.dataset,
-                    os.path.join(args.sample_dir, subdir),
+                    sample_images,
                     args.batch_size,
                     row_batch_size=10000,
                     col_batch_size=10000,
@@ -301,26 +312,34 @@ def main(args):
                 )
 
                 fid_value_str = f"{fid_value:.4f}"
+                avg_is_value += is_value
                 avg_fid_value += fid_value
                 avg_precision_value += precision
                 avg_recall_value += recall
 
                 print(
                     f"FID/Precision/Recall score for {subdir}:"
-                    f"{fid_value_str}/{precision}/{recall}"
+                    f"{fid_value_str}/{precision}/{recall}/{is_value}"
                 )
-
+                info_dict[f"is_value/{subdir}"] = is_value
                 info_dict[f"fid_value/{subdir}"] = fid_value_str
                 info_dict[f"precision/{subdir}"] = precision
                 info_dict[f"recall/{subdir}"] = recall
 
+            avg_is_value /= len(subdir_list)
             avg_fid_value /= len(subdir_list)
             avg_precision_value /= len(subdir_list)
             avg_recall_value /= len(subdir_list)
+            avg_is_value /= len(subdir_list)
 
             avg_fid_value_str = f"{avg_fid_value:.4f}"
-            print(f"Average FID score: {avg_fid_value_str}")
+            print(f"Average FID score: {avg_fid_value_str}; Precision:{avg_precision_value}; Recall:{avg_recall_value}; inception score: {avg_is_value}")
+
+            info_dict["avg_is"] = avg_is_value
             info_dict["avg_fid_value"] = avg_fid_value_str
+            info_dict["avg_precision"] = avg_precision_value
+            info_dict["avg_recall"] = avg_recall_value
+
 
     info_dict["sample_dir"] = sample_dir
     info_dict["remaining_idx"] = remaining_idx
