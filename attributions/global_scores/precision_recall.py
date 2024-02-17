@@ -317,8 +317,7 @@ def eval_pr(
         device=device,
     )
 
-    generated_sample = TensorDataset(images)
-    gen_manifold = deepcopy(_ManifoldBuilder(data=generated_sample).manifold)
+    gen_manifold = deepcopy(_ManifoldBuilder(data=images).manifold)
 
     if reference_dir is not None:
         # If reference dir exists

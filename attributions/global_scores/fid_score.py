@@ -13,7 +13,7 @@ from torch.nn.functional import adaptive_avg_pool2d
 from tqdm import tqdm
 
 
-def calculate_fid(dataset, generated_images, batch_size, device, reference_dir=None):
+def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=None):
     """Calculate fid given a set of generated images."""
 
     dims = 2048
@@ -42,7 +42,7 @@ def calculate_fid(dataset, generated_images, batch_size, device, reference_dir=N
             )
 
     mu1, sigma1 = compute_features_stats(
-        generated_images, inceptionNet, batch_size, dims, device
+        images_dataset, inceptionNet, batch_size, dims, device
     )
 
     fid = calculate_frechet_distance(mu1, sigma1, mu, sigma)

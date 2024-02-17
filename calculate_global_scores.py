@@ -7,10 +7,10 @@ import diffusers
 from lightning.pytorch import seed_everything
 
 import constants
-from attributions.global_scores import fid_score, precision_recall
+from attributions.global_scores import fid_score, precision_recall, inception_score
 from ddpm_config import DDPMConfig
 from diffusion_utils import build_pipeline, generate_images, load_ckpt_model
-from utils import print_args
+from utils import print_args, TensorDataset
 
 
 def parse_args():
@@ -198,9 +198,18 @@ def main(args):
 
         generated_samples = generate_images(args, pipeline)
 
+        images_dataset = TensorDataset(generated_samples)
+
+        is_value = inception_score.eval_is(
+            images_dataset,
+            args.batch_size,
+            resize=True,
+            normalize=True
+        )
+
         precision, recall = precision_recall.eval_pr(
             args.dataset,
-            generated_samples,
+            images_dataset,
             args.batch_size,
             row_batch_size=10000,
             col_batch_size=10000,
@@ -211,7 +220,7 @@ def main(args):
 
         fid_value_str = fid_score.calculate_fid(
             args.dataset,
-            generated_samples,
+            images_dataset,
             args.batch_size,
             args.device,
             args.reference_dir,
@@ -221,6 +230,7 @@ def main(args):
         info_dict["fid_value"] = fid_value_str
         info_dict["precision"] = precision
         info_dict["recall"] = recall
+        info_dict["is"] = is_value
 
     else:
         # Check if subdirectories exist for conditional image generation.
@@ -234,6 +244,15 @@ def main(args):
             # conditional image generation. For example, see
             # https://huggingface.co/docs/diffusers/main/en/conceptual/evaluation#class-conditioned-image-generation
             print("Calculating the FID score...")
+            sample_images = ImageDataset(args.sample_dir)
+
+            is_value = inception_score.eval_is(
+                sample_images,
+                args.batch_size,
+                resize=True,
+                normalize=True
+            )
+
             fid_value = fid_score.calculate_fid_given_paths(
                 paths=[args.sample_dir, args.reference_dir],
                 batch_size=args.batch_size,
@@ -242,7 +261,7 @@ def main(args):
             )
             precision, recall = precision_recall.eval_pr(
                 args.dataset,
-                args.sample_dir,
+                sample_images,
                 args.batch_size,
                 row_batch_size=10000,
                 col_batch_size=10000,
