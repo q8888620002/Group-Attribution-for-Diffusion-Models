@@ -223,7 +223,10 @@ def main(args):
             args.reference_dir,
         )
 
-            print(f"FID score: {fid_value_str}; Precision:{precision}; Recall:{recall}; inception score: {is_value}")
+        print(
+            f"FID score: {fid_value_str}; Precision:{precision};"
+            f"Recall:{recall}; inception score: {is_value}"
+        )
         info_dict["fid_value"] = fid_value_str
         info_dict["precision"] = precision
         info_dict["recall"] = recall
@@ -266,12 +269,14 @@ def main(args):
 
             fid_value_str = f"{fid_value:.4f}"
 
-            print(f"FID score: {fid_value_str}; Precision:{precision}; Recall:{recall}; inception score: {is_value}")
+            print(
+                f"FID score: {fid_value_str}; Precision:{precision}; "
+                f"Recall:{recall}; inception score: {is_value}"
+            )
             info_dict["fid_value"] = fid_value_str
             info_dict["precision"] = precision
             info_dict["recall"] = recall
             info_dict["is"] = is_value
-
 
         else:
             # Class-wise FID scores. If each class has too few reference samples, the
@@ -333,13 +338,15 @@ def main(args):
             avg_is_value /= len(subdir_list)
 
             avg_fid_value_str = f"{avg_fid_value:.4f}"
-            print(f"Average FID score: {avg_fid_value_str}; Precision:{avg_precision_value}; Recall:{avg_recall_value}; inception score: {avg_is_value}")
+            print(
+                f"Average FID score:{avg_fid_value_str};Precision:{avg_precision_value}"
+                f";Recall:{avg_recall_value}; inception score: {avg_is_value}"
+            )
 
             info_dict["avg_is"] = avg_is_value
             info_dict["avg_fid_value"] = avg_fid_value_str
             info_dict["avg_precision"] = avg_precision_value
             info_dict["avg_recall"] = avg_recall_value
-
 
     info_dict["sample_dir"] = sample_dir
     info_dict["remaining_idx"] = remaining_idx
