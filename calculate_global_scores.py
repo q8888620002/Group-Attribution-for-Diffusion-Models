@@ -7,10 +7,10 @@ import diffusers
 from lightning.pytorch import seed_everything
 
 import constants
-from attributions.global_scores import fid_score, precision_recall, inception_score
+from attributions.global_scores import fid_score, inception_score, precision_recall
 from ddpm_config import DDPMConfig
 from diffusion_utils import build_pipeline, generate_images, load_ckpt_model
-from utils import print_args, TensorDataset
+from utils import ImageDataset, TensorDataset, print_args
 
 
 def parse_args():
@@ -201,10 +201,7 @@ def main(args):
         images_dataset = TensorDataset(generated_samples)
 
         is_value = inception_score.eval_is(
-            images_dataset,
-            args.batch_size,
-            resize=True,
-            normalize=True
+            images_dataset, args.batch_size, resize=True, normalize=True
         )
 
         precision, recall = precision_recall.eval_pr(
@@ -247,10 +244,7 @@ def main(args):
             sample_images = ImageDataset(args.sample_dir)
 
             is_value = inception_score.eval_is(
-                sample_images,
-                args.batch_size,
-                resize=True,
-                normalize=True
+                sample_images, args.batch_size, resize=True, normalize=True
             )
 
             fid_value = fid_score.calculate_fid_given_paths(
