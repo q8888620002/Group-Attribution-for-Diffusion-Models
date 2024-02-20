@@ -274,7 +274,6 @@ def parse_args():
 
 def main(args):
     """Main function for training or unlearning."""
-    print("ksdafklajskldfjkasjdlkfjskfjslkajfklajksldfs")
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
