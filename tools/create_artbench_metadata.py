@@ -10,6 +10,19 @@ import os
 
 import pandas as pd
 
+CAPTION_DICT = {
+    "art_nouveau": "an Art Nouveau painting",
+    "baroque": "a Baroque painting",
+    "expressionism": "a painting from Expressionism",
+    "impressionism": "a painting from Impressionism",
+    "post_impressionism": "a Post-Impressionist painting",
+    "realism": "a Realist painting",
+    "renaissance": "a painting from the Renaissance",
+    "romanticism": "a Romanticist painting",
+    "surrealism": "a painting from Surrealism",
+    "ukiyo_e": "a ukiyo-e print",
+}
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="create ArtBench-10 metdata.csv")
     parser.add_argument(
@@ -42,8 +55,7 @@ if __name__ == "__main__":
         for img_file in os.listdir(os.path.join(data_dir, art_style)):
             img_files.append(os.path.join(art_style, img_file))
             artists.append(img_file.split("_")[0])
-        formatted_art_style = art_style.replace("_", " ")
-        caption = f"a {formatted_art_style} painting"
+        caption = CAPTION_DICT[art_style]
         df_list.append(
             pd.DataFrame(
                 {"file_name": img_files, "caption": caption, "artist": artists}
