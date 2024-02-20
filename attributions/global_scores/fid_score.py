@@ -40,7 +40,7 @@ def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=Non
 
     else:
         if dataset == "cifar":
-            with open("misc/cifar_train.pkl", "rb") as file:
+            with open("misc/cifar_stats.pkl", "rb") as file:
                 cifar_train = pkl.load(file)
             mu, sigma = cifar_train["mu"], cifar_train["sigma"]
 
