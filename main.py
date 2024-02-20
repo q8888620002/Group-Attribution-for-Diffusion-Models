@@ -408,7 +408,9 @@ def main(args):
         except RuntimeError:
             existing_steps = None
             # If the ckpt file is corrupted, reinit the model.
-            accelerator.print(f"Check point {ckpt_path} is corrupted, reintialize model and remove old check point..")
+            accelerator.print(
+                f"Check point {ckpt_path} is corrupted, reintialize model and remove old check point.."
+            )
 
             os.system(f"rm -rf {model_outdir}")
             # Randomly initialize the model.

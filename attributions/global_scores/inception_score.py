@@ -1,4 +1,8 @@
-"""Function to compute inception score, adapted from https://github.com/sbarratt/inception-score-pytorch"""
+"""
+Compute inception score adapted from [1]
+
+[1]: https://github.com/sbarratt/inception-score-pytorch
+"""
 import numpy as np
 import torch
 import torch.utils.data
