@@ -10,9 +10,9 @@ from attributions.local_scores.attribution_utils import (
     load_filtered_behaviors,
     pixel_distance,
 )
-from attributions.local_scores.datamodel import compute_datamodel_scores
-from attributions.local_scores.datashapley import compute_shapley_scores
-from attributions.local_scores.trak import compute_dtrak_trak_scores
+from attributions.methods.datamodel import compute_datamodel_scores
+from attributions.methods.datashapley import compute_shapley_scores
+from attributions.methods.trak import compute_dtrak_trak_scores
 
 
 def parse_args():

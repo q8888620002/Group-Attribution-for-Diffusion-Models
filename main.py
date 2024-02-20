@@ -274,6 +274,7 @@ def parse_args():
 
 def main(args):
     """Main function for training or unlearning."""
+    print("ksdafklajskldfjkasjdlkfjskfjslkajfklajksldfs")
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
@@ -362,45 +363,68 @@ def main(args):
         # Check if there is an existing checkpoint to resume from. This occurs when
         # model runs are interrupted (e.g., exceeding job time limit).
         ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{existing_steps:0>8}.pt")
-        ckpt = torch.load(ckpt_path, map_location="cpu")
-        # Load full model instead of state_dict for pruned model.
-        if args.method != "retrain":
-            # Load pruned model
-            pruned_model_path = os.path.join(
-                args.outdir,
-                args.dataset,
-                "pruned",
-                "models",
-                (
-                    f"pruner={args.pruner}"
-                    + f"_pruning_ratio={args.pruning_ratio}"
-                    + f"_threshold={args.thr}"
-                ),
-                f"ckpt_steps_{0:0>8}.pt",
+        try:
+            ckpt = torch.load(ckpt_path, map_location="cpu")
+
+            # Load full model instead of state_dict for pruned model.
+            if args.method != "retrain":
+                # Load pruned model
+                pruned_model_path = os.path.join(
+                    args.outdir,
+                    args.dataset,
+                    "pruned",
+                    "models",
+                    (
+                        f"pruner={args.pruner}"
+                        + f"_pruning_ratio={args.pruning_ratio}"
+                        + f"_threshold={args.thr}"
+                    ),
+                    f"ckpt_steps_{0:0>8}.pt",
+                )
+                pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
+                model = pruned_model_ckpt["unet"]
+            else:
+                model = model_cls(**config["unet_config"])
+
+            model.load_state_dict(ckpt["unet"])
+            ema_model = EMAModel(
+                model.parameters(),
+                decay=args.ema_max_decay,
+                use_ema_warmup=False,
+                inv_gamma=args.ema_inv_gamma,
+                power=args.ema_power,
+                model_cls=model_cls,
+                model_config=model.config,
             )
-            pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
-            model = pruned_model_ckpt["unet"]
-        else:
+            ema_model.load_state_dict(ckpt["unet_ema"])
+            param_update_steps = existing_steps
+
+            remaining_idx = ckpt["remaining_idx"].numpy()
+            removed_idx = ckpt["removed_idx"].numpy()
+            total_steps_time = ckpt["total_steps_time"]
+
+            accelerator.print(f"U-Net and U-Net EMA resumed from {ckpt_path}")
+
+        except RuntimeError:
+            existing_steps = None
+            # If the ckpt file is corrupted, reinit the model.
+            accelerator.print(f"Check point {ckpt_path} is corrupted, reintialize model and remove old check point..")
+
+            os.system(f"rm -rf {model_outdir}")
+            # Randomly initialize the model.
             model = model_cls(**config["unet_config"])
-        
-        model.load_state_dict(ckpt["unet"])
-        ema_model = EMAModel(
-            model.parameters(),
-            decay=args.ema_max_decay,
-            use_ema_warmup=False,
-            inv_gamma=args.ema_inv_gamma,
-            power=args.ema_power,
-            model_cls=model_cls,
-            model_config=model.config,
-        )
-        ema_model.load_state_dict(ckpt["unet_ema"])
-        param_update_steps = existing_steps
+            ema_model = EMAModel(
+                model.parameters(),
+                decay=args.ema_max_decay,
+                use_ema_warmup=False,
+                inv_gamma=args.ema_inv_gamma,
+                power=args.ema_power,
+                model_cls=model_cls,
+                model_config=model.config,
+            )
+            param_update_steps = 0
+            accelerator.print("Model randomly initialized")
 
-        remaining_idx = ckpt["remaining_idx"].numpy()
-        removed_idx = ckpt["removed_idx"].numpy()
-        total_steps_time = ckpt["total_steps_time"]
-
-        accelerator.print(f"U-Net and U-Net EMA resumed from {ckpt_path}")
     elif args.load:
         # If there are no checkpoints to resume from, and a pre-trained model is
         # specified for fine-tuning or unlearning.
@@ -427,7 +451,7 @@ def main(args):
                 model = pruned_model_ckpt["unet"]
             else:
                 model = model_cls(**config["unet_config"])
-            
+
             model.load_state_dict(ckpt["unet"])
 
             # Consider the pre-trained model as model weight initialization, so the EMA

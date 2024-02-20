@@ -11,7 +11,19 @@ from utils import ImagenetteCaptioner, create_dataset, get_max_steps
 
 
 def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
-    """Load model parameters from the latest checkpoint in a directory."""
+    """
+        Load model parameters from the latest checkpoint in a directory.
+    Args:
+    -----
+        args: arguments from training pipeline
+        model_cls: class name for diffusion model, e.g. UNet2DModel, used for initializing EMA model.
+        model_strc: network architecture e.g. u-net or pruned u-net.
+        model_loaddir: path to model.
+    Return:
+    ------
+
+        pre-trained model, indices of remaining and removed subset.
+    """
 
     trained_steps = (
         args.trained_steps

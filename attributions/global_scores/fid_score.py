@@ -53,6 +53,7 @@ def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=Non
 def compute_features_stats(images, model, batch_size, dims, device):
     """Function to extract InceptionNet Features"""
 
+
     batch_size_list = [batch_size] * (len(images) // batch_size)
     remaining_sample_size = len(images) % batch_size
 
@@ -63,6 +64,8 @@ def compute_features_stats(images, model, batch_size, dims, device):
     pred_arr = np.empty((len(images), dims))
 
     start_idx = 0
+
+    # Adapted from https://github.com/mseitzer/pytorch-fid/blob/master/src/pytorch_fid/fid_score.py#L93.
 
     for batch_size in tqdm(batch_size_list):
         batch = images[start_idx : start_idx + batch_size, :, :, :].to(device)
