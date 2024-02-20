@@ -31,6 +31,13 @@ def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=Non
         mu, sigma = compute_statistics_of_path(
             reference_dir, inceptionNet, batch_size, dims, device
         )
+        stats = {}
+        stats["mu"] = mu
+        stats["sigma"] = sigma
+
+        with open(f"misc/{dataset}_stats.pkl", "wb") as file:
+            pkl.dumps(stats, file)
+
     else:
         if dataset == "cifar":
             with open("misc/cifar_train.pkl", "rb") as file:
