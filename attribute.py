@@ -5,7 +5,7 @@ import os
 import numpy as np
 
 import constants
-from attributions.local_scores.attribution_utils import (
+from attributions.methods.attribution_utils import (
     CLIPScore,
     load_filtered_behaviors,
     pixel_distance,
