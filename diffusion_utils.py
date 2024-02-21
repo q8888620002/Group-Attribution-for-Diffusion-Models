@@ -1,7 +1,8 @@
 """Utilities for duffusion pipeline"""
 import os
-
 import torch
+import numpy as np
+
 from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline
 from diffusers.training_utils import EMAModel
 from torchvision import transforms
@@ -34,7 +35,7 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
         ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
 
-        if args.method != "retrain":
+        if args.method not in ["retrain"]:
             # Load pruned model
             pruned_model_path = os.path.join(
                 args.outdir,
@@ -53,8 +54,14 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
         else:
             model = model_strc
 
-        remaining_idx = ckpt["remaining_idx"].numpy().tolist()
-        removed_idx = ckpt["removed_idx"].numpy().tolist()
+        # There may not be saved indices for pretrained model.
+        try:
+            remaining_idx = ckpt["remaining_idx"].numpy().tolist()
+            removed_idx = ckpt["removed_idx"].numpy().tolist()
+        except:
+            train_dataset = create_dataset(dataset_name=args.dataset, train=True)
+            remaining_idx = np.arange(len(train_dataset))
+            removed_idx = np.array([], dtype=int)
 
         model.load_state_dict(ckpt["unet"])
 

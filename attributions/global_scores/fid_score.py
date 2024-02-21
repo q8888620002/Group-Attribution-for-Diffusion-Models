@@ -4,7 +4,6 @@ FID calculation based on pytorch-fid[1]
 [1]: https://github.com/mseitzer/pytorch-fid
 """
 import pickle as pkl
-
 import numpy as np
 import torch
 from pytorch_fid.fid_score import (
