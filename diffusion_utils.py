@@ -1,8 +1,8 @@
 """Utilities for duffusion pipeline"""
 import os
-import torch
-import numpy as np
 
+import numpy as np
+import torch
 from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline
 from diffusers.training_utils import EMAModel
 from torchvision import transforms
@@ -58,7 +58,7 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
         try:
             remaining_idx = ckpt["remaining_idx"].numpy().tolist()
             removed_idx = ckpt["removed_idx"].numpy().tolist()
-        except:
+        except KeyError:
             train_dataset = create_dataset(dataset_name=args.dataset, train=True)
             remaining_idx = np.arange(len(train_dataset))
             removed_idx = np.array([], dtype=int)
