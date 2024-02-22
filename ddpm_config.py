@@ -19,9 +19,27 @@ class DDPMConfig:
             "kwargs": {"num_warmup_steps": 0},
         },
         "batch_size": 128,
-        "training_steps": {"retrain": 200000, "prune_fine_tune": 200000, "ga": 2000, "gd": 4000, "esd": 5000},
-        "ckpt_freq": {"retrain": 10000, "prune_fine_tune": 10000, "ga": 400, "gd": 400, "esd": 1000},
-        "sample_freq": {"retrain": 200000, "prune_fine_tune": 200000, "ga": 2000, "gd": 4000, "esd": 5000},
+        "training_steps": {
+            "retrain": 200000,
+            "prune_fine_tune": 200000,
+            "ga": 2000,
+            "gd": 4000,
+            "esd": 5000,
+        },
+        "ckpt_freq": {
+            "retrain": 10000,
+            "prune_fine_tune": 10000,
+            "ga": 400,
+            "gd": 400,
+            "esd": 1000,
+        },
+        "sample_freq": {
+            "retrain": 200000,
+            "prune_fine_tune": 200000,
+            "ga": 2000,
+            "gd": 4000,
+            "esd": 5000,
+        },
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
@@ -277,4 +295,21 @@ class DDPMConfig:
         "ckpt_freq": {"retrain": 2500, "ga": 1, "gd": 1, "esd": 50},
         "sample_freq": {"retrain": 2500, "ga": 1, "gd": 1, "esd": 50},
         "n_samples": 60,
+    }
+
+
+class PromptConfig:
+    """Prompts for text-to-image generation."""
+
+    artbench_config = {
+        "art_nouveau": "an Art Nouveau painting",
+        "baroque": "a Baroque painting",
+        "expressionism": "an Expressionist painting",
+        "impressionism": "an Impressionist painting",
+        "post_impressionism": "a Post-Impressionist painting",
+        "realism": "a Realist painting",
+        "renaissance": "a painting from the Renaissance",
+        "romanticism": "a Romanticist painting",
+        "surrealism": "a Surrealist painting",
+        "ukiyo_e": "a ukiyo-e print",
     }
