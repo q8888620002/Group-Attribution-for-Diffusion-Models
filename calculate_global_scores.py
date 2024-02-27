@@ -230,7 +230,7 @@ def main(args):
         info_dict["fid_value"] = fid_value_str
         info_dict["precision"] = precision
         info_dict["recall"] = recall
-        info_dict["is"] = is_value
+        info_dict["is"] = is_value        
 
     else:
         # Check if subdirectories exist for conditional image generation.
@@ -351,7 +351,7 @@ def main(args):
     info_dict["sample_dir"] = sample_dir
     info_dict["remaining_idx"] = remaining_idx
     info_dict["removed_idx"] = removed_idx
-
+    
     with open(args.db, "a+") as f:
         f.write(json.dumps(info_dict) + "\n")
     print(f"Results saved to the database at {args.db}")

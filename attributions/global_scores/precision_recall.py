@@ -289,6 +289,9 @@ def calc_pr(
         pred.append((dist_batch <= manifold_1.kth.unsqueeze(0)).any(dim=1))
     recall = torch.cat(pred).to(torch.float32).mean()
 
+    precision = precision.detach().cpu().item()
+    recall = recall.detach().cpu().item()
+    
     return precision, recall
 
 
