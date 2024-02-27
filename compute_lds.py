@@ -129,9 +129,9 @@ if __name__ == "__main__":
 
     print(
         f"LDS: retrain, Mean:{np.mean(results['retrain_vs_train'])}"
-        f"SE:{np.std(results['retrain_vs_train'])/np.sqrt(len(test_values))}"
+        f"SE:{1.96*np.std(results['retrain_vs_train'])/np.sqrt(len(test_values))}"
     )
     print(
         f"LDS: gd, mean:{np.mean(results['gd_vs_train'])}"
-        f"SE:{np.std(results['gd_vs_train'])/np.sqrt(len(test_values))}"
+        f"SE:{1.96*np.std(results['gd_vs_train'])/np.sqrt(len(test_values))}"
     )
