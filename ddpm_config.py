@@ -85,7 +85,7 @@ class DDPMConfig:
         "image_size": 256,
         "optimizer_config": {
             "class_name": "AdamW",
-            "kwargs": {"lr": 2.0e-6, "weight_decay": 0.0},
+            "kwargs": {"lr": 1.0e-4, "weight_decay": 0.0},
         },
         "lr_scheduler_config": {
             "name": "constant",

@@ -29,7 +29,7 @@ python main.py --dataset [dataset] --method [unlearning/retrain]
 ```
 
 #### Efficient Training
-For those utilizing consumer-grade GPUs with limited memory capacity (e.g., RTX 2080ti), we offer compatibility with several features aimed at efficient training:
+For those utilizing consumer-grade GPUs with limited memory capacity (e.g., RTX 2080ti), we offer several features aimed at efficient training:
 * precomputed VQVAE latent
 * 8bit Adam optimizer (we use [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) package)
 * data parallelism (we use [deepspeed](https://huggingface.co/docs/accelerate/v0.27.2/en/usage_guides/deepspeed#deepspeed-config-file) packafge)
@@ -41,8 +41,7 @@ Below are example commands:
 
 First, run the following command to precompute the VQVAE latents for the training dataset.
 ```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3 \
-accelerae launch --config_file deepspeed_config_dp.yaml \
+accelerate launch --config_file deepspeed_config_dp.yaml \
 main.py --dataset celeba \
 --method retrain \
 --mixed_precision fp16 \
@@ -52,8 +51,7 @@ main.py --dataset celeba \
 
 Then, run the following command to train the model using the precomputed latents.
 ```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3 \
-accelerae launch --config_file deepspeed_config_dp.yaml \
+accelerate launch --config_file deepspeed_config_dp.yaml \
 main.py --dataset celeba \
 --method retrain \
 --mixed_precision fp16 \

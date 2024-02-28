@@ -573,8 +573,15 @@ def main(args):
                         vqvae_latent_dict[imageid_temp[i]] = vqvae_latent[i : i + 1]
 
             # Save the dictionary of latents to a file
+            vavae_latent_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "precomputed_emb",
+            )
+            os.makedirs(vavae_latent_dir, exist_ok=True)
             torch.save(
-                vqvae_latent_dict, os.path.join(args.outdir, "celeba_vqvae_output.pt")
+                vqvae_latent_dict,
+                os.path.join(vavae_latent_dir, "celeba_vqvae_output.pt"),
             )
 
             # Inform the user about the saved precomputed output and advise on next steps
@@ -586,7 +593,11 @@ def main(args):
             # Load the precomputed VQ-VAE latents for reuse, avoiding GPU memory usage by the VQ-VAE model
             pipeline.vqvae = None
             vqvae_latent_dict = torch.load(
-                os.path.join(args.outdir, "celeba_vqvae_output.pt"), map_location="cpu"
+                os.path.join(
+                    vavae_latent_dir,
+                    "celeba_vqvae_output.pt",
+                ),
+                map_location="cpu",
             )
 
         captioner = None
@@ -691,10 +702,16 @@ def main(args):
     steps_start_time = time.time()
     while param_update_steps < training_steps:
         for j, (
-            (image_r, label_r, imageid_r),
-            (image_f, label_f, imageid_f),
+            batch_r,
+            batch_f,
         ) in enumerate(zip(remaining_dataloader, removed_dataloader)):
             model.train()
+
+            image_r, label_r = batch_r[0], batch_r[1]
+            image_f, label_f = batch_f[0], batch_f[1]
+
+            if args.dataset == "celeba":
+                imageid_r, imageid_f = batch_r[2], batch_f[2]
 
             image_r = image_r.to(device)
 
