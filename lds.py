@@ -212,8 +212,8 @@ def main(args):
         test_targets_fold = test_targets[test_indices, :]
 
         overlap_indices = np.isin(train_seeds, test_seeds_fold)
-        train_masks_fold = train_masks[~overlap_indices, :]
-        train_targets_fold = train_targets[~overlap_indices, :]
+        train_masks_fold = train_masks[overlap_indices, :]
+        train_targets_fold = train_targets[overlap_indices, :]
 
         if args.max_train_size is not None:
             if len(train_targets_fold) > args.max_train_size:
@@ -229,7 +229,7 @@ def main(args):
         for i in tqdm(range(num_targets)):
             datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
                 train_masks_fold, train_targets_fold[:, i]
-            )           
+            )
             datamodel_str = "Ridge"
             print("Datamodel parameters")
             print(f"\tmodel={datamodel_str}")
@@ -241,7 +241,7 @@ def main(args):
                 ).statistic
                 * 100
             )
-        counter +=1 
+        counter +=1
 
     for i in range(num_targets):
         print(f"Mean: {np.mean(k_fold_lds[i]):.3f}")
@@ -255,10 +255,21 @@ def main(args):
         test_masks = test_masks[:args.num_test_subset, :]
         test_targets = test_targets[:args.num_test_subset, :]
         test_seeds = test_seeds[:args.num_test_subset]
-        
+
         overlap_with_test = np.isin(train_seeds, test_seeds)
-        train_masks = train_masks[~overlap_with_test, :]
-        train_targets = train_targets[~overlap_with_test, :]
+        train_masks = train_masks[overlap_with_test, :]
+        train_targets = train_targets[overlap_with_test, :]
+
+        data_attr_list = []
+        for i in tqdm(range(num_targets)):
+            datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
+                train_masks_fold, train_targets_fold[:, i]
+            )
+            datamodel_str = "Ridge"
+            print("Datamodel parameters")
+            print(f"\tmodel={datamodel_str}")
+            print(f"\talpha={datamodel.alpha_:.8f}")
+            data_attr_list.append(datamodel.coef_)
 
         def my_lds(idx):
             boot_masks = test_masks[idx, :]
