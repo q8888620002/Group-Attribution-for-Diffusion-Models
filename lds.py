@@ -5,7 +5,7 @@ import json
 
 import numpy as np
 from scipy.stats import bootstrap, spearmanr
-from sklearn.linear_model import RidgeCV
+from sklearn.linear_model import RidgeCV, LassoCV
 from sklearn.model_selection import KFold
 from tqdm import tqdm
 
@@ -196,7 +196,7 @@ def main(args):
     common_seeds = list(set(train_seeds) & set(test_seeds))
     common_seeds.sort()
 
-    kf = KFold(n_splits=args.num_fold, shuffle=True, random_state=42)
+    kf = KFold(n_splits=args.num_fold, shuffle=True, random_state=10)
     num_targets = train_targets.shape[-1]
 
     k_fold_lds = [[] for i in range(num_targets)]
@@ -212,13 +212,11 @@ def main(args):
         overlap_indices = np.isin(train_seeds, test_seeds_fold)
         train_masks_fold = train_masks[~overlap_indices, :]
         train_targets_fold = train_targets[~overlap_indices, :]
-        train_seeds_fold = train_seeds[~overlap_indices]
 
         if args.max_train_size is not None:
             if len(train_targets_fold) > args.max_train_size:
                 train_masks_fold = train_masks_fold[: args.max_train_size, :]
                 train_targets_fold = train_targets_fold[: args.max_train_size, :]
-                train_seeds_fold = train_seeds_fold[: args.max_train_size]
 
         # Fit datamodel to estimate data attribution scores.
         print(
@@ -229,7 +227,7 @@ def main(args):
         for i in tqdm(range(num_targets)):
             datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
                 train_masks_fold, train_targets_fold[:, i]
-            )
+            )           
             datamodel_str = "Ridge"
             print("Datamodel parameters")
             print(f"\tmodel={datamodel_str}")

@@ -493,7 +493,7 @@ def main(args):
         Subset(train_dataset, remaining_idx),
         batch_size=config["batch_size"],
         shuffle=True,
-        num_workers=1,
+        num_workers=4,
     )
     if args.method == "esd":
         # Only esd requires the removed data loader.
@@ -503,7 +503,7 @@ def main(args):
             Subset(train_dataset, removed_idx),
             batch_size=config["batch_size"],
             shuffle=True,
-            num_workers=1,
+            num_workers=4,
         )
     else:
         # Hack to ensure that all the remaining data are used in each epoch.
