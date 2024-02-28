@@ -55,10 +55,10 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
-        "--num_fold",
+        "--num_test_subset",
         type=int,
-        help="number of K-fold",
-        default=None,
+        help="number of testing subsets",
+        default=32,
     )
     parser.add_argument(
         "--removal_dist",
@@ -111,7 +111,7 @@ def parse_args():
         "--num_bootstrap_iters",
         type=int,
         help="number of bootstrapped iterations",
-        default=None,
+        default=100,
     )
     return parser.parse_args()
 
@@ -196,11 +196,13 @@ def main(args):
     common_seeds = list(set(train_seeds) & set(test_seeds))
     common_seeds.sort()
 
-    kf = KFold(n_splits=args.num_fold, shuffle=True, random_state=10)
     num_targets = train_targets.shape[-1]
 
+    num_folds = int(len(test_seeds)/args.num_test_subset)
+    kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
     k_fold_lds = [[] for i in range(num_targets)]
-
+    
+    counter = 1
     for _, test_index in kf.split(common_seeds):
 
         test_seeds_fold = [common_seeds[i] for i in test_index]
@@ -220,7 +222,7 @@ def main(args):
 
         # Fit datamodel to estimate data attribution scores.
         print(
-            f"Estimating data attribution scores with {len(train_targets_fold)} subsets"
+            f"Estimating attribution scores with {len(train_targets_fold)} subsets in {counter}-fold"
         )
 
         data_attr_list = []
@@ -239,15 +241,20 @@ def main(args):
                 ).statistic
                 * 100
             )
+        counter +=1 
 
     for i in range(num_targets):
         print(f"Mean: {np.mean(k_fold_lds[i]):.3f}")
         print(
-            f"Standard error: {1.96*np.std(k_fold_lds[i])/np.sqrt(args.num_fold):.3f}"
+            f"Standard error: {1.96*np.std(k_fold_lds[i])/np.sqrt(num_folds):.3f}"
         )
 
     # Calculate test LDS with bootstrapping.
     if args.bootstrapped:
+
+        test_masks = test_masks[:args.num_test_subset, :]
+        test_targets = test_targets[:args.num_test_subset, :]
+        test_seeds = test_seeds[:args.num_test_subset]
 
         def my_lds(idx):
             boot_masks = test_masks[idx, :]
@@ -259,7 +266,9 @@ def main(args):
                     * 100
                 )
             return np.mean(lds_list)
-
+        print(
+            f"Estimating attribution scores with {len(train_targets_fold)} subsets and bootstrap sampling"
+        )
         boot_result = bootstrap(
             data=(list(range(len(test_targets))),),
             statistic=my_lds,
