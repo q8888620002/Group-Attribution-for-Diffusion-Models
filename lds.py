@@ -201,7 +201,7 @@ def main(args):
     num_folds = int(len(test_seeds)/args.num_test_subset)
     kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
     k_fold_lds = [[] for i in range(num_targets)]
-    
+
     counter = 1
     for _, test_index in kf.split(common_seeds):
 
@@ -255,6 +255,10 @@ def main(args):
         test_masks = test_masks[:args.num_test_subset, :]
         test_targets = test_targets[:args.num_test_subset, :]
         test_seeds = test_seeds[:args.num_test_subset]
+        
+        overlap_with_test = np.isin(train_seeds, test_seeds)
+        train_masks = train_masks[~overlap_with_test, :]
+        train_targets = train_targets[~overlap_with_test, :]
 
         def my_lds(idx):
             boot_masks = test_masks[idx, :]
