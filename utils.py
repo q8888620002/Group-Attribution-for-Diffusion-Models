@@ -207,7 +207,7 @@ class CelebA(Dataset):
         if self.transform:
             image = self.transform(image)
 
-        return image, -1
+        return image, -1, img_path
 
 
 def create_dataset(

@@ -11,6 +11,7 @@ import diffusers
 import numpy as np
 import torch
 import torch.nn as nn
+import wandb  # wandb for monitoring loss https://wandb.ai/
 from accelerate import Accelerator
 from diffusers import (
     DDIMPipeline,
@@ -29,7 +30,6 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 import constants
-import wandb  # wandb for monitoring loss https://wandb.ai/
 from ddpm_config import DDPMConfig
 from utils import (
     ImagenetteCaptioner,
@@ -238,6 +238,22 @@ def parse_args():
             "between fp16 and bf16 (bfloat16). Bf16 requires PyTorch >= 1.10."
             "and an Nvidia Ampere GPU."
         ),
+    )
+    parser.add_argument(
+        "--precompute_stage",
+        type=str,
+        default=None,
+        choices=[None, "save", "reuse"],
+        help=(
+            "Whether to precompute the VQVAE output."
+            "Choose between None, save, and reuse."
+        ),
+    )
+    parser.add_argument(
+        "--use_8bit_optimizer",
+        default=False,
+        action="store_true",
+        help="Whether to use 8bit optimizer",
     )
     parser.add_argument(
         "--ema_inv_gamma",
@@ -532,7 +548,46 @@ def main(args):
 
         vqvae = pipeline.vqvae
         vqvae.requires_grad_(False)
-        vqvae = vqvae.to(device)
+
+        if args.precompute_stage == None:
+            # Move the VQ-VAE model to the computing device without any additional operations
+            vqvae = vqvae.to(device)
+
+        elif args.precompute_stage == "save":
+            # Precompute and save the VQ-VAE latents
+            vqvae = vqvae.to(device)
+            vqvae.train()  # Set the model to train mode. (even when it is train mode, the vqvae output is static though)
+            vqvae_latent_dict = {}
+
+            with torch.no_grad():
+                for image_temp, label_temp, imageid_temp in tqdm(
+                    DataLoader(dataset=train_dataset, batch_size=32, num_workers=4)
+                ):
+                    vqvae_latent = vqvae.encode(image_temp.to(device), False)[0]
+                    assert len(vqvae_latent) == len(
+                        image_temp
+                    ), "Output and input batch sizes should match"
+
+                    # Store the encoded outputs in the dictionary
+                    for i in range(len(vqvae_latent)):
+                        vqvae_latent_dict[imageid_temp[i]] = vqvae_latent[i : i + 1]
+
+            # Save the dictionary of latents to a file
+            torch.save(
+                vqvae_latent_dict, os.path.join(args.outdir, "celeba_vqvae_output.pt")
+            )
+
+            # Inform the user about the saved precomputed output and advise on next steps
+            accelerator.print(
+                "VQVAE output precomputed and saved. Rerun the script with the precompute_state=reuse to unload VQVAE model and reduce GPU memory usage. Exiting..."
+            )
+            raise SystemExit(0)
+        elif args.precompute_stage == "reuse":
+            # Load the precomputed VQ-VAE latents for reuse, avoiding GPU memory usage by the VQ-VAE model
+            pipeline.vqvae = None
+            vqvae_latent_dict = torch.load(
+                os.path.join(args.outdir, "celeba_vqvae_output.pt"), map_location="cpu"
+            )
 
         captioner = None
     else:
@@ -543,10 +598,39 @@ def main(args):
         captioner = None
     pipeline_scheduler = pipeline.scheduler
 
-    optimizer_kwargs = config["optimizer_config"]["kwargs"]
-    optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
-        model.parameters(), **optimizer_kwargs
-    )
+    if args.use_8bit_optimizer == False:
+        optimizer_kwargs = config["optimizer_config"]["kwargs"]
+        optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
+            model.parameters(), **optimizer_kwargs
+        )
+    else:
+        # https://huggingface.co/docs/transformers/v4.20.1/en/perf_train_gpu_one#8bit-adam
+        import bitsandbytes as bnb
+        from transformers.trainer_pt_utils import get_parameter_names
+
+        decay_parameters = get_parameter_names(model, [nn.LayerNorm])
+        decay_parameters = [name for name in decay_parameters if "bias" not in name]
+        optimizer_grouped_parameters = [
+            {
+                "params": [
+                    p for n, p in model.named_parameters() if n in decay_parameters
+                ],
+                "weight_decay": config["optimizer_config"]["kwargs"]["weight_decay"],
+            },
+            {
+                "params": [
+                    p for n, p in model.named_parameters() if n not in decay_parameters
+                ],
+                "weight_decay": 0.0,
+            },
+        ]
+        optimizer_kwargs = config["optimizer_config"]["kwargs"]
+        del optimizer_kwargs["weight_decay"]
+        optimizer = bnb.optim.Adam8bit(
+            optimizer_grouped_parameters,
+            **optimizer_kwargs,
+        )
+
     lr_scheduler_kwargs = config["lr_scheduler_config"]["kwargs"]
     lr_scheduler = get_scheduler(
         config["lr_scheduler_config"]["name"],
@@ -606,9 +690,10 @@ def main(args):
     )
     steps_start_time = time.time()
     while param_update_steps < training_steps:
-        for j, ((image_r, label_r), (image_f, label_f)) in enumerate(
-            zip(remaining_dataloader, removed_dataloader)
-        ):
+        for j, (
+            (image_r, label_r, imageid_r),
+            (image_f, label_f, imageid_f),
+        ) in enumerate(zip(remaining_dataloader, removed_dataloader)):
             model.train()
 
             image_r = image_r.to(device)
@@ -619,9 +704,17 @@ def main(args):
                 input_ids_r = label_tokenizer(label_r).to(device)
                 encoder_hidden_states_r = text_encoder(input_ids_r)[0]
             elif args.dataset == "celeba":
-                image_r = vqvae.encode(image_r, False)[0]
+                if args.precompute_stage == None:
+                    # Directly encode the images if there's no precomputation
+                    image_r = vqvae.encode(image_r, False)[0]
+                elif (
+                    args.precompute_stage == "save" or args.precompute_stage == "reuse"
+                ):
+                    # If precomputed, retrieve the latent representations from the dictionary
+                    image_r = torch.concat(
+                        [vqvae_latent_dict[imageid_r[i]] for i in range(len(image_r))]
+                    ).to(device)
                 image_r = image_r * vqvae.config.scaling_factor
-
             noise = torch.randn_like(image_r).to(device)
 
             # Antithetic sampling of time steps.
