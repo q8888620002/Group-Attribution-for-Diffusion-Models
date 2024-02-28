@@ -212,8 +212,8 @@ def main(args):
         test_targets_fold = test_targets[test_indices, :]
 
         overlap_indices = np.isin(train_seeds, test_seeds_fold)
-        train_masks_fold = train_masks[overlap_indices, :]
-        train_targets_fold = train_targets[overlap_indices, :]
+        train_masks_fold = train_masks[~overlap_indices, :]
+        train_targets_fold = train_targets[~overlap_indices, :]
 
         if args.max_train_size is not None:
             if len(train_targets_fold) > args.max_train_size:
@@ -257,8 +257,8 @@ def main(args):
         test_seeds = test_seeds[:args.num_test_subset]
 
         overlap_with_test = np.isin(train_seeds, test_seeds)
-        train_masks = train_masks[overlap_with_test, :]
-        train_targets = train_targets[overlap_with_test, :]
+        train_masks = train_masks[~overlap_with_test, :]
+        train_targets = train_targets[~overlap_with_test, :]
 
         data_attr_list = []
         for i in tqdm(range(num_targets)):
@@ -294,6 +294,7 @@ def main(args):
         boot_se = boot_result.standard_error
         boot_ci_low = boot_result.confidence_interval.low
         boot_ci_high = boot_result.confidence_interval.high
+
         print(f"Mean: {boot_mean:.2f}")
         print(f"Standard error: {boot_se:.2f}")
         print(f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})")
