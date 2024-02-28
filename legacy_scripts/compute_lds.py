@@ -97,15 +97,16 @@ if __name__ == "__main__":
     gd_seets = list(subset_indices["gd_vs_train"].keys())
 
     common_seeds = list(set(gd_seets) & set(retrain_seeds))
-
+    common_seeds.sort()
     # Split test set into 3 folds.
 
-    kf = KFold(n_splits=3, shuffle=True, random_state=42)
+    num_fold = 3
+    kf = KFold(n_splits=num_fold, shuffle=True, random_state=42)
 
     for _, test_index in kf.split(common_seeds):
 
         test_seeds = [common_seeds[i] for i in test_index]
-
+        print(test_seeds)
         train_seeds = {
             "retrain_vs_train": [
                 seed for seed in retrain_seeds if seed not in test_seeds
@@ -127,11 +128,11 @@ if __name__ == "__main__":
 
             results[pre_fix].append(spearmanr(pred_score, test_values).statistic)
 
-    print(
-        f"LDS: retrain, Mean:{np.mean(results['retrain_vs_train'])}"
-        f"SE:{1.96*np.std(results['retrain_vs_train'])/np.sqrt(len(test_values))}"
-    )
-    print(
-        f"LDS: gd, mean:{np.mean(results['gd_vs_train'])}"
-        f"SE:{1.96*np.std(results['gd_vs_train'])/np.sqrt(len(test_values))}"
-    )
+    for method in ["retrain", "gd"]:
+        pre_fix = f"{method}_vs_train"
+
+        print(
+            f"LDS: {method}, Mean:{np.mean(results[pre_fix])}"
+            f"; SE:{1.96*np.std(results[pre_fix])/np.sqrt(num_fold)}"
+        )
+
