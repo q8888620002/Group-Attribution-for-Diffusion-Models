@@ -7,21 +7,11 @@ https://huggingface.co/docs/datasets/v2.17.0/en/package_reference/loading_method
 
 import argparse
 import os
+import re
 
 import pandas as pd
 
-CAPTION_DICT = {
-    "art_nouveau": "an Art Nouveau painting",
-    "baroque": "a Baroque painting",
-    "expressionism": "a painting from Expressionism",
-    "impressionism": "a painting from Impressionism",
-    "post_impressionism": "a Post-Impressionist painting",
-    "realism": "a Realist painting",
-    "renaissance": "a painting from the Renaissance",
-    "romanticism": "a Romanticist painting",
-    "surrealism": "a painting from Surrealism",
-    "ukiyo_e": "a ukiyo-e print",
-}
+from ddpm_config import PromptConfig
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="create ArtBench-10 metdata.csv")
@@ -40,6 +30,8 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    caption_dict = PromptConfig.artbench_config
+
     data_dir = os.path.join(args.parent_dir, args.split)
     print(f"Creating metadata.csv for {data_dir}")
 
@@ -51,17 +43,34 @@ if __name__ == "__main__":
     df_list = []
     art_style_captions = []
     for art_style in art_styles:
-        img_files, artists = [], []
+        img_files, artists, captions = [], [], []
         for img_file in os.listdir(os.path.join(data_dir, art_style)):
             img_files.append(os.path.join(art_style, img_file))
-            artists.append(img_file.split("_")[0])
-        caption = CAPTION_DICT[art_style]
+            artist = img_file.split("_")[0]
+            artists.append(artist)
+            formatted_artist = artist.replace("-", " ")
+            formatted_artist = formatted_artist.title()
+
+            # Handle the suffixes II, III, etc.
+            formatted_artist = re.sub(" i+$", lambda x: x[0].upper(), formatted_artist)
+
+            title = img_file.replace(".jpg", "").split("_")[1]
+            title = title.replace("-", " ").title()
+
+            caption = title + ", " + caption_dict[art_style] + " by " + formatted_artist
+            captions.append(caption)
+
+        art_style_captions.append(caption_dict[art_style])
         df_list.append(
             pd.DataFrame(
-                {"file_name": img_files, "caption": caption, "artist": artists}
+                {
+                    "file_name": img_files,
+                    "caption": captions,
+                    "artist": artists,
+                    "style": art_style,
+                }
             )
         )
-        art_style_captions.append(caption)
     df = pd.concat(df_list)
 
     # Check known statistics.
@@ -73,9 +82,9 @@ if __name__ == "__main__":
         num_imgs_per_style = 1000
     assert len(df) == num_imgs
     print("Captions are")
-    for caption in art_style_captions:
-        assert len(df[df["caption"] == caption]) == num_imgs_per_style
-        print(f"\t{caption}")
+    for art_style in art_styles:
+        assert len(df[df["style"] == art_style]) == num_imgs_per_style
+        print(f"\t{caption_dict[art_style]}")
 
     outfile = os.path.join(data_dir, "metadata.csv")
     df.to_csv(outfile, index=False)
