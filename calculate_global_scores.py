@@ -32,7 +32,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "celeba", "imagenette"],
+        choices=["mnist", "cifar", "celeba", "imagenette", "artbench"],
         default="mnist",
     )
     parser.add_argument(
@@ -70,14 +70,13 @@ def parse_args():
         type=str,
         help="training or unlearning method",
         choices=["retrain", "gd", "ga", "esd"],
-        required=True,
     )
     parser.add_argument(
         "--exp_name",
         type=str,
         help="experiment name to record in the database file",
         default=None,
-        required=True
+        required=True,
     )
     parser.add_argument(
         "--batch_size",
@@ -102,6 +101,8 @@ def main(args):
     """Main function for calculating global model behaviors."""
 
     sample_dir = args.sample_dir
+    remaining_idx = None
+    removed_idx = None
 
     if not sample_dir:
         removal_dir = "full"
