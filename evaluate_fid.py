@@ -1,4 +1,4 @@
-"""Calculate model behavior scores for diffusion models."""
+"""Evaluate the FID of generated images against a reference set of images."""
 import argparse
 import json
 import os
