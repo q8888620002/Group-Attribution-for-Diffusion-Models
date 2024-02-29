@@ -1,4 +1,4 @@
-"""Evaluate the FID of generated images against a reference set of images."""
+"""Calculate model behavior scores for diffusion models."""
 import argparse
 import json
 import os
@@ -157,10 +157,6 @@ def main(args):
             dims=2048,
         )
         fid_value_str = f"{fid_value:.4f}"
-
-        # TODO: Calculate Precision and Recall to capture generated image fidelity and
-        # diversity, respectively.
-
         print(f"FID score: {fid_value_str}")
         info_dict["fid_value"] = fid_value_str
 
