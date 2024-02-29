@@ -29,6 +29,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
+from torchvision.transforms.functional import to_tensor
+from torchvision.utils import save_image
 import transformers
 from accelerate import Accelerator
 from accelerate.logging import get_logger
@@ -47,6 +49,7 @@ from diffusers.optimization import get_scheduler
 from diffusers.training_utils import compute_snr
 from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
+from ddpm_config import PromptConfig
 
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -179,7 +182,7 @@ def parse_args():
     parser.add_argument(
         "--num_validation_images",
         type=int,
-        default=4,
+        default=6,
         help="Number of images that should be generated during validation with `validation_prompt`.",
     )
     parser.add_argument(
@@ -212,7 +215,7 @@ def parse_args():
         default=None,
         help="The directory where the downloaded models and datasets will be stored.",
     )
-    parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
+    parser.add_argument("--seed", type=int, default=42, help="A seed for reproducible training.")
     parser.add_argument(
         "--resolution",
         type=int,
@@ -390,6 +393,25 @@ def parse_args():
         default=4,
         help=("The dimension of the LoRA update matrices."),
     )
+    parser.add_argument(
+        "--method",
+        type=str,
+        default="retrain",
+        choices=["retrain"],
+        help="training or unlearning method",
+    )
+    parser.add_argument(
+        "--cls_key",
+        type=str,
+        default=None,
+        help="dataset key for class labels",
+    )
+    parser.add_argument(
+        "--cls",
+        type=str,
+        default=None,
+        help="fine-tune only on a specific class in the dataset",
+    )
 
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -403,14 +425,28 @@ def parse_args():
     return args
 
 
-DATASET_NAME_MAPPING = {
-    "lambdalabs/pokemon-blip-captions": ("image", "text"),
-}
-
-
 def main():
     args = parse_args()
-    logging_dir = Path(args.output_dir, args.logging_dir)
+    removal_dir = "full"
+    assert args.dataset_name is None
+    args.dataset = "artbench" if "artbench" in args.train_data_dir else args.train_data_dir
+    if args.cls is not None and args.cls_key is not None:
+        args.dataset = args.dataset + f"_{args.cls}"
+    args.model_outdir, args.sample_outdir = None, None
+    if args.output_dir is not None:
+        args.output_dir = os.path.join(args.output_dir, args.dataset, args.method)
+        args.model_outdir = os.path.join(args.output_dir, "models", removal_dir)
+        args.sample_outdir = os.path.join(args.output_dir, "samples", removal_dir)
+    
+    prompt_list_dict = {"artbench": list(PromptConfig.artbench_config.values())}
+
+    if args.validation_prompt is not None:
+        if args.validation_prompt == "all":
+            validation_prompt_list = prompt_list_dict[args.dataset]
+        else:
+            validation_prompt_list = [args.validation_prompt]
+
+    logging_dir = Path(args.output_dir, args.logging_dir, removal_dir)
 
     accelerator_project_config = ProjectConfiguration(project_dir=args.output_dir, logging_dir=logging_dir)
 
@@ -449,10 +485,12 @@ def main():
     if accelerator.is_main_process:
         if args.output_dir is not None:
             os.makedirs(args.output_dir, exist_ok=True)
+            os.makedirs(args.model_outdir, exist_ok=True)
+            os.makedirs(args.sample_outdir, exist_ok=True)
 
         if args.push_to_hub:
             repo_id = create_repo(
-                repo_id=args.hub_model_id or Path(args.output_dir).name, exist_ok=True, token=args.hub_token
+                repo_id=args.hub_model_id or Path(args.model_outdir).name, exist_ok=True, token=args.hub_token
             ).repo_id
     # Load scheduler, tokenizer and models.
     noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
@@ -511,25 +549,25 @@ def main():
         attn_module.to_q.set_lora_layer(
             LoRALinearLayer(
                 in_features=attn_module.to_q.in_features, out_features=attn_module.to_q.out_features, rank=args.rank
-            )
+            ).to(device=accelerator.device)
         )
         attn_module.to_k.set_lora_layer(
             LoRALinearLayer(
                 in_features=attn_module.to_k.in_features, out_features=attn_module.to_k.out_features, rank=args.rank
-            )
+            ).to(device=accelerator.device)
         )
 
         attn_module.to_v.set_lora_layer(
             LoRALinearLayer(
                 in_features=attn_module.to_v.in_features, out_features=attn_module.to_v.out_features, rank=args.rank
-            )
+            ).to(device=accelerator.device)
         )
         attn_module.to_out[0].set_lora_layer(
             LoRALinearLayer(
                 in_features=attn_module.to_out[0].in_features,
                 out_features=attn_module.to_out[0].out_features,
                 rank=args.rank,
-            )
+            ).to(device=accelerator.device)
         )
 
         # Accumulate the LoRA params to optimize.
@@ -607,28 +645,16 @@ def main():
         # See more about loading custom images at
         # https://huggingface.co/docs/datasets/v2.4.0/en/image_load#imagefolder
 
+    if args.cls is not None and args.cls_key is not None:
+        cls_idx = np.where(np.array(dataset["train"][args.cls_key]) == args.cls)[0]
+        dataset["train"] = dataset["train"].select(cls_idx)
+
     # Preprocessing the datasets.
     # We need to tokenize inputs and targets.
     column_names = dataset["train"].column_names
 
     # 6. Get the column names for input/target.
-    dataset_columns = DATASET_NAME_MAPPING.get(args.dataset_name, None)
-    if args.image_column is None:
-        image_column = dataset_columns[0] if dataset_columns is not None else column_names[0]
-    else:
-        image_column = args.image_column
-        if image_column not in column_names:
-            raise ValueError(
-                f"--image_column' value '{args.image_column}' needs to be one of: {', '.join(column_names)}"
-            )
-    if args.caption_column is None:
-        caption_column = dataset_columns[1] if dataset_columns is not None else column_names[1]
-    else:
-        caption_column = args.caption_column
-        if caption_column not in column_names:
-            raise ValueError(
-                f"--caption_column' value '{args.caption_column}' needs to be one of: {', '.join(column_names)}"
-            )
+    image_column, caption_column = column_names[0], column_names[1]
 
     # Preprocessing the datasets.
     # We need to tokenize input captions and transform the images.
@@ -685,6 +711,7 @@ def main():
         collate_fn=collate_fn,
         batch_size=args.train_batch_size,
         num_workers=args.dataloader_num_workers,
+        pin_memory=True,
     )
 
     # Scheduler and math around the number of training steps.
@@ -702,8 +729,8 @@ def main():
     )
 
     # Prepare everything with our `accelerator`.
-    unet_lora_parameters, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-        unet_lora_parameters, optimizer, train_dataloader, lr_scheduler
+    unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+        unet, optimizer, train_dataloader, lr_scheduler
     )
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
@@ -737,7 +764,7 @@ def main():
             path = os.path.basename(args.resume_from_checkpoint)
         else:
             # Get the most recent checkpoint
-            dirs = os.listdir(args.output_dir)
+            dirs = os.listdir(args.model_outdir)
             dirs = [d for d in dirs if d.startswith("checkpoint")]
             dirs = sorted(dirs, key=lambda x: int(x.split("-")[1]))
             path = dirs[-1] if len(dirs) > 0 else None
@@ -750,7 +777,7 @@ def main():
             initial_global_step = 0
         else:
             accelerator.print(f"Resuming from checkpoint {path}")
-            accelerator.load_state(os.path.join(args.output_dir, path))
+            accelerator.load_state(os.path.join(args.model_outdir, path))
             global_step = int(path.split("-")[1])
 
             initial_global_step = global_step
@@ -852,7 +879,7 @@ def main():
                     if accelerator.is_main_process:
                         # _before_ saving state, check if this save would set us over the `checkpoints_total_limit`
                         if args.checkpoints_total_limit is not None:
-                            checkpoints = os.listdir(args.output_dir)
+                            checkpoints = os.listdir(args.model_outdir)
                             checkpoints = [d for d in checkpoints if d.startswith("checkpoint")]
                             checkpoints = sorted(checkpoints, key=lambda x: int(x.split("-")[1]))
 
@@ -867,10 +894,10 @@ def main():
                                 logger.info(f"removing checkpoints: {', '.join(removing_checkpoints)}")
 
                                 for removing_checkpoint in removing_checkpoints:
-                                    removing_checkpoint = os.path.join(args.output_dir, removing_checkpoint)
+                                    removing_checkpoint = os.path.join(args.model_outdir, removing_checkpoint)
                                     shutil.rmtree(removing_checkpoint)
 
-                        save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                        save_path = os.path.join(args.model_outdir, f"checkpoint-{global_step}")
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
@@ -889,11 +916,13 @@ def main():
                 # create pipeline
                 pipeline = DiffusionPipeline.from_pretrained(
                     args.pretrained_model_name_or_path,
-                    unet=accelerator.unwrap_model(unet),
+                    unet=accelerator.unwrap_model(unet, keep_fp32_wrapper=False),
                     revision=args.revision,
                     variant=args.variant,
                     torch_dtype=weight_dtype,
                 )
+                pipeline.safety_checker = None
+                pipeline.requires_safety_checker = False
                 pipeline = pipeline.to(accelerator.device)
                 pipeline.set_progress_bar_config(disable=True)
 
@@ -902,9 +931,23 @@ def main():
                 if args.seed is not None:
                     generator = generator.manual_seed(args.seed)
                 images = []
-                for _ in range(args.num_validation_images):
-                    images.append(
-                        pipeline(args.validation_prompt, num_inference_steps=30, generator=generator).images[0]
+                for prompt in validation_prompt_list:
+                    for _ in tqdm(range(args.num_validation_images)):
+                        images.append(
+                            pipeline(
+                                prompt,
+                                num_inference_steps=100,
+                                generator=generator,
+                                height=args.resolution,
+                                width=args.resolution,
+                            ).images[0]
+                        )
+                if args.sample_outdir is not None:
+                    torch_images = torch.stack([to_tensor(img) for img in images])
+                    save_image(
+                        torch_images,
+                        os.path.join(args.sample_outdir, f"steps_{global_step}.png"),
+                        nrow=args.num_validation_images,
                     )
 
                 for tracker in accelerator.trackers:
@@ -928,7 +971,7 @@ def main():
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
         unet = unet.to(torch.float32)
-        unet.save_attn_procs(args.output_dir)
+        unet.save_attn_procs(args.model_outdir)
 
         if args.push_to_hub:
             save_model_card(
@@ -936,34 +979,55 @@ def main():
                 images=images,
                 base_model=args.pretrained_model_name_or_path,
                 dataset_name=args.dataset_name,
-                repo_folder=args.output_dir,
+                repo_folder=args.model_outdir,
             )
             upload_folder(
                 repo_id=repo_id,
-                folder_path=args.output_dir,
+                folder_path=args.model_outdir,
                 commit_message="End of training",
                 ignore_patterns=["step_*", "epoch_*"],
             )
 
     # Final inference
     # Load previous pipeline
-    pipeline = DiffusionPipeline.from_pretrained(
-        args.pretrained_model_name_or_path, revision=args.revision, variant=args.variant, torch_dtype=weight_dtype
-    )
-    pipeline = pipeline.to(accelerator.device)
+    if accelerator.is_main_process and args.validation_prompt is not None:
+        logger.info("Running final inference...")
+        pipeline = DiffusionPipeline.from_pretrained(
+            args.pretrained_model_name_or_path, revision=args.revision, variant=args.variant, torch_dtype=weight_dtype
+        )
+        pipeline.safety_checker = None
+        pipeline.requires_safety_checker = False
+        pipeline.set_progress_bar_config(disable=True)
+        pipeline = pipeline.to(accelerator.device)
 
-    # load attention processors
-    pipeline.unet.load_attn_procs(args.output_dir)
+        # load attention processors
+        pipeline.unet.load_attn_procs(args.model_outdir)
 
-    # run inference
-    generator = torch.Generator(device=accelerator.device)
-    if args.seed is not None:
-        generator = generator.manual_seed(args.seed)
-    images = []
-    for _ in range(args.num_validation_images):
-        images.append(pipeline(args.validation_prompt, num_inference_steps=30, generator=generator).images[0])
+        # run inference
+        generator = torch.Generator(device=accelerator.device)
+        if args.seed is not None:
+            generator = generator.manual_seed(args.seed)
+        images = []
+        for prompt in validation_prompt_list:
+            for _ in tqdm(range(args.num_validation_images)):
+                images.append(
+                    pipeline(
+                        prompt,
+                        num_inference_steps=100,
+                        generator=generator,
+                        height=args.resolution,
+                        width=args.resolution,
+                    ).images[0]
+                )
 
-    if accelerator.is_main_process:
+        if args.sample_outdir is not None:
+            torch_images = torch.stack([to_tensor(img) for img in images])
+            save_image(
+                torch_images,
+                os.path.join(args.sample_outdir, f"steps_{global_step}.png"),
+                nrow=args.num_validation_images,
+            )
+
         for tracker in accelerator.trackers:
             if len(images) != 0:
                 if tracker.name == "tensorboard":
