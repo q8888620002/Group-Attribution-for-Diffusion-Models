@@ -51,7 +51,6 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
             )
             pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
             model = pruned_model_ckpt["unet"]
-            import ipdb;ipdb.set_trace()
         else:
             model = model_strc
 

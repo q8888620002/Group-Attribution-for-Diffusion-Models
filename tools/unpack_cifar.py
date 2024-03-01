@@ -38,7 +38,7 @@ def process_batch(batch_data, output_path, batch_file, labels=None):
             img.save(os.path.join(output_folder, f"{batch_file}_image_{i}.png"))
 
 
-batch_path = os.path.join("/gscratch/aims/datasets/cifar/cifar-10-batches-py")
+batch_path = "/gscratch/aims/datasets/cifar/cifar-10-batches-py"
 batch_files = [
     "data_batch_1",
     "data_batch_2",
