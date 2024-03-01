@@ -139,7 +139,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "celeba", "imagenette"],
+        choices=["mnist", "cifar", "cifar2", "celeba", "imagenette"],
         default="mnist",
     )
     parser.add_argument(
@@ -183,7 +183,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["retrain", "gd", "ga", "esd"],
+        choices=["retrain","prune_fine_tune", "gd", "ga", "esd"],
         required=True,
     )
     parser.add_argument(
@@ -274,6 +274,7 @@ def parse_args():
 
 def main(args):
     """Main function for training or unlearning."""
+
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
@@ -285,6 +286,8 @@ def main(args):
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
+    elif args.dataset == "cifar2":
+        config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -358,6 +361,7 @@ def main(args):
     total_steps_time = 0
     training_steps = config["training_steps"][args.method]
     existing_steps = get_max_steps(model_outdir)
+
     if existing_steps is not None:
         # Check if there is an existing checkpoint to resume from. This occurs when
         # model runs are interrupted (e.g., exceeding job time limit).

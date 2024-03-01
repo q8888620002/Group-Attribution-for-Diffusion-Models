@@ -35,8 +35,8 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "celeba", "imagenette"],
-        default="mnist",
+        choices=["mnist", "cifar2", "cifar", "celeba", "imagenette"],
+        default=None,
     )
     parser.add_argument(
         "--db",
@@ -152,6 +152,8 @@ def main(args):
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
+    elif args.dataset == "cifar2":
+        config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -162,7 +164,7 @@ def main(args):
         raise ValueError(
             (
                 f"dataset={args.dataset} is not one of "
-                "['cifar', 'mnist', 'celeba', 'imagenette']"
+                "['cifar','cifar2','mnist', 'celeba', 'imagenette']"
             )
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
@@ -230,7 +232,7 @@ def main(args):
         info_dict["fid_value"] = fid_value_str
         info_dict["precision"] = precision
         info_dict["recall"] = recall
-        info_dict["is"] = is_value        
+        info_dict["is"] = is_value
 
     else:
         # Check if subdirectories exist for conditional image generation.
@@ -351,7 +353,7 @@ def main(args):
     info_dict["sample_dir"] = sample_dir
     info_dict["remaining_idx"] = remaining_idx
     info_dict["removed_idx"] = removed_idx
-    
+
     with open(args.db, "a+") as f:
         f.write(json.dumps(info_dict) + "\n")
     print(f"Results saved to the database at {args.db}")

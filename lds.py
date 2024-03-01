@@ -5,7 +5,7 @@ import json
 
 import numpy as np
 from scipy.stats import bootstrap, spearmanr
-from sklearn.linear_model import RidgeCV, LassoCV
+from sklearn.linear_model import RidgeCV
 from sklearn.model_selection import KFold
 from tqdm import tqdm
 
@@ -198,18 +198,18 @@ def main(args):
 
     num_targets = train_targets.shape[-1]
 
-    num_folds = int(len(test_seeds)/args.num_test_subset)
+    num_folds = int(len(test_seeds) / args.num_test_subset)
     kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
-    k_fold_lds = [[] for i in range(num_targets)]
+    k_fold_lds = []
+    fold_idx = 0
 
-    counter = 1
     for _, test_index in kf.split(common_seeds):
 
         test_seeds_fold = [common_seeds[i] for i in test_index]
 
-        test_indices = np.isin(test_seeds, test_seeds_fold)
-        test_masks_fold = test_masks[test_indices, :]
-        test_targets_fold = test_targets[test_indices, :]
+        test_indices_fold = np.isin(test_seeds, test_seeds_fold)
+        test_masks_fold = test_masks[test_indices_fold, :]
+        test_targets_fold = test_targets[test_indices_fold, :]
 
         overlap_indices = np.isin(train_seeds, test_seeds_fold)
         train_masks_fold = train_masks[~overlap_indices, :]
@@ -222,10 +222,13 @@ def main(args):
 
         # Fit datamodel to estimate data attribution scores.
         print(
-            f"Estimating attribution scores with {len(train_targets_fold)} subsets in {counter}-fold"
+            f"Estimating scores with {len(train_targets_fold)} subsets"
+            f" in {fold_idx+1}-fold"
         )
 
         data_attr_list = []
+        fold_lds_results = []
+
         for i in tqdm(range(num_targets)):
             datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
                 train_masks_fold, train_targets_fold[:, i]
@@ -235,35 +238,35 @@ def main(args):
             print(f"\tmodel={datamodel_str}")
             print(f"\talpha={datamodel.alpha_:.8f}")
             data_attr_list.append(datamodel.coef_)
-            k_fold_lds[i].append(
+            fold_lds_results.append(
                 spearmanr(
                     test_masks_fold @ data_attr_list[i], test_targets_fold
                 ).statistic
                 * 100
             )
-        counter +=1
 
-    for i in range(num_targets):
-        print(f"Mean: {np.mean(k_fold_lds[i]):.3f}")
-        print(
-            f"Standard error: {1.96*np.std(k_fold_lds[i])/np.sqrt(num_folds):.3f}"
-        )
+        k_fold_lds.append(np.mean(fold_lds_results))
+        fold_idx += 1
+
+    print(f"Mean: {np.mean(k_fold_lds):.3f}")
+    print(f"Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}")
 
     # Calculate test LDS with bootstrapping.
     if args.bootstrapped:
 
-        test_masks = test_masks[:args.num_test_subset, :]
-        test_targets = test_targets[:args.num_test_subset, :]
-        test_seeds = test_seeds[:args.num_test_subset]
+        test_masks = test_masks[: args.num_test_subset, :]
+        test_targets = test_targets[: args.num_test_subset, :]
+        test_seeds = test_seeds[: args.num_test_subset]
 
         overlap_with_test = np.isin(train_seeds, test_seeds)
         train_masks = train_masks[~overlap_with_test, :]
         train_targets = train_targets[~overlap_with_test, :]
 
         data_attr_list = []
+
         for i in tqdm(range(num_targets)):
             datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
-                train_masks_fold, train_targets_fold[:, i]
+                train_masks, train_targets[:, i]
             )
             datamodel_str = "Ridge"
             print("Datamodel parameters")
@@ -281,8 +284,9 @@ def main(args):
                     * 100
                 )
             return np.mean(lds_list)
+
         print(
-            f"Estimating attribution scores with {len(train_targets_fold)} subsets and bootstrap sampling"
+            f"Estimating scores with {len(train_targets_fold)} subsets with bootstrap."
         )
         boot_result = bootstrap(
             data=(list(range(len(test_targets))),),

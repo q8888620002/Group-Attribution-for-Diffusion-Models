@@ -45,8 +45,8 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "celeba"],
-        default="mnist",
+        choices=["mnist", "cifar2",  "cifar", "celeba"],
+        default=None,
     )
     parser.add_argument(
         "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
@@ -204,7 +204,7 @@ def main(args):
     if accelerator.is_main_process:
         print_args(args)
 
-    if args.dataset == "cifar":
+    if args.dataset in [ "cifar", "cifar2"]:
         config = {**DDPMConfig.cifar_config}
         example_inputs = {
             "sample": torch.randn(1, 3, 32, 32).to(device),
@@ -228,7 +228,7 @@ def main(args):
         raise ValueError(
             (
                 f"dataset={args.dataset} is not one of "
-                "['cifar', 'mnist', 'celeba', 'imagenette']"
+                "['cifar','cifar2', 'mnist', 'celeba', 'imagenette']"
             )
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
@@ -253,7 +253,7 @@ def main(args):
     accelerator.print("Loading pretrained model from {}".format(pre_trained_path))
 
     # load model and scheduler
-    training_steps = config["training_steps"]["retrain"]
+
     existing_steps = get_max_steps(pre_trained_path)
     if existing_steps is not None:
         # Check if there is an existing checkpoint to resume from. This occurs when
