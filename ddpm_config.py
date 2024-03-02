@@ -40,8 +40,6 @@ class DDPMConfig:
             "gd": 4000,
             "esd": 5000,
         },
-<<<<<<< HEAD
-=======
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
@@ -131,7 +129,6 @@ class DDPMConfig:
             "gd": 4000,
             "esd": 5000,
         },
->>>>>>> main
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
