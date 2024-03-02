@@ -171,6 +171,43 @@ class LabelTokenizer:
         return inputs.input_ids
 
 
+class CIFAR2(CIFAR10):
+    """
+    Dataloader for CIFAR2 dataset (automobile and horse)
+
+    Return_
+        3x32x32 CIFAR-2 images, and it's corresponding label
+    """
+
+    def __init__(
+        self, root, train=True, transform=None, target_transform=None, download=False
+    ):
+
+        super(CIFAR2, self).__init__(
+            root,
+            train=train,
+            transform=transform,
+            target_transform=target_transform,
+            download=download,
+        )
+        self.classes_to_keep = [1, 7]  # 1 for automobile, 7 for horse
+
+        # Filter the dataset
+        filtered_indices = [
+            i for i, target in enumerate(self.targets) if target in self.classes_to_keep
+        ]
+        self.data = self.data[filtered_indices]
+        self.targets = [
+            self.classes_to_keep.index(target)
+            for i, target in enumerate(self.targets)
+            if target in self.classes_to_keep
+        ]
+
+        # Update class labels and class names
+        self.classes = ["automobile", "horse"]
+        self.class_to_idx = {"automobile": 0, "horse": 1}
+
+
 class CelebA(Dataset):
     """
     DataLoader for CelebA 256 x 256. Note that there's no label for this one.
@@ -240,6 +277,20 @@ def create_dataset(
         )
         root_dir = os.path.join(dataset_dir, "cifar")
         dataset = CIFAR10(
+            root=root_dir, train=train, download=True, transform=preprocess
+        )
+    elif dataset_name == "cifar2":
+        preprocess = transforms.Compose(
+            [
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),  # Normalize to [0,1].
+                transforms.Normalize(
+                    (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
+                ),  # Normalize to [-1,1].
+            ]
+        )
+        root_dir = os.path.join(dataset_dir, "cifar")
+        dataset = CIFAR2(
             root=root_dir, train=train, download=True, transform=preprocess
         )
     elif dataset_name == "mnist":

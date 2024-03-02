@@ -36,7 +36,7 @@ class VGGFeatureExtractor(nn.Module):
 
     def _load_model(self):
         model_path = os.path.join(
-            "/gscratch/aims/diffusion-attr/pretrained_models",
+            constants.PRETRAINEDMODEL_DIR,
             os.path.basename(self.WEIGHTS_URL),
         )
         if not os.path.exists(model_path):
@@ -288,6 +288,9 @@ def calc_pr(
         )
         pred.append((dist_batch <= manifold_1.kth.unsqueeze(0)).any(dim=1))
     recall = torch.cat(pred).to(torch.float32).mean()
+
+    precision = precision.detach().cpu().item()
+    recall = recall.detach().cpu().item()
 
     return precision, recall
 

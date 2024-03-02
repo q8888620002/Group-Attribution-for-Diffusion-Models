@@ -12,23 +12,32 @@ def unpickle(file):
     return dict
 
 
-def process_batch(batch_data, batch_path, batch_file, num_classes=10):
+def process_batch(batch_data, output_path, batch_file, labels=None):
     """Process a batch in CIFAR-10."""
     if batch_file != "test_batch":
         print(f"Processing training batch: {batch_file}")
-        output_folder = os.path.join(batch_path, "cifar_images", "train")
+        output_folder = os.path.join(output_path, "cifar_images", "train")
     else:
         print(f"Processing test batch: {batch_file}")
-        output_folder = os.path.join(batch_path, "cifar_images", "test")
+        output_folder = os.path.join(output_path, "cifar_images", "test")
 
     os.makedirs(output_folder, exist_ok=True)
-    for i, image_array in enumerate(batch_data[b"data"]):
-        image_array = image_array.reshape(3, 32, 32).transpose(1, 2, 0)
-        img = Image.fromarray(image_array)
-        img.save(os.path.join(output_folder, f"{batch_file}_image_{i}.png"))
+
+    if labels is not None:
+        for i, (image_array, label) in enumerate(
+            zip(batch_data[b"data"], batch_data[b"labels"])
+        ):
+            if label in labels:
+                image_array = image_array.reshape(3, 32, 32).transpose(1, 2, 0)
+                img = Image.fromarray(image_array)
+                img.save(os.path.join(output_folder, f"{batch_file}_image_{i}.png"))
+    else:
+        for i, image_array in enumerate(batch_data[b"data"]):
+            image_array = image_array.reshape(3, 32, 32).transpose(1, 2, 0)
+            img = Image.fromarray(image_array)
+            img.save(os.path.join(output_folder, f"{batch_file}_image_{i}.png"))
 
 
-# TODO: Remove line this for anonymized code submission.
 batch_path = "/gscratch/aims/datasets/cifar/cifar-10-batches-py"
 batch_files = [
     "data_batch_1",
@@ -39,7 +48,12 @@ batch_files = [
     "test_batch",
 ]
 
+labels = {1, 7}  # Filter for 'automobile' and 'horse' images
+
+output_folder = os.path.join(batch_path, "cifar2")
+os.makedirs(output_folder, exist_ok=True)
+
 for batch_file in batch_files:
     batch_data = unpickle(os.path.join(batch_path, batch_file))
-    process_batch(batch_data, batch_path, batch_file)
+    process_batch(batch_data, output_folder, batch_file, labels)
 print("Done!")

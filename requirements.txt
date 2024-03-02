@@ -16,3 +16,4 @@ pynvml
 accelerate
 clip @ git+https://github.com/openai/CLIP.git
 scikit-image
+datasets
