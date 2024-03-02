@@ -40,6 +40,8 @@ class DDPMConfig:
             "gd": 4000,
             "esd": 5000,
         },
+<<<<<<< HEAD
+=======
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
@@ -129,6 +131,7 @@ class DDPMConfig:
             "gd": 4000,
             "esd": 5000,
         },
+>>>>>>> main
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
@@ -384,4 +387,21 @@ class DDPMConfig:
         "ckpt_freq": {"retrain": 2500, "ga": 1, "gd": 1, "esd": 50},
         "sample_freq": {"retrain": 2500, "ga": 1, "gd": 1, "esd": 50},
         "n_samples": 60,
+    }
+
+
+class PromptConfig:
+    """Prompts for text-to-image generation."""
+
+    artbench_config = {
+        "art_nouveau": "an Art Nouveau painting",
+        "baroque": "a Baroque painting",
+        "expressionism": "an Expressionist painting",
+        "impressionism": "an Impressionist painting",
+        "post_impressionism": "a Post-Impressionist painting",
+        "realism": "a Realist painting",
+        "renaissance": "a painting from the Renaissance",
+        "romanticism": "a Romanticist painting",
+        "surrealism": "a Surrealist painting",
+        "ukiyo_e": "a ukiyo-e print",
     }
