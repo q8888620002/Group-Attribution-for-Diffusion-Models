@@ -547,6 +547,7 @@ def main(args):
         pipeline.unet = model
 
         vqvae = pipeline.vqvae
+        pipeline.vqvae.config.scaling_factor = 1
         vqvae.requires_grad_(False)
 
         if args.precompute_stage == None:
@@ -554,14 +555,20 @@ def main(args):
             vqvae = vqvae.to(device)
 
         elif args.precompute_stage == "save":
+            assert removal_dir == "full", "Precomputation should be done for full data"
             # Precompute and save the VQ-VAE latents
             vqvae = vqvae.to(device)
             vqvae.train()  # Set the model to train mode. (even when it is train mode, the vqvae output is static though)
+            # if accelerator.is_main_process:
             vqvae_latent_dict = {}
-
             with torch.no_grad():
                 for image_temp, label_temp, imageid_temp in tqdm(
-                    DataLoader(dataset=train_dataset, batch_size=32, num_workers=4)
+                    DataLoader(
+                        dataset=train_dataset,
+                        batch_size=32,
+                        num_workers=4,
+                        shuffle=False,
+                    )
                 ):
                     vqvae_latent = vqvae.encode(image_temp.to(device), False)[0]
                     assert len(vqvae_latent) == len(
@@ -570,20 +577,19 @@ def main(args):
 
                     # Store the encoded outputs in the dictionary
                     for i in range(len(vqvae_latent)):
-                        vqvae_latent_dict[imageid_temp[i]] = vqvae_latent[i : i + 1]
+                        vqvae_latent_dict[imageid_temp[i]] = vqvae_latent[i]
 
             # Save the dictionary of latents to a file
-            vavae_latent_dir = os.path.join(
+            vqvae_latent_dir = os.path.join(
                 args.outdir,
                 args.dataset,
                 "precomputed_emb",
             )
-            os.makedirs(vavae_latent_dir, exist_ok=True)
+            os.makedirs(vqvae_latent_dir, exist_ok=True)
             torch.save(
                 vqvae_latent_dict,
-                os.path.join(vavae_latent_dir, "celeba_vqvae_output.pt"),
+                os.path.join(vqvae_latent_dir, "vqvae_output.pt"),
             )
-
             # Inform the user about the saved precomputed output and advise on next steps
             accelerator.print(
                 "VQVAE output precomputed and saved. Rerun the script with the precompute_state=reuse to unload VQVAE model and reduce GPU memory usage. Exiting..."
@@ -592,9 +598,14 @@ def main(args):
         elif args.precompute_stage == "reuse":
             # Load the precomputed VQ-VAE latents for reuse, avoiding GPU memory usage by the VQ-VAE model
             pipeline.vqvae = None
+            vqvae_latent_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "precomputed_emb",
+            )
             vqvae_latent_dict = torch.load(
                 os.path.join(
-                    vavae_latent_dir,
+                    vqvae_latent_dir,
                     "celeba_vqvae_output.pt",
                 ),
                 map_location="cpu",
@@ -710,7 +721,7 @@ def main(args):
             image_r, label_r = batch_r[0], batch_r[1]
             image_f, label_f = batch_f[0], batch_f[1]
 
-            if args.dataset == "celeba":
+            if args.precompute_stage == "reuse":
                 imageid_r, imageid_f = batch_r[2], batch_f[2]
 
             image_r = image_r.to(device)
@@ -724,11 +735,9 @@ def main(args):
                 if args.precompute_stage == None:
                     # Directly encode the images if there's no precomputation
                     image_r = vqvae.encode(image_r, False)[0]
-                elif (
-                    args.precompute_stage == "save" or args.precompute_stage == "reuse"
-                ):
+                elif args.precompute_stage == "reuse":
                     # If precomputed, retrieve the latent representations from the dictionary
-                    image_r = torch.concat(
+                    image_r = torch.stack(
                         [vqvae_latent_dict[imageid_r[i]] for i in range(len(image_r))]
                     ).to(device)
                 image_r = image_r * vqvae.config.scaling_factor
