@@ -606,7 +606,7 @@ def main(args):
             vqvae_latent_dict = torch.load(
                 os.path.join(
                     vqvae_latent_dir,
-                    "celeba_vqvae_output.pt",
+                    "vqvae_output.pt",
                 ),
                 map_location="cpu",
             )
