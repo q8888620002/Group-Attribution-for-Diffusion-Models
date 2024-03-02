@@ -35,21 +35,19 @@ def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=Non
         stats["sigma"] = sigma
 
         with open(f"misc/{dataset}_stats.pkl", "wb") as file:
-            pkl.dumps(stats, file)
+            pkl.dump(stats, file)
 
     else:
-        if dataset == "cifar":
-            with open("misc/cifar_stats.pkl", "rb") as file:
+        try:
+            with open(f"misc/{dataset}_stats.pkl", "rb") as file:
                 cifar_train = pkl.load(file)
             mu, sigma = cifar_train["mu"], cifar_train["sigma"]
 
-        else:
-            raise ValueError(
-                (
-                    f"dataset={dataset} is not one of "
-                    "['cifar', 'mnist', 'celeba', 'imagenette']"
-                )
+        except FileNotFoundError:
+            raise FileNotFoundError(
+                f"No pre-calculated stats for {dataset} found."
             )
+
 
     mu1, sigma1 = compute_features_stats(
         images_dataset, inceptionNet, batch_size, dims, device
