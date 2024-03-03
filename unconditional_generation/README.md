@@ -43,7 +43,7 @@ main.py --dataset celeba \
 --use_8bit_optimizer \ 
 --precompute_stage save
 ```
-3. Change `--precompute_stage reuse` to retrain with the precomputed latent embeddings.
+3. Run above but change `save` to `reuse` to load the precomputed latent embeddings for training.
 
 
 ## References and Additional Resources
