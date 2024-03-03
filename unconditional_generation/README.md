@@ -3,7 +3,7 @@
 This README provides instructions for training **unconditional** diffusion models, including from retraining (exact unlearning) and **sparsified unlearning**. 
 
 ## Training a Diffusion Model from Scratch  and unlearning with a removal distribution
-To train a diffusion model from scratch, use the following command:
+To train a [unlearned/retrained] diffusion model, use the following command:
 ```bash
 python main.py --dataset [dataset] --method [unlearning/retrain/prune_fine_tune/gd/ga] \
 
