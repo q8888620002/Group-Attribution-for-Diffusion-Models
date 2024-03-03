@@ -23,7 +23,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist","cifar2", "cifar", "celeba", "imagenette"],
+        choices=["mnist", "cifar2", "cifar", "celeba", "imagenette"],
         default="cifar",
     )
     parser.add_argument(
@@ -183,7 +183,11 @@ def main(args):
 
     # Load the trained U-Net model or U-Net EMA.
 
-    trained_steps = args.trained_steps if args.trained_steps is not None else get_max_steps(model_loaddir)
+    trained_steps = (
+        args.trained_steps
+        if args.trained_steps is not None
+        else get_max_steps(model_loaddir)
+    )
     # sample_outdir = os.path.join(sample_outdir, trained_steps)
 
     if trained_steps is not None:

@@ -21,8 +21,6 @@ from diffusers import (
 )
 from diffusers.models.attention import Attention
 from diffusers.models.resnet import Downsample2D, Upsample2D
-from diffusers.optimization import get_scheduler
-from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
@@ -45,7 +43,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar2",  "cifar", "celeba"],
+        choices=["mnist", "cifar2", "cifar", "celeba"],
         default=None,
     )
     parser.add_argument(
@@ -204,7 +202,7 @@ def main(args):
     if accelerator.is_main_process:
         print_args(args)
 
-    if args.dataset in [ "cifar", "cifar2"]:
+    if args.dataset in ["cifar", "cifar2"]:
         config = {**DDPMConfig.cifar_config}
         example_inputs = {
             "sample": torch.randn(1, 3, 32, 32).to(device),
