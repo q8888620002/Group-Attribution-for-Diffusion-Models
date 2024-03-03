@@ -6,11 +6,11 @@ import os
 import diffusers
 from lightning.pytorch import seed_everything
 
-import constants
+import src.constants as constants
 from attributions.global_scores import fid_score, inception_score, precision_recall
-from ddpm_config import DDPMConfig
-from diffusion_utils import build_pipeline, generate_images, load_ckpt_model
-from utils import ImageDataset, TensorDataset, print_args
+from src.ddpm_config import DDPMConfig
+from src.diffusion_utils import build_pipeline, generate_images, load_ckpt_model
+from src.utils import ImageDataset, TensorDataset, print_args
 
 
 def parse_args():

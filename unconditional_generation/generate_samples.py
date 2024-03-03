@@ -11,9 +11,9 @@ from lightning.pytorch import seed_everything
 from torchvision.utils import save_image
 from tqdm import tqdm
 
-import constants
-from ddpm_config import DDPMConfig
-from utils import ImagenetteCaptioner, create_dataset, get_max_steps
+import src.constants as constants
+from src.ddpm_config import DDPMConfig
+from src.utils import ImagenetteCaptioner, create_dataset, get_max_steps
 
 
 def parse_args():

@@ -15,9 +15,9 @@ from skimage.metrics import (
 )
 from tqdm import tqdm
 
-import constants
-from ddpm_config import DDPMConfig
-from utils import get_max_steps, print_args
+import src.constants as constants
+from src.ddpm_config import DDPMConfig
+from src.utils import get_max_steps, print_args
 
 
 def load_model_ckpt(model, ckpt_dir, use_ema, return_ckpt: bool = False):

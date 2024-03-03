@@ -16,7 +16,7 @@ from torchvision.datasets import CIFAR10, MNIST, ImageFolder
 from torchvision.transforms import Compose, Lambda, Normalize, Resize, ToPILImage
 from transformers import PreTrainedTokenizer
 
-import constants
+import src.constants as constants
 
 
 def print_args(args):
@@ -31,7 +31,7 @@ def get_memory_free_MiB(gpu_index):
     pynvml.nvmlInit()
     handle = pynvml.nvmlDeviceGetHandleByIndex(int(gpu_index))
     mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-    return mem_info.free // 1024**2
+    return mem_info.free // 1024 ** 2
 
 
 class ImageDataset(Dataset):

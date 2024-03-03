@@ -14,3 +14,5 @@ slurms_ming/*
 slurm/*
 slurms/*
 misc/*.pkl
+classifier_guided_unlearning/*
+legacy_scripts/*

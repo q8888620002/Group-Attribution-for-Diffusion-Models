@@ -9,7 +9,7 @@ from sklearn.linear_model import RidgeCV
 from sklearn.model_selection import KFold
 from tqdm import tqdm
 
-from utils import create_dataset, print_args
+from src.utils import create_dataset, print_args
 
 
 def parse_args():

@@ -11,7 +11,6 @@ import diffusers
 import numpy as np
 import torch
 import torch.nn as nn
-import wandb  # wandb for monitoring loss https://wandb.ai/
 from accelerate import Accelerator
 from diffusers import (
     DDIMPipeline,
@@ -29,9 +28,10 @@ from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
 from tqdm import tqdm
 
-import constants
-from ddpm_config import DDPMConfig
-from utils import (
+import src.constants as constants
+import wandb  # wandb for monitoring loss https://wandb.ai/
+from src.ddpm_config import DDPMConfig
+from src.utils import (
     ImagenetteCaptioner,
     LabelTokenizer,
     create_dataset,
@@ -183,7 +183,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["retrain","prune_fine_tune", "gd", "ga", "esd"],
+        choices=["retrain", "prune_fine_tune", "gd", "ga", "esd"],
         required=True,
     )
     parser.add_argument(

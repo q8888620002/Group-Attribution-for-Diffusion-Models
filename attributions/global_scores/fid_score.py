@@ -4,6 +4,7 @@ FID calculation based on pytorch-fid[1]
 [1]: https://github.com/mseitzer/pytorch-fid
 """
 import pickle as pkl
+
 import numpy as np
 import torch
 from pytorch_fid.fid_score import (
@@ -44,10 +45,7 @@ def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=Non
             mu, sigma = cifar_train["mu"], cifar_train["sigma"]
 
         except FileNotFoundError:
-            raise FileNotFoundError(
-                f"No pre-calculated stats for {dataset} found."
-            )
-
+            raise FileNotFoundError(f"No pre-calculated stats for {dataset} found.")
 
     mu1, sigma1 = compute_features_stats(
         images_dataset, inceptionNet, batch_size, dims, device

@@ -8,7 +8,7 @@ from diffusers.training_utils import EMAModel
 from torchvision import transforms
 from tqdm import tqdm
 
-from utils import ImagenetteCaptioner, create_dataset, get_max_steps
+from src.utils import ImagenetteCaptioner, create_dataset, get_max_steps
 
 
 def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
