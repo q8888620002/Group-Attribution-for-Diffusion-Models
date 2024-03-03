@@ -2,29 +2,34 @@
 
 This README provides instructions for training **unconditional** diffusion models, including from retraining (exact unlearning) and **sparsified unlearning**. 
 
-### Training a Diffusion Model from Scratch  and unlearning with a removal distribution
+## Training a Diffusion Model from Scratch  and unlearning with a removal distribution
 To train a diffusion model from scratch, use the following command:
 ```bash
 python main.py --dataset [dataset] --method [unlearning/retrain/prune_fine_tune/gd/ga] \
+
 ## Removal distribution args
+
 --removal_dist [datashapley/datamodel/uniform/None] \
 --datamodel_alpha [0.5] \
 --removal_seed [0]
 
 ## Model sparsification args. This is needed when training unlearned models
+
 --pruning_ratio [0.3]\
 --pruner [magnitude]\
 --thr [0.05]\
 
 ## Training args
+
 --keep_all_ckpts \
 
 ## Accelerator args
+
 --mixed_precision [no, bf16, fp16]
 --gradient_accumulation_steps [1]
 ```
 
-#### Efficient Training for CelebA-HQ (256x 256)
+## Efficient Training for CelebA-HQ (256x 256)
 For those utilizing consumer-grade GPUs with limited memory capacity (e.g., RTX 2080ti), we offer several features aimed at efficient training:
 * precomputed VQVAE latent
 * 8bit Adam optimizer (we use [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) package)
