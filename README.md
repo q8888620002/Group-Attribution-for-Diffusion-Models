@@ -11,6 +11,26 @@ In our experiments, we attribute diffusion model FID back to CIFAR-10 train-
 ing images with datamodel attributions, showing better linear datamodeling score
 (LDS) than datamodel attributions based on naive retraining
 
+## Training Instructions
+
+### Install Required Packages
+Set up a virtual environment with Python 3.11.5.
+Before starting, ensure all required packages are installed:
+```bash
+pip install -r requirements.txt
+```
+
+### Set up Directory Paths
+Create a `constants.py` file with the following content:
+```
+"""Global constant variables for the project."""
+
+DATASET_DIR = "/gscratch/aims/datasets"
+OUTDIR = "/gscratch/aims/diffusion-attr"
+MAX_NUM_SAMPLE_IMAGES_TO_SAVE = 64
+
+```
+
 ## Directory Structure
 
 ```plaintext
@@ -48,17 +68,4 @@ ing images with datamodel attributions, showing better linear datamodeling score
 ├── some_common_script_0.py  # Script(s) that are useful for all diffusion models.
 ├── some_common_script_1.py
 
-## Installation
-Provide instructions on how to install and run the project.
-
-## Usage
-Describe how to use the project, including any relevant commands.
-
-## Contributing
-Guidelines for contributing to the project, if applicable.
-
-## License
-Specify the license under which the project is released.
 ```
-
-Feel free to fill in the sections with appropriate details specific to your project, such as an overview, installation instructions, usage examples, contributing guidelines, and licensing information.
