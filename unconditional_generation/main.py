@@ -13,12 +13,9 @@ import torch
 import torch.nn as nn
 from accelerate import Accelerator
 from diffusers import (
-    DDIMPipeline,
-    DDIMScheduler,
     DDPMPipeline,
     DDPMScheduler,
     DiffusionPipeline,
-    LDMPipeline,
 )
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
@@ -37,67 +34,8 @@ from src.datasets import (
     remove_data_by_uniform,
 )
 from src.ddpm_config import DDPMConfig
-from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer
-from src.utils import get_max_steps, print_args, compute_grad_norm,compute_param_norm
-
-
-def run_inference(
-    accelerator,
-    model,
-    ema_model,
-    config,
-    args,
-    vqvae,
-    captioner,
-    pipeline,
-    pipeline_scheduler,
-):
-    """Wrapper function for inference. To be run under the accelerator main process."""
-    model = accelerator.unwrap_model(model).eval()
-    ema_model.store(model.parameters())
-    ema_model.copy_to(model.parameters())  # The EMA is used for inference.
-
-    with torch.no_grad():
-        if args.dataset == "imagenette":
-            samples = []
-            n_samples_per_cls = math.ceil(config["n_samples"] / captioner.num_classes)
-            classes = [idx for idx in range(captioner.num_classes)]
-            for _ in range(n_samples_per_cls):
-                samples.append(
-                    pipeline(
-                        prompt=captioner(classes),
-                        num_inference_steps=args.num_inference_steps,
-                        eta=0.3,
-                        guidance_scale=6,
-                        output_type="numpy",
-                    ).images
-                )
-            samples = np.concatenate(samples)
-        elif args.dataset == "celeba":
-            pipeline = LDMPipeline(
-                unet=model,
-                vqvae=vqvae,
-                scheduler=pipeline_scheduler,
-            ).to(accelerator.device)
-            samples = pipeline(
-                batch_size=config["n_samples"],
-                num_inference_steps=args.num_inference_steps,
-                output_type="numpy",
-            ).images
-        else:
-            pipeline = DDIMPipeline(
-                unet=model,
-                scheduler=DDIMScheduler(num_train_timesteps=args.num_train_steps),
-            )
-            samples = pipeline(
-                batch_size=config["n_samples"],
-                num_inference_steps=args.num_inference_steps,
-                output_type="numpy",
-            ).images
-
-        samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
-        ema_model.restore(model.parameters())
-    return samples
+from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer, run_inference
+from src.utils import compute_grad_norm, compute_param_norm, get_max_steps, print_args
 
 
 def parse_args():
