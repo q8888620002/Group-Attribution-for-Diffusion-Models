@@ -1,14 +1,15 @@
-# Project Title
+# Explaining Diffusion Models via Sparsified Unlearning
 
 ## Overview
-Provide a brief description of the project here.
-
-## Directory Structure
-
-# Project Title
-
-## Overview
-Provide a brief description of the project here.
+With the widespread usage of diffusion models, effective data attribution is needed
+to ensure fair acknowledgment for contributors of high-quality training samples,
+and to identify potential sources of harmful content. In this early work, we in-
+troduce a novel framework tailored to removal-based data attribution for diffusion
+models, leveraging sparsified unlearning. This approach significantly improves
+the computational scalability and effectiveness of removal-based data attribution.
+In our experiments, we attribute diffusion model FID back to CIFAR-10 train-
+ing images with datamodel attributions, showing better linear datamodeling score
+(LDS) than datamodel attributions based on naive retraining
 
 ## Directory Structure
 
