@@ -1,14 +1,100 @@
 """Utilities for duffusion pipeline"""
 import os
+from typing import List
 
 import numpy as np
 import torch
 from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline
 from diffusers.training_utils import EMAModel
 from torchvision import transforms
+from torchvision.datasets import ImageFolder
 from tqdm import tqdm
+from transformers import PreTrainedTokenizer
 
-from src.utils import ImagenetteCaptioner, create_dataset, get_max_steps
+from src.datasets import create_dataset
+from src.utils import get_max_steps
+
+
+class ImagenetteCaptioner:
+    """
+    Class to caption Imagenette labels.
+
+    Args:
+    ----
+        dataset: a torchvision ImageFolder dataset.
+    """
+
+    def __init__(self, dataset: ImageFolder):
+        self.label_to_synset = dataset.classes  # List of synsets.
+        self.num_classes = len(self.label_to_synset)
+        self.synset_to_word = {
+            "n01440764": "tench",
+            "n02102040": "English springer",
+            "n02979186": "cassette player",
+            "n03000684": "chainsaw",
+            "n03028079": "church",
+            "n03394916": "French horn",
+            "n03417042": "garbage truck",
+            "n03425413": "gas pump",
+            "n03445777": "golf ball",
+            "n03888257": "parachute",
+        }
+
+    def __call__(self, labels: torch.LongTensor) -> List[str]:
+        """
+        Convert integer labels to string captions.
+
+        Args:
+        ----
+            labels: Tensor of integer labels.
+
+        Returns
+        -------
+            A list of string captions, with the format of "a photo of a {object}."
+        """
+        captions = []
+        for label in labels:
+            synset = self.label_to_synset[label]
+            word = self.synset_to_word[synset]
+            captions.append(f"a photo of a {word}.")
+        return captions
+
+
+class LabelTokenizer:
+    """
+    Class to convert integer labels to caption token ids.
+
+    Args:
+    ----
+        captioner: A class that converts integer labels to string captions.
+        tokenizer: A Hugging Face PreTrainedTokenizer.
+    """
+
+    def __init__(self, captioner: ImagenetteCaptioner, tokenizer: PreTrainedTokenizer):
+        self.captioner = captioner
+        self.tokenizer = tokenizer
+
+    def __call__(self, labels: torch.LongTensor) -> torch.LongTensor:
+        """
+        Converts integer labels to caption token ids.
+
+        Args:
+        ----
+            labels: Tensor of integer labels.
+
+        Returns
+        -------
+            Integer tensor of token ids, with padding and truncation if necessary.
+        """
+        captions = self.captioner(labels)
+        inputs = self.tokenizer(
+            captions,
+            max_length=self.tokenizer.model_max_length,
+            padding="longest",
+            truncation=True,
+            return_tensors="pt",
+        )
+        return inputs.input_ids
 
 
 def load_ckpt_model(args, model_cls, model_strc, model_loaddir):

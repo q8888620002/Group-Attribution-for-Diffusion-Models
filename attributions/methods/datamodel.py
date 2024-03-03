@@ -2,7 +2,7 @@
 import numpy as np
 from sklearn.linear_model import RidgeCV
 
-from src.utils import create_dataset
+from src.datasets import create_dataset
 
 
 def datamodel(x_train, y_train, num_runs):

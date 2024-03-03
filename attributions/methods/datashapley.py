@@ -4,7 +4,7 @@ import os
 import numpy as np
 from attribution.attribution_utils import load_filtered_behaviors
 
-from src.utils import create_dataset
+from src.datasets import create_dataset
 
 
 def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):

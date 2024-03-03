@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
 import src.constants as constants
-from src.utils import ImageDataset, TensorDataset, create_dataset
+from src.datasets import ImageDataset, create_dataset
 
 Manifold = namedtuple("Manifold", ["features", "kth"])
 

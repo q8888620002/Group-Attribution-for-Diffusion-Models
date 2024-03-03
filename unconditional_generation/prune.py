@@ -27,8 +27,10 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 import src.constants as constants
+from src.datasets import create_dataset
 from src.ddpm_config import DDPMConfig
-from src.utils import ImagenetteCaptioner, LabelTokenizer, create_dataset, get_max_steps
+from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer
+from src.utils import get_max_steps
 
 
 def parse_args():

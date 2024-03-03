@@ -19,7 +19,6 @@ from diffusers import (
     DDPMScheduler,
     DiffusionPipeline,
     LDMPipeline,
-    VQModel,
 )
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
@@ -30,18 +29,16 @@ from tqdm import tqdm
 
 import src.constants as constants
 import wandb  # wandb for monitoring loss https://wandb.ai/
-from src.ddpm_config import DDPMConfig
-from src.utils import (
-    ImagenetteCaptioner,
-    LabelTokenizer,
+from src.datasets import (
     create_dataset,
-    get_max_steps,
-    print_args,
     remove_data_by_class,
     remove_data_by_datamodel,
     remove_data_by_shapley,
     remove_data_by_uniform,
 )
+from src.ddpm_config import DDPMConfig
+from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer
+from src.utils import get_max_steps, print_args, compute_grad_norm,compute_param_norm
 
 
 def run_inference(
@@ -101,28 +98,6 @@ def run_inference(
         samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
         ema_model.restore(model.parameters())
     return samples
-
-
-def compute_grad_norm(accelerator, model):
-    """Compute gradient norm. To be run under the accelerator main process."""
-    model = accelerator.unwrap_model(model)
-    grads = [
-        param.grad.detach().cpu().flatten()
-        for param in model.parameters()
-        if param.grad is not None
-    ]
-    return torch.cat(grads).norm()
-
-
-def compute_param_norm(accelerator, model):
-    """Compute the parameter norm. To be run under the accelerator main process."""
-    model = accelerator.unwrap_model(model)
-    params = [
-        param.data.detach().cpu().flatten()
-        for param in model.parameters()
-        if param.data is not None
-    ]
-    return torch.cat(params).norm()
 
 
 def parse_args():
@@ -429,7 +404,8 @@ def main(args):
             existing_steps = None
             # If the ckpt file is corrupted, reinit the model.
             accelerator.print(
-                f"Check point {ckpt_path} is corrupted, reintialize model and remove old check point.."
+                f"Check point {ckpt_path} is corrupted, "
+                " reintialize model and remove old check point.."
             )
 
             os.system(f"rm -rf {model_outdir}")
@@ -535,15 +511,15 @@ def main(args):
         pipeline.vqvae.config.scaling_factor = 1
         vqvae.requires_grad_(False)
 
-        if args.precompute_stage == None:
-            # Move the VQ-VAE model to the computing device without any additional operations
+        if args.precompute_stage is None:
+            # Move the VQ-VAE model to the device without any operations.
             vqvae = vqvae.to(device)
 
         elif args.precompute_stage == "save":
             assert removal_dir == "full", "Precomputation should be done for full data"
             # Precompute and save the VQ-VAE latents
             vqvae = vqvae.to(device)
-            vqvae.train()  # Set the model to train mode. (even when it is train mode, the vqvae output is static though)
+            vqvae.train()  # The vqvae output is STATIC even in train mode.
             # if accelerator.is_main_process:
             vqvae_latent_dict = {}
             with torch.no_grad():
@@ -575,13 +551,13 @@ def main(args):
                 vqvae_latent_dict,
                 os.path.join(vqvae_latent_dir, "vqvae_output.pt"),
             )
-            # Inform the user about the saved precomputed output and advise on next steps
+
             accelerator.print(
-                "VQVAE output precomputed and saved. Rerun the script with the precompute_state=reuse to unload VQVAE model and reduce GPU memory usage. Exiting..."
+                "VQVAE output saved. Set precompute_state=reuse to unload VQVAE model."
             )
             raise SystemExit(0)
         elif args.precompute_stage == "reuse":
-            # Load the precomputed VQ-VAE latents for reuse, avoiding GPU memory usage by the VQ-VAE model
+            # Load the precomputed output, avoiding GPU memory usage by the VQ-VAE model
             pipeline.vqvae = None
             vqvae_latent_dir = os.path.join(
                 args.outdir,
@@ -605,7 +581,7 @@ def main(args):
         captioner = None
     pipeline_scheduler = pipeline.scheduler
 
-    if args.use_8bit_optimizer == False:
+    if not args.use_8bit_optimizer:
         optimizer_kwargs = config["optimizer_config"]["kwargs"]
         optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
             model.parameters(), **optimizer_kwargs
@@ -717,11 +693,11 @@ def main(args):
                 input_ids_r = label_tokenizer(label_r).to(device)
                 encoder_hidden_states_r = text_encoder(input_ids_r)[0]
             elif args.dataset == "celeba":
-                if args.precompute_stage == None:
+                if args.precompute_stage is None:
                     # Directly encode the images if there's no precomputation
                     image_r = vqvae.encode(image_r, False)[0]
                 elif args.precompute_stage == "reuse":
-                    # If precomputed, retrieve the latent representations from the dictionary
+                    # Retrieve the latent representations.
                     image_r = torch.stack(
                         [vqvae_latent_dict[imageid_r[i]] for i in range(len(image_r))]
                     ).to(device)
