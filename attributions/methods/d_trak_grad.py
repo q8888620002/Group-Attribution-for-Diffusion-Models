@@ -20,9 +20,9 @@ from torch.utils.data import DataLoader, Subset
 from trak.projectors import CudaProjector, ProjectionType
 from trak.utils import is_not_buffer
 
-import constants
-from ddpm_config import DDPMConfig
-from utils import (
+import src.constants as constants
+from src.ddpm_config import DDPMConfig
+from src.utils import (
     ImagenetteCaptioner,
     LabelTokenizer,
     create_dataset,
