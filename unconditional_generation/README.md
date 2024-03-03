@@ -7,7 +7,10 @@ To train an unlearned or retrained diffusion model, execute the following comman
 
 ```bash
 python main.py
+
 --dataset [cifar,cifar2, celeba ] \
+
+## Learning method
 
 --method [unlearning/retrain/prune_fine_tune/gd/ga] \
 
