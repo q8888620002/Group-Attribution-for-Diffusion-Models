@@ -23,7 +23,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "celeba", "imagenette"],
+        choices=["mnist","cifar2", "cifar", "celeba", "imagenette"],
         default="cifar",
     )
     parser.add_argument(
@@ -125,6 +125,8 @@ def main(args):
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
+    elif args.dataset == "cifar2":
+        config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -135,7 +137,7 @@ def main(args):
         raise ValueError(
             (
                 f"dataset={args.dataset} is not one of "
-                "['cifar', 'mnist', 'celeba', 'imagenette']"
+                "['cifar','cifar2', 'mnist', 'celeba', 'imagenette']"
             )
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])

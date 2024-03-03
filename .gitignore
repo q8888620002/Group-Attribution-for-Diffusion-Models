@@ -13,3 +13,4 @@ wandb/*
 slurms_ming/*
 slurm/*
 slurms/*
+misc/*.pkl

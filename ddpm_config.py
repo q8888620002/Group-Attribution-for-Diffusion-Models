@@ -40,8 +40,6 @@ class DDPMConfig:
             "gd": 4000,
             "esd": 5000,
         },
-<<<<<<< HEAD
-=======
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
@@ -112,26 +110,25 @@ class DDPMConfig:
         "batch_size": 128,
         "training_steps": {
             "retrain": 60000,
-            "prune_fine_tune": 60000,
+            "prune_fine_tune": 30000,
             "ga": 2000,
             "gd": 4000,
             "esd": 5000,
         },
         "ckpt_freq": {
             "retrain": 20000,
-            "prune_fine_tune": 20000,
+            "prune_fine_tune": 10000,
             "ga": 400,
             "gd": 400,
             "esd": 1000,
         },
         "sample_freq": {
             "retrain": 20000,
-            "prune_fine_tune": 20000,
+            "prune_fine_tune": 2000,
             "ga": 2000,
             "gd": 4000,
             "esd": 5000,
         },
->>>>>>> main
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
