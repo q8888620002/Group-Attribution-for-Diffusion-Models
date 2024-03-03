@@ -18,7 +18,7 @@ python main.py
 
 --removal_dist [datashapley/datamodel/uniform/None] \
 --datamodel_alpha [0.5] \
---removal_seed [0]
+--removal_seed [0] \ 
 
 ## Model sparsification args. This is needed when training unlearned models
 
@@ -32,8 +32,8 @@ python main.py
 
 ## Accelerator args
 
---mixed_precision [no, bf16, fp16]
---gradient_accumulation_steps [1]
+--mixed_precision [no, bf16, fp16] \ 
+--gradient_accumulation_steps [1] \
 ```
 
 ## Efficient Training for CelebA-HQ (256x 256)
