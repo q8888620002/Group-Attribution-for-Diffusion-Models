@@ -1,4 +1,3 @@
-Here's how you can structure the provided directory and file structure into a README.md format for Markdown:
 
 ```markdown
 # Project Title
@@ -8,14 +7,21 @@ Provide a brief description of the project here.
 
 ## Directory Structure
 
-```
+# Project Title
+
+## Overview
+Provide a brief description of the project here.
+
+## Directory Structure
+
+```plaintext
 .
-├── src/                             # Files for common Python functions and classes.
+├── src/  # Files for common Python functions and classes.
 │   ├── ddpm_config.py
 │   ├── utils.py
 │   └── # some other module files
 │
-├── unconditional_generation/        # Files for unconditional diffusion models.
+├── unconditional_generation/  # Files for unconditional diffusion models.
 │   ├── README.md
 │   ├── main.py
 │   ├── prune.py
@@ -23,13 +29,13 @@ Provide a brief description of the project here.
 │   ├── calculate_local_scores.py
 │   ├── cifar/
 │   │   ├── calculate_global_scores.py  # Global scores can differ between different datasets.
-│   │   └── results.ipynb               # Jupyter notebook(s) for plotting results.
-│   └── celeba/
-│       ├── calculate_global_scores.py
-│       └── results.ipynb
-│   └── experiments/                  # Files for managing SLURM experiments.
+│   │   └── results.ipynb  # Jupyter notebook(s) for plotting results.
+│   ├── celeba/
+│   │   ├── calculate_global_scores.py
+│   │   └── results.ipynb
+│   └── experiments/  # Files for managing SLURM experiments.
 │
-├── text_to_image/                    # Files for text-to-image diffusion models.
+├── text_to_image/  # Files for text-to-image diffusion models.
 │   ├── README.md
 │   ├── main.py
 │   ├── prune.py
@@ -38,12 +44,10 @@ Provide a brief description of the project here.
 │   ├── artbench/
 │   │   ├── calculate_global_scores.py
 │   │   └── results.ipynb
-│   └── experiments/                  # Files for managing SLURM experiments.
+│   └── experiments/  # Files for managing SLURM experiments.
 │
-├── some_common_script_0.py          # Script(s) that are useful for all diffusion models.
+├── some_common_script_0.py  # Script(s) that are useful for all diffusion models.
 ├── some_common_script_1.py
-└── README.md
-```
 
 ## Installation
 Provide instructions on how to install and run the project.
