@@ -6,7 +6,10 @@ This README provides instructions for training **unconditional** diffusion model
 To train an unlearned or retrained diffusion model, execute the following command:
 
 ```bash
-python main.py --dataset [dataset] --method [unlearning/retrain/prune_fine_tune/gd/ga] \
+python main.py
+--dataset [cifar,cifar2, celeba ]
+
+--method [unlearning/retrain/prune_fine_tune/gd/ga] \
 
 ## Removal distribution args
 
