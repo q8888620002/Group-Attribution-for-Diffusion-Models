@@ -31,7 +31,7 @@ python main.py --dataset [dataset] --method [unlearning/retrain/prune_fine_tune/
 ```
 
 ## Efficient Training for CelebA-HQ (256x 256)
-To reduce GPU memory usage and facilitate training with CelebA-HQ (e.g., on RTX 2080ti), 
+To reduce GPU memory usage and facilitate training with CelebA-HQ dataset (e.g., on RTX 2080ti), 
 
 1. Set up the configuration file for [Accelerator](https://huggingface.co/docs/accelerate/en/package_reference/accelerator)
 2. Run the following command to precompute the VQVAE latent embeddings, train with [8bit Adam](https://github.com/TimDettmers/bitsandbytes) and [data parallelism](https://huggingface.co/docs/accelerate/v0.27.2/en/usage_guides/deepspeed#deepspeed-config-file).
