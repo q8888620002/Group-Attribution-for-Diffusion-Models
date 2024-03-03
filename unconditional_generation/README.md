@@ -1,9 +1,10 @@
 # Data Attribution via Sparsified Unlearning
 
-This README provides instructions for training **unconditional** diffusion models, including from retraining (exact unlearning) and **sparsified unlearning**. 
+This README provides instructions for training **unconditional** diffusion models, including methods such as retraining (exact unlearning) and **sparsified unlearning**.
 
 ## Training a Diffusion Model from Scratch  and unlearning with a removal distribution
-To train an(a) unlearned or retrained diffusion model, use the following command:
+To train an unlearned or retrained diffusion model, execute the following command:
+
 ```bash
 python main.py --dataset [dataset] --method [unlearning/retrain/prune_fine_tune/gd/ga] \
 
@@ -43,7 +44,7 @@ main.py --dataset celeba \
 --use_8bit_optimizer \ 
 --precompute_stage save
 ```
-3. Run above but change `save` to `reuse` to load the precomputed latent embeddings for training.
+3. To train with precomputed latent embeddings, change `--precompute_stage save` to `reuse` in the command.
 
 
 ## References and Additional Resources
