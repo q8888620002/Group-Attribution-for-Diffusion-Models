@@ -30,27 +30,21 @@ python main.py --dataset [dataset] --method [unlearning/retrain/prune_fine_tune/
 ```
 
 ## Efficient Training for CelebA-HQ (256x 256)
-For those utilizing consumer-grade GPUs with limited memory capacity (e.g., RTX 2080ti), we offer several features aimed at efficient training:
-* precomputed VQVAE latent
-* 8bit Adam optimizer (we use [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) package)
-* data parallelism (we use [deepspeed](https://huggingface.co/docs/accelerate/v0.27.2/en/usage_guides/deepspeed#deepspeed-config-file) package)
-* gradient accumulation
+To reduce GPU memory usage and facilitate training with CelebA-HQ (e.g., on RTX 2080ti), 
 
-The above techniques are also useful for higher-end GPUs, as they allow for faster training and larger batch sizes, which can contribute to improved model performance.
-
-Below are example commands:
 1. Set up the configuration file for [Accelerator](https://huggingface.co/docs/accelerate/en/package_reference/accelerator)
-2. Run the following command to precompute the VQVAE latent embeddings.
+2. Run the following command to precompute the VQVAE latent embeddings, train with [8bit Adam](https://github.com/TimDettmers/bitsandbytes) and [data parallelism](https://huggingface.co/docs/accelerate/v0.27.2/en/usage_guides/deepspeed#deepspeed-config-file).
 
 ```bash
 accelerate launch --config_file deepspeed_config_dp.yaml \
 main.py --dataset celeba \
 --method retrain \
 --mixed_precision fp16 \
---use_8bit_optimizer \
+--use_8bit_optimizer \ 
 --precompute_stage save
 ```
 3. Change `--precompute_stage reuse` to retrain with the precomputed latent embeddings.
+
 
 ## References and Additional Resources
 
