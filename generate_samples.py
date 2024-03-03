@@ -1,4 +1,5 @@
 """Generate samples for a given diffusion model."""
+
 import argparse
 import os
 
@@ -171,7 +172,7 @@ def main(args):
             removal_dir,
         )
         sample_outdir = os.path.join(
-            "/gscratch/cse/mingyulu",
+            args.outdir,
             args.dataset,
             args.method,
             "ema_generated_samples" if args.use_ema else "generated_samples",
@@ -181,7 +182,11 @@ def main(args):
 
     # Load the trained U-Net model or U-Net EMA.
 
-    trained_steps = args.trained_steps if args.trained_steps is not None else get_max_steps(model_loaddir)
+    trained_steps = (
+        args.trained_steps
+        if args.trained_steps is not None
+        else get_max_steps(model_loaddir)
+    )
     # sample_outdir = os.path.join(sample_outdir, trained_steps)
 
     if trained_steps is not None:
@@ -240,6 +245,7 @@ def main(args):
         pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256").to(
             device
         )
+        pipeline.vqvae.config.scaling_factor = 1
         pipeline.unet = model.to(device)
     else:
         pipeline = DDIMPipeline(unet=model, scheduler=DDIMScheduler()).to(device)

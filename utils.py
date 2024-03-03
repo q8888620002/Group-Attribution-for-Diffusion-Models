@@ -31,7 +31,7 @@ def get_memory_free_MiB(gpu_index):
     pynvml.nvmlInit()
     handle = pynvml.nvmlDeviceGetHandleByIndex(int(gpu_index))
     mem_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
-    return mem_info.free // 1024 ** 2
+    return mem_info.free // 1024**2
 
 
 class ImageDataset(Dataset):
@@ -244,7 +244,7 @@ class CelebA(Dataset):
         if self.transform:
             image = self.transform(image)
 
-        return image, -1
+        return image, -1, self.img_names[idx]
 
 
 def create_dataset(

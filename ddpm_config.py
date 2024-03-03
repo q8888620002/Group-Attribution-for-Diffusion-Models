@@ -40,8 +40,6 @@ class DDPMConfig:
             "gd": 4000,
             "esd": 5000,
         },
-<<<<<<< HEAD
-=======
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
@@ -131,7 +129,6 @@ class DDPMConfig:
             "gd": 4000,
             "esd": 5000,
         },
->>>>>>> main
         "n_samples": 64,
         "unet_config": {
             "_class_name": "UNet2DModel",
@@ -195,16 +192,16 @@ class DDPMConfig:
         "image_size": 256,
         "optimizer_config": {
             "class_name": "AdamW",
-            "kwargs": {"lr": 2.0e-6, "weight_decay": 0.0},
+            "kwargs": {"lr": 1.0e-4, "weight_decay": 0.0},
         },
         "lr_scheduler_config": {
             "name": "constant",
             "kwargs": {"num_warmup_steps": 0},
         },
-        "batch_size": 32,
+        "batch_size": 16,
         "training_steps": {"retrain": 200000, "ga": 5, "gd": 10, "esd": 500},
-        "ckpt_freq": {"retrain": 5000, "ga": 1, "gd": 1, "esd": 100},
-        "sample_freq": {"retrain": 5000, "ga": 1, "gd": 1, "esd": 100},
+        "ckpt_freq": {"retrain": 10000, "ga": 1, "gd": 1, "esd": 100},
+        "sample_freq": {"retrain": 200000, "ga": 1, "gd": 1, "esd": 100},
         "n_samples": 32,
         "unet_config": {
             "_class_name": "UNet2DModel",
