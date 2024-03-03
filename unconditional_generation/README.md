@@ -8,7 +8,7 @@ To train a diffusion model from scratch, use the following command:
 python main.py --dataset [dataset] --method [unlearning/retrain]
 ```
 
-#### Efficient Training
+#### Efficient Training for CelebA-HQ (256x 256)
 For those utilizing consumer-grade GPUs with limited memory capacity (e.g., RTX 2080ti), we offer several features aimed at efficient training:
 * precomputed VQVAE latent
 * 8bit Adam optimizer (we use [bitsandbytes](https://github.com/TimDettmers/bitsandbytes) package)
@@ -18,8 +18,7 @@ For those utilizing consumer-grade GPUs with limited memory capacity (e.g., RTX 
 The above techniques are also useful for higher-end GPUs, as they allow for faster training and larger batch sizes, which can contribute to improved model performance.
 
 Below are example commands:
-
-First, run the following command to precompute the VQVAE latents for the training dataset.
+First, set up the configuration file for [Accelerator](https://huggingface.co/docs/accelerate/en/package_reference/accelerator) and run the following command to precompute the VQVAE latents. 
 ```bash
 accelerate launch --config_file deepspeed_config_dp.yaml \
 main.py --dataset celeba \
@@ -28,16 +27,7 @@ main.py --dataset celeba \
 --use_8bit_optimizer \
 --precompute_stage save
 ```
-
-Then, run the following command to train the model using the precomputed latents.
-```bash
-accelerate launch --config_file deepspeed_config_dp.yaml \
-main.py --dataset celeba \
---method retrain \
---mixed_precision fp16 \
---use_8bit_optimizer \
---precompute_stage reuse
-```
+Then, set `--precompute_stage reuse` to load the precomputed embeddings to retrain.
 
 ### Training with Unlearning with a removal distribution
 For training with the unlearning method, use this command:
