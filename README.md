@@ -69,3 +69,9 @@ MAX_NUM_SAMPLE_IMAGES_TO_SAVE = 64
 ├── some_common_script_1.py
 
 ```
+
+## Development Guidlines
+1. Git pre-commit hooks (https://pre-commit.com/) are used to automatically
+check and fix formatting errors before a Git commit happens. This ensure format
+consistency, which reduces the number of lines of code to review. Run
+`pre-commit install` to install all the hooks.
