@@ -12,11 +12,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from accelerate import Accelerator
-from diffusers import (
-    DDPMPipeline,
-    DDPMScheduler,
-    DiffusionPipeline,
-)
+from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
