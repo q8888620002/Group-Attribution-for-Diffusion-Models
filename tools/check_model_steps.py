@@ -16,6 +16,7 @@ from utils import (
     remove_data_by_uniform,
 )
 
+
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Training DDPM")
@@ -69,8 +70,8 @@ def parse_args():
         "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
 
-
     return parser.parse_args()
+
 
 def main(args):
 
@@ -98,10 +99,13 @@ def main(args):
 
         results[model_outdir] = steps
 
-    with open(f"/gscratch/aims/diffusion-attr/results_ming/{args.dataset}/train_steps.jsonl", "w") as f:
+    with open(
+        f"/gscratch/aims/diffusion-attr/results_ming/{args.dataset}/train_steps.jsonl",
+        "w",
+    ) as f:
         f.write(json.dumps(results) + "\n")
 
-    steps = [ v if v else 0 for _, v in results.items() ]
+    steps = [v if v else 0 for _, v in results.items()]
     values, counts = np.unique(steps, return_counts=True)
 
     count_dict = {}
@@ -111,7 +115,7 @@ def main(args):
 
     print(count_dict)
 
+
 if __name__ == "__main__":
     args = parse_args()
     main(args)
-
