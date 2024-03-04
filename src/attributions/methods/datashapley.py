@@ -2,7 +2,7 @@
 import os
 
 import numpy as np
-from attribution.attribution_utils import load_filtered_behaviors
+from attribution_utils import load_filtered_behaviors
 
 from src.datasets import create_dataset
 

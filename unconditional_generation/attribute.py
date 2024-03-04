@@ -4,15 +4,15 @@ import os
 
 import numpy as np
 
-import constants
-from attributions.methods.attribution_utils import (
+import src.constants
+from src.attributions.methods.attribution_utils import (
     CLIPScore,
     load_filtered_behaviors,
     pixel_distance,
 )
-from attributions.methods.datamodel import compute_datamodel_scores
-from attributions.methods.datashapley import compute_shapley_scores
-from attributions.methods.trak import compute_dtrak_trak_scores
+from src.attributions.methods.datamodel import compute_datamodel_scores
+from src.attributions.methods.datashapley import compute_shapley_scores
+from src.attributions.methods.trak import compute_dtrak_trak_scores
 
 
 def parse_args():

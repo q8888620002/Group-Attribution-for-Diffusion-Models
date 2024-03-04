@@ -2,7 +2,7 @@
 import numpy as np
 import torch
 
-from attributions.attribution_utils import load_gradient_data
+from src.attributions.methods.attribution_utils import load_gradient_data
 
 
 def compute_dtrak_trak_scores(args, train_idx, val_idx):

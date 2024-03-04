@@ -7,7 +7,7 @@ import diffusers
 from lightning.pytorch import seed_everything
 
 import src.constants as constants
-from attributions.global_scores import fid_score, inception_score, precision_recall
+from src.attributions.global_scores import fid_score, inception_score, precision_recall
 from src.datasets import ImageDataset, TensorDataset
 from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import build_pipeline, generate_images, load_ckpt_model
