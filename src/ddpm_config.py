@@ -101,7 +101,7 @@ class DDPMConfig:
         # Training params
         "optimizer_config": {
             "class_name": "Adam",
-            "kwargs": {"lr": 1e-4},
+            "kwargs": {"lr": 1e-5},
         },
         "lr_scheduler_config": {
             "name": "constant",
@@ -110,21 +110,21 @@ class DDPMConfig:
         "batch_size": 128,
         "training_steps": {
             "retrain": 50000,
-            "prune_fine_tune": 30000,
+            "prune_fine_tune": 20000,
             "ga": 2000,
             "gd": 4000,
             "esd": 5000,
         },
         "ckpt_freq": {
             "retrain": 10000,
-            "prune_fine_tune": 10000,
+            "prune_fine_tune": 5000,
             "ga": 400,
             "gd": 400,
             "esd": 1000,
         },
         "sample_freq": {
             "retrain": 2000,
-            "prune_fine_tune": 2000,
+            "prune_fine_tune": 5000,
             "ga": 2000,
             "gd": 4000,
             "esd": 5000,
