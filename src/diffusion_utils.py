@@ -188,6 +188,7 @@ def build_pipeline(args, model):
         pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256").to(
             args.device
         )
+        pipeline.vqvae.config.scaling_factor = 1
         pipeline.unet = model.to(args.device)
     else:
         pipeline = DDIMPipeline(unet=model, scheduler=DDIMScheduler()).to(args.device)
@@ -211,7 +212,7 @@ def generate_images(args, pipeline):
         with torch.no_grad():
             counter = 0
             for batch_size in tqdm(batch_size_list):
-                noise_generator = torch.Generator(device=args.device).manual_seed(
+                noise_generator = torch.Generator().manual_seed(
                     counter
                 )
                 images = pipeline(
