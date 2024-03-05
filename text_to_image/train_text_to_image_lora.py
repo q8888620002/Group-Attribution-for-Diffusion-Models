@@ -817,6 +817,7 @@ def main():
         dataset["train"] = dataset["train"].select(
             np.where(np.isin(train_units, kept_units))[0]
         )
+        assert set(dataset["train"][args.removal_unit]) == set(kept_units)
         if args.removal_unit == "filename":
             assert dataset["train"].num_rows == len(remaining_idx)
 
