@@ -33,12 +33,12 @@ if __name__ == "__main__":
     caption_dict = PromptConfig.artbench_config
 
     data_dir = os.path.join(args.parent_dir, args.split)
-    print(f"Creating metadata.csv for {data_dir}")
+    print(f"Creating metadata for {data_dir}")
 
     art_styles = [
         item
         for item in os.listdir(data_dir)
-        if not item.startswith(".") and item != "metadata.csv"
+        if not item.startswith(".") and not item.endswith(".csv")
     ]
     df_list = []
     art_style_captions = []
@@ -61,16 +61,27 @@ if __name__ == "__main__":
             captions.append(caption)
 
         art_style_captions.append(caption_dict[art_style])
-        df_list.append(
-            pd.DataFrame(
-                {
-                    "file_name": img_files,
-                    "caption": captions,
-                    "artist": artists,
-                    "style": art_style,
-                }
-            )
+        art_style_df = pd.DataFrame(
+            {
+                "file_name": img_files,
+                "caption": captions,
+                "artist": artists,
+                "style": art_style,
+                "filename": img_files,  # Duplicate for access in Hugging Face dataset.
+            }
         )
+        unique_artists = art_style_df["artist"].unique().tolist()
+        unique_artists = sorted(unique_artists)
+
+        artists_outfile = os.path.join(data_dir, f"{art_style}_artists.csv")
+        pd.DataFrame({"artist": unique_artists}).to_csv(artists_outfile, index=False)
+        print(f"{art_style} artist names saved to {artists_outfile}")
+
+        file_names_outfile = os.path.join(data_dir, f"{art_style}_filenames.csv")
+        pd.DataFrame({"filename": img_files}).to_csv(file_names_outfile, index=False)
+        print(f"{art_style} image file names saved to {file_names_outfile}")
+
+        df_list.append(art_style_df)
     df = pd.concat(df_list)
 
     # Check known statistics.
