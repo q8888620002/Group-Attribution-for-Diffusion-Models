@@ -14,6 +14,7 @@
 #SBATCH --output=PLACEHOLDER/run-%A-%a.out
 #SBATCH --requeue
 #SBATCH --array=1
+#SBATCH --open-mode=append
 
 PARAMS_FILE="PLACEHOLDER"
 PARAMS="$(tail -n +${SLURM_ARRAY_TASK_ID} ${PARAMS_FILE} | head -n 1)"
