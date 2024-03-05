@@ -11,7 +11,7 @@ import re
 
 import pandas as pd
 
-from ddpm_config import PromptConfig
+from src.ddpm_config import PromptConfig
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="create ArtBench-10 metdata.csv")

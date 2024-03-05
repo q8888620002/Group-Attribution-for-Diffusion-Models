@@ -55,8 +55,8 @@ from torchvision.utils import save_image
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
-from utils import remove_data_by_shapley, remove_data_by_uniform
-from ddpm_config import PromptConfig
+from src.datasets import remove_data_by_shapley, remove_data_by_uniform
+from src.ddpm_config import PromptConfig
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
