@@ -21,7 +21,7 @@ pip install -r requirements.txt
 ```
 
 ### Set up Directory Paths
-Create a `constants.py` file with the following content:
+1. Create a `src/constants.py` file with the following content:
 ```
 """Global constant variables for the project."""
 
@@ -29,6 +29,12 @@ DATASET_DIR = "/gscratch/aims/datasets"
 OUTDIR = "/gscratch/aims/diffusion-attr"
 MAX_NUM_SAMPLE_IMAGES_TO_SAVE = 64
 
+```
+
+2. Add the repo directory to PYTHONPATH:
+```
+cd data_attribution
+export PYTHONPATH="$PYTHONPATH:$PWD"
 ```
 
 ## Directory Structure
@@ -56,7 +62,7 @@ MAX_NUM_SAMPLE_IMAGES_TO_SAVE = 64
 │
 ├── text_to_image/  # Files for text-to-image diffusion models.
 │   ├── README.md
-│   ├── main.py
+│   ├── train_text_to_image_lora.py
 │   ├── prune.py
 │   ├── generate_samples.py
 │   ├── calculate_local_scores.py
@@ -75,3 +81,10 @@ MAX_NUM_SAMPLE_IMAGES_TO_SAVE = 64
 check and fix formatting errors before a Git commit happens. This ensure format
 consistency, which reduces the number of lines of code to review. Run
 `pre-commit install` to install all the hooks.
+
+Note: If a piece of code is adpated from some open source software, the original
+formatting should be kept so it's clear what the modifications are. To commit a change
+without pre-commit, run
+```
+commit -m "YOUR COMMIT MESSAGE" --no-verify
+```
