@@ -27,6 +27,7 @@ from pathlib import Path
 import datasets
 import diffusers
 import numpy as np
+import pandas as pd
 import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
@@ -54,6 +55,7 @@ from torchvision.utils import save_image
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
+from utils import remove_data_by_shapley, remove_data_by_uniform
 from ddpm_config import PromptConfig
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -471,6 +473,26 @@ def parse_args():
         default=None,
         help="fine-tune only on a specific class in the dataset",
     )
+    parser.add_argument(
+        "--removal_dist",
+        type=str,
+        help="distribution for removing data",
+        choices=["uniform", "shapley"],
+        default=None,
+    )
+    parser.add_argument(
+        "--removal_unit",
+        type=str,
+        help="unit of data for removal",
+        choices=["artist", "filename"],
+        default=None,
+    )
+    parser.add_argument(
+        "--removal_seed",
+        type=int,
+        help="random seed for sampling from the removal distribution",
+        default=0,
+    )
 
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -487,6 +509,13 @@ def parse_args():
 def main():
     args = parse_args()
     removal_dir = "full"
+    if args.removal_dist is not None:
+        if args.removal_unit is None:
+            raise ValueError("--removal_unit is not specified")
+        
+        removal_dir = f"{args.removal_unit}_{args.removal_dist}"
+        removal_dir += f"/{args.removal_dist}_seed={args.removal_seed}"
+
     assert args.dataset_name is None
     args.dataset = (
         "artbench" if "artbench" in args.train_data_dir else args.train_data_dir
@@ -738,6 +767,58 @@ def main():
     if args.cls is not None and args.cls_key is not None:
         cls_idx = np.where(np.array(dataset["train"][args.cls_key]) == args.cls)[0]
         dataset["train"] = dataset["train"].select(cls_idx)
+        if "artbench" in args.dataset:
+            assert dataset["train"].num_rows == 5000
+
+    if args.removal_dist is not None:
+        # Load csv file containing indexed removal units.
+        if args.cls is None:
+            removal_unit_file = os.path.join(
+                args.train_data_dir, f"{args.removal_unit}s.csv"
+            )
+        else:
+            removal_unit_file = os.path.join(
+                args.train_data_dir, f"{args.cls}_{args.removal_unit}s.csv"
+            )
+        removal_unit_df = pd.read_csv(removal_unit_file)
+        
+        # Get remaining and removed indices.
+        removal_idx_file = os.path.join(args.model_outdir, "removal_idx.csv")
+        if os.path.exists(removal_idx_file):
+            removal_idx_df = pd.read_csv(removal_idx_file)
+            print(f"Removal index file loaded from {removal_idx_file}")
+            remaining_idx = removal_idx_df["idx"][removal_idx_df["remaining"]].to_numpy()
+            removal_idx = removal_idx_df["idx"][~removal_idx_df["remaining"]].to_numpy()
+        else:
+            if args.removal_dist == "shapley":
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    removal_unit_df, args.removal_seed
+                )
+            elif args.removal_dist == "uniform":
+                remaining_idx, removed_idx = remove_data_by_uniform(
+                    removal_unit_df, args.removal_seed
+                )
+            else:
+                raise ValueError(
+                    f"--removal_dist={args.removal_idst} has to be ['shapley', 'uniform']"
+                )
+            removal_idx_df = pd.concat(
+                [
+                    pd.DataFrame({"idx": remaining_idx, "remaining": True}),
+                    pd.DataFrame({"idx": removed_idx, "remaining": False}),
+                ]
+            )
+            removal_idx_df.to_csv(removal_idx_file, index=False)
+            print(f"Removal index file saved to {removal_idx_file}")
+        
+        # Remove data.
+        kept_units = removal_unit_df.iloc[remaining_idx, 0].tolist()
+        train_units = np.array(dataset["train"][args.removal_unit])
+        dataset["train"] = dataset["train"].select(
+            np.where(np.isin(train_units, kept_units))[0]
+        )
+        if args.removal_unit == "filename":
+            assert dataset["train"].num_rows == len(remaining_idx)
 
     # Preprocessing the datasets.
     # We need to tokenize inputs and targets.
