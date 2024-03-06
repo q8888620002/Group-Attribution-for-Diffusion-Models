@@ -27,7 +27,7 @@ pip install -r requirements.txt
 
 DATASET_DIR = "/gscratch/aims/datasets"
 OUTDIR = "/gscratch/aims/diffusion-attr"
-LOGDIR = "/gscratch/scrubbed/diffusion-attr"
+LOGDIR = "/gscratch/scrubbed/logdir/diffusion-attr"
 MAX_NUM_SAMPLE_IMAGES_TO_SAVE = 64
 
 ```
