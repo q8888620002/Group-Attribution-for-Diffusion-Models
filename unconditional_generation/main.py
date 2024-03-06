@@ -775,11 +775,11 @@ def main(args):
                         steps_start_time = time.time()
 
                     # Checkpoints for training. This is done only once for the main
-                    # process and at the last batch.
+                    # process.
                     if (
                         current_epochs % config["ckpt_freq"][args.method] == 0
                         or current_epochs == training_epochs
-                    ) and accelerator.is_main_process and j == len(remaining_dataloader) - 1:
+                    ) and accelerator.is_main_process:
                         if not args.keep_all_ckpts:
                             pattern = os.path.join(model_outdir, "ckpt_epochs_*.pt")
                             for filename in glob.glob(pattern):
@@ -848,7 +848,31 @@ def main(args):
                 nrow=img_nrows,
             )
 
+        # Save checkpoints when the training is done.
+
+        if current_epochs == training_epochs and accelerator.is_main_process:
+            if not args.keep_all_ckpts:
+                pattern = os.path.join(model_outdir, "ckpt_epochs_*.pt")
+                for filename in glob.glob(pattern):
+                    os.remove(filename)
+
+            torch.save(
+                {
+                    "unet": accelerator.unwrap_model(model).state_dict(),
+                    "unet_ema": ema_model.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "lr_scheduler": lr_scheduler.state_dict(),
+                    "remaining_idx": torch.from_numpy(remaining_idx),
+                    "removed_idx": torch.from_numpy(removed_idx),
+                    "param_update_steps": param_update_steps,
+                    "total_epochs_time": total_epochs_time,
+                },
+                os.path.join(model_outdir, f"ckpt_epochs_{current_epochs:0>5}.pt"),
+            )
+
         current_epochs += 1
+
+
 
     return accelerator.is_main_process
 
