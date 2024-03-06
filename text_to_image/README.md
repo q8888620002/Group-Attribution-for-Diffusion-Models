@@ -3,7 +3,14 @@
 ## Stable Diffusion fine-tuned on ArtBench Post-Impressionism
 
 ### Data
-Download the ArtBench dataset into `src.constants.DATASET_DIR`. The version with train-test split and 256x256 resolution is used (https://artbench.eecs.berkeley.edu/files/artbench-10-imagefolder-split.tar). More details about the ArtBench are here (https://github.com/liaopeiyuan/artbench).
+1. Download the ArtBench dataset into `src.constants.DATASET_DIR`. The version with train-test split and 256x256 resolution is used (https://artbench.eecs.berkeley.edu/files/artbench-10-imagefolder-split.tar). More details about the ArtBench are here (https://github.com/liaopeiyuan/artbench).
+
+2. Create the meta data files by running
+```
+python text_to_image/artbench/create_metadata.py \
+    --parent_dir PATH_TO_YOUR_ARTBENCH_DIRECTORY \
+    --split train
+```
 
 ### LoRA Fine-tuning Stable Diffusion
 1. Generate the command file by running
