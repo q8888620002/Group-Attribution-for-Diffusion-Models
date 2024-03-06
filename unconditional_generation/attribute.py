@@ -4,7 +4,7 @@ import os
 
 import numpy as np
 
-import src.constants
+import src.constants as constants
 from src.attributions.methods.attribution_utils import (
     CLIPScore,
     load_filtered_behaviors,

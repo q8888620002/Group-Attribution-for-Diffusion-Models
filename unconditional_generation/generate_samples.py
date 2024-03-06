@@ -15,7 +15,7 @@ import src.constants as constants
 from src.datasets import create_dataset
 from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import ImagenetteCaptioner
-from src.utils import get_max_steps
+from src.utils import get_max_epochs
 
 
 def parse_args():
@@ -60,9 +60,9 @@ def parse_args():
         default=0,
     )
     parser.add_argument(
-        "--trained_steps",
+        "--trained_epochs",
         type=int,
-        help="steps for specific ckeck points",
+        help="epochs for specific ckeck points",
         default=None,
     )
     parser.add_argument(
@@ -186,15 +186,15 @@ def main(args):
 
     # Load the trained U-Net model or U-Net EMA.
 
-    trained_steps = (
-        args.trained_steps
-        if args.trained_steps is not None
-        else get_max_steps(model_loaddir)
+    trained_epochs = (
+        args.trained_epochs
+        if args.trained_epochs is not None
+        else get_max_epochs(model_loaddir)
     )
     # sample_outdir = os.path.join(sample_outdir, trained_steps)
 
-    if trained_steps is not None:
-        ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
+    if trained_epochs is not None:
+        ckpt_path = os.path.join(model_loaddir, f"ckpt_epochs_{trained_epochs:0>5}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
 
         if args.method != "retrain":
@@ -209,7 +209,7 @@ def main(args):
                     + f"_pruning_ratio={args.pruning_ratio}"
                     + f"_threshold={args.thr}"
                 ),
-                f"ckpt_steps_{0:0>8}.pt",
+                f"ckpt_epochs_{0:0>5}.pt",
             )
             pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
             model = pruned_model_ckpt["unet"]

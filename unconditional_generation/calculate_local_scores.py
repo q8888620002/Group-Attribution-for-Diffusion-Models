@@ -17,21 +17,21 @@ from tqdm import tqdm
 
 import src.constants as constants
 from src.ddpm_config import DDPMConfig
-from src.utils import get_max_steps, print_args
+from src.utils import get_max_epochs, print_args
 
 
-def load_model_ckpt(model, ckpt_dir, use_ema, trained_steps, return_ckpt: bool = False):
+def load_model_ckpt(
+    model, ckpt_dir, use_ema, trained_epochs, return_ckpt: bool = False
+):
     """Load model parameters from the latest checkpoint in a directory."""
 
-    trained_steps = (
-        trained_steps
-        if trained_steps is not None
-        else get_max_steps(ckpt_dir)
+    trained_epochs = (
+        trained_epochs if trained_epochs is not None else get_max_epochs(ckpt_dir)
     )
 
-    if trained_steps is None:
+    if trained_epochs is None:
         raise RuntimeError(f"No checkpoints found in {ckpt_dir}")
-    ckpt_path = os.path.join(ckpt_dir, f"ckpt_steps_{trained_steps:0>8}.pt")
+    ckpt_path = os.path.join(ckpt_dir, f"ckpt_epochs_{trained_epochs:0>5}.pt")
     ckpt = torch.load(ckpt_path, map_location="cpu")
     model.load_state_dict(ckpt["unet"])
     model_str = "U-Net"
@@ -91,7 +91,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar2","cifar", "celeba", "imagenette"],
+        choices=["mnist", "cifar2", "cifar", "celeba", "imagenette"],
         default="cifar",
     )
     parser.add_argument(
@@ -158,15 +158,15 @@ def parse_args():
         default=1000,
     )
     parser.add_argument(
-        "--trained_steps_full",
+        "--trained_epochs_full",
         type=int,
-        help="steps for specific ckeck points",
+        help="epochs for specific ckeck points",
         default=None,
     )
     parser.add_argument(
-        "--trained_steps_removal",
+        "--trained_epochs_removal",
         type=int,
-        help="steps for specific ckeck points",
+        help="epochs for specific ckeck points",
         default=None,
     )
     parser.add_argument(
@@ -236,7 +236,7 @@ def main(args):
                 + f"_pruning_ratio={args.pruning_ratio}"
                 + f"_threshold={args.thr}"
             ),
-            f"ckpt_steps_{0:0>8}.pt",
+            f"ckpt_epochs_{0:0>5}.pt",
         )
         pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
         removal_model = pruned_model_ckpt["unet"]
@@ -264,11 +264,17 @@ def main(args):
 
     # Load full and removal model checkpoints.
     print("Loading full model checkpoint...")
-    load_model_ckpt(full_model, args.full_model_dir, args.use_ema, args.trained_steps_full)
+    load_model_ckpt(
+        full_model, args.full_model_dir, args.use_ema, args.trained_epochs_full
+    )
 
     print("Loading removal model checkpoint...")
     removal_ckpt = load_model_ckpt(
-        removal_model, removal_model_dir, args.use_ema, args.trained_steps_removal, return_ckpt=True
+        removal_model,
+        removal_model_dir,
+        args.use_ema,
+        args.trained_epochs_removal,
+        return_ckpt=True,
     )
     info_dict["remaining_idx"] = removal_ckpt["remaining_idx"].numpy().tolist()
     info_dict["removed_idx"] = removal_ckpt["removed_idx"].numpy().tolist()

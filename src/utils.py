@@ -70,3 +70,18 @@ def get_max_steps(folder_path):
         files, key=lambda x: int(os.path.basename(x).split("_")[-1].split(".")[0])
     )
     return int(os.path.basename(max_steps).split("_")[-1].split(".")[0])
+
+
+def get_max_epochs(folder_path):
+    """Get maximum number of training steps for results in a folder."""
+
+    path_pattern = os.path.join(folder_path, "ckpt_epochs_*.pt")
+    files = glob.glob(path_pattern)
+
+    if not files:
+        return None
+
+    max_steps = max(
+        files, key=lambda x: int(os.path.basename(x).split("_")[-1].split(".")[0])
+    )
+    return int(os.path.basename(max_steps).split("_")[-1].split(".")[0])

@@ -10,27 +10,20 @@ import torch
 import torch.nn as nn
 import torch_pruning as tp
 from accelerate import Accelerator
-from diffusers import (
-    DDIMPipeline,
-    DDIMScheduler,
-    DDPMPipeline,
-    DDPMScheduler,
-    DiffusionPipeline,
-    LDMPipeline,
-    VQModel,
-)
+from diffusers import DDIMPipeline, DDIMScheduler, LDMPipeline
 from diffusers.models.attention import Attention
 from diffusers.models.resnet import Downsample2D, Upsample2D
 from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader
-from torchvision.utils import save_image
+
+# from torchvision.utils import save_image
 from tqdm import tqdm
 
 import src.constants as constants
 from src.datasets import create_dataset
 from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import build_pipeline
-from src.utils import get_max_steps
+from src.utils import get_max_epochs
 
 
 def parse_args():
@@ -59,9 +52,9 @@ def parse_args():
         default=42,
     )
     parser.add_argument(
-        "--trained_steps",
+        "--trained_epochs",
         type=int,
-        help="steps for specific ckeck points",
+        help="epochs for specific ckeck points",
         default=None,
     )
     parser.add_argument(
@@ -206,7 +199,7 @@ def main(args):
     )
     device = accelerator.device
     args.device = device
-    
+
     if accelerator.is_main_process:
         print_args(args)
 
@@ -260,21 +253,21 @@ def main(args):
 
     # load model and scheduler
 
-    trained_steps = (
-        args.trained_steps
-        if args.trained_steps is not None
-        else get_max_steps(pre_trained_path)
+    trained_epochs = (
+        args.trained_epochs
+        if args.trained_epochs is not None
+        else get_max_epochs(pre_trained_path)
     )
-    if trained_steps is not None:
+    if trained_epochs is not None:
         # Check if there is an existing checkpoint to resume from. This occurs when
         # model runs are interrupted (e.g., exceeding job time limit).
         ckpt_path = os.path.join(
-            pre_trained_path, f"ckpt_steps_{trained_steps:0>8}.pt"
+            pre_trained_path, f"ckpt_epochs_{trained_epochs:0>5}.pt"
         )
         ckpt = torch.load(ckpt_path, map_location="cpu")
         model = model_cls(**config["unet_config"])
         model.load_state_dict(ckpt["unet"])
-        param_update_steps = 0
+        current_epochs = 1
 
         accelerator.print(f"U-Net resumed from {ckpt_path}")
 
@@ -394,38 +387,38 @@ def main(args):
             {
                 "unet": accelerator.unwrap_model(model),
             },
-            os.path.join(model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"),
+            os.path.join(model_outdir, f"ckpt_epochs_{current_epochs:0>5}.pt"),
         )
-        accelerator.print(f"Checkpoint saved at step {param_update_steps}")
+        accelerator.print(f"Checkpoint saved at epoch {current_epochs}")
 
-    with torch.no_grad():
-        # Testing smaple generation after pruning.
+    # with torch.no_grad():
+    #     # Testing smaple generation after pruning.
 
-        sample_outdir = os.path.join(
-            args.outdir, args.dataset, "pruned", "samples", pruning_params
-        )
-        os.makedirs(sample_outdir, exist_ok=True)
+    #     sample_outdir = os.path.join(
+    #         args.outdir, args.dataset, "pruned", "samples", pruning_params
+    #     )
+    #     os.makedirs(sample_outdir, exist_ok=True)
 
-        samples = run_inference(
-            accelerator=accelerator,
-            model=model,
-            config=config,
-            args=args,
-            vqvae=vqvae,
-            captioner=captioner,
-            pipeline=pipeline,
-            pipeline_scheduler=pipeline_scheduler,
-        )
-        if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
-            samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
-        img_nrows = int(math.sqrt(config["n_samples"]))
-        if args.dataset == "imagenette":
-            img_nrows = captioner.num_classes
-        save_image(
-            samples,
-            os.path.join(sample_outdir, f"steps_{param_update_steps:0>8}.png"),
-            nrow=img_nrows,
-        )
+    #     samples = run_inference(
+    #         accelerator=accelerator,
+    #         model=model,
+    #         config=config,
+    #         args=args,
+    #         vqvae=vqvae,
+    #         captioner=captioner,
+    #         pipeline=pipeline,
+    #         pipeline_scheduler=pipeline_scheduler,
+    #     )
+    #     if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
+    #         samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
+    #     img_nrows = int(math.sqrt(config["n_samples"]))
+    #     if args.dataset == "imagenette":
+    #         img_nrows = captioner.num_classes
+    #     save_image(
+    #         samples,
+    #         os.path.join(sample_outdir, f"epochs_{current_epochs:0>5}.png"),
+    #         nrow=img_nrows,
+    #     )
     accelerator.print("Done pruning!")
 
 

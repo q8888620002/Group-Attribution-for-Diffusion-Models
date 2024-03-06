@@ -13,7 +13,7 @@ from tqdm import tqdm
 from transformers import PreTrainedTokenizer
 
 from src.datasets import create_dataset
-from src.utils import get_max_steps
+from src.utils import get_max_epochs
 
 
 class ImagenetteCaptioner:
@@ -112,14 +112,14 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
         pre-trained model, indices of remaining and removed subset.
     """
 
-    trained_steps = (
-        args.trained_steps
-        if args.trained_steps is not None
-        else get_max_steps(model_loaddir)
+    trained_epochs = (
+        args.trained_epochs
+        if args.trained_epochs is not None
+        else get_max_epochs(model_loaddir)
     )
 
-    if trained_steps is not None:
-        ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
+    if trained_epochs is not None:
+        ckpt_path = os.path.join(model_loaddir, f"ckpt_epochs_{trained_epochs:0>5}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
 
         if args.method not in ["retrain"]:
@@ -134,7 +134,7 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
                     + f"_pruning_ratio={args.pruning_ratio}"
                     + f"_threshold={args.thr}"
                 ),
-                f"ckpt_steps_{0:0>8}.pt",
+                f"ckpt_epochs_{0:0>5}.pt",
             )
             pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
             model = pruned_model_ckpt["unet"]
@@ -212,9 +212,7 @@ def generate_images(args, pipeline):
         with torch.no_grad():
             counter = 0
             for batch_size in tqdm(batch_size_list):
-                noise_generator = torch.Generator().manual_seed(
-                    counter
-                )
+                noise_generator = torch.Generator().manual_seed(counter)
                 images = pipeline(
                     batch_size=batch_size,
                     num_inference_steps=args.num_inference_steps,

@@ -73,7 +73,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["retrain", "gd", "ga", "esd", "prune_fine_tune"]
+        choices=["retrain", "gd", "ga", "esd", "prune_fine_tune"],
     )
     parser.add_argument(
         "--exp_name",
@@ -120,9 +120,9 @@ def parse_args():
         default=False,
     )
     parser.add_argument(
-        "--trained_steps",
+        "--trained_epochs",
         type=int,
-        help="steps for specific ckeck points",
+        help="epochs for specific ckeck points",
         default=None,
     )
     # params for loading the pruned model
