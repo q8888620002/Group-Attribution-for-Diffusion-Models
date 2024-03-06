@@ -42,13 +42,13 @@ def parse_args():
         "--num_removal_subsets",
         type=int,
         help="number of removal subsets to run",
-        default=None,
+        default=500,
     )
     parser.add_argument(
         "--num_subsets_per_job",
         type=int,
         help="number of removal subsets to run for each SLURM job",
-        default=None,
+        default=1,
     )
     parser.add_argument(
         "--removal_unit",
