@@ -19,4 +19,4 @@
 PARAMS_FILE="PLACEHOLDER"
 PARAMS="$(tail -n +${SLURM_ARRAY_TASK_ID} ${PARAMS_FILE} | head -n 1)"
 
-~/launch-container-ro.sh ./train.sh $PARAMS
+~/launch-container-ro.sh ./run.sh $PARAMS
