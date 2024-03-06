@@ -338,7 +338,7 @@ def main(args):
                 model_config=model.config,
             )
             ema_model.load_state_dict(ckpt["unet_ema"])
-            current_epochs = existing_epochs
+            current_epochs = existing_epochs + 1
 
             remaining_idx = ckpt["remaining_idx"].numpy()
             removed_idx = ckpt["removed_idx"].numpy()
@@ -392,7 +392,7 @@ def main(args):
                 model_cls=model_cls,
                 model_config=model.config,
             )
-            current_epochs = 0
+            current_epochs = 1
 
             accelerator.print(f"Pre-trained model loaded from {args.load}")
             accelerator.print(f"\tU-Net loaded from {ckpt_path}")
