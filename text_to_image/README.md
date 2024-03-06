@@ -29,6 +29,8 @@ cd text_to_image/experiments
 sbatch train.job
 ```
 
+3. TODO: Include command to run to get FID.
+
 ### Shapley attribution for artists
 1. Generate the retraining command file by running
 ```
