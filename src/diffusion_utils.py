@@ -134,7 +134,7 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
                     + f"_pruning_ratio={args.pruning_ratio}"
                     + f"_threshold={args.thr}"
                 ),
-                f"ckpt_epochs_{0:0>5}.pt",
+                f"ckpt_epochs_{1:0>5}.pt",
             )
             pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
             model = pruned_model_ckpt["unet"]
