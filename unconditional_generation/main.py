@@ -777,8 +777,8 @@ def main(args):
                     # Checkpoints for training. This is done only once for the main
                     # process.
                     if (
-                        current_epochs % config["ckpt_freq"][args.method] == 0
-                        or current_epochs == training_epochs
+                        param_update_steps % config["ckpt_freq"][args.method] == 0
+                        or param_update_steps == training_steps
                     ) and accelerator.is_main_process:
                         if not args.keep_all_ckpts:
                             pattern = os.path.join(model_outdir, "ckpt_epochs_*.pt")
