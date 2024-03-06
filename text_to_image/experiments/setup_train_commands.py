@@ -65,8 +65,6 @@ def format_config_arg(key, val):
     """Format a training configuration key-value pair as command line argument."""
     if val is None:
         command_arg = ""
-    elif type(val) is str:
-        command_arg = '--{}="{}"'.format(key, val)
     elif type(val) is bool:
         if val:
             command_arg = "--{}".format(key)
@@ -114,8 +112,8 @@ def main(args):
     if args.removal_dist is None:
         # Set up the full training command.
         command = "accelerate launch"
-        command += " --gpu_ids 0"
-        command += ' --mixed_precision "fp16"'
+        command += " --gpu_ids=0"
+        command += " --mixed_precision={}".format("fp16")
         command += " text_to_image/train_text_to_image_lora.py"
         for key, val in training_config.items():
             command += " " + format_config_arg(key, val)
@@ -129,8 +127,8 @@ def main(args):
             command = ""
             for seed in range(args.num_removal_subsets):
                 command += "accelerate launch"
-                command += " --gpu_ids 0"
-                command += ' --mixed_precision "fp16"'
+                command += " --gpu_ids=0"
+                command += " --mixed_precision={}".format("fp16")
                 command += " text_to_image/train_text_to_image_lora.py"
                 for key, val in training_config.items():
                     command += " " + format_config_arg(key, val)
