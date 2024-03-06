@@ -340,6 +340,7 @@ def main(args):
             ema_model.load_state_dict(ckpt["unet_ema"])
             current_epochs = existing_epochs + 1
 
+            param_update_steps = ckpt["param_update_steps"]
             remaining_idx = ckpt["remaining_idx"].numpy()
             removed_idx = ckpt["removed_idx"].numpy()
             total_epochs_time = ckpt["total_epochs_time"]
@@ -367,6 +368,7 @@ def main(args):
                 model_config=model.config,
             )
             current_epochs = 1
+            param_update_steps = 0
             accelerator.print("Model randomly initialized")
 
     elif args.load:
@@ -393,6 +395,7 @@ def main(args):
                 model_config=model.config,
             )
             current_epochs = 1
+            param_update_steps = 0
 
             accelerator.print(f"Pre-trained model loaded from {args.load}")
             accelerator.print(f"\tU-Net loaded from {ckpt_path}")
@@ -411,6 +414,8 @@ def main(args):
             model_config=model.config,
         )
         current_epochs = 1
+        param_update_steps = 0
+
         accelerator.print("Model randomly initialized")
     ema_model.to(device)
 
@@ -613,7 +618,6 @@ def main(args):
         lr_scheduler,
     )
 
-    param_update_steps = (current_epochs - 1) * len(remaining_dataloader)
     training_steps = len(remaining_dataloader) * training_epochs
 
     progress_bar = tqdm(
@@ -770,6 +774,32 @@ def main(args):
                             )
                         steps_start_time = time.time()
 
+                    # Checkpoints for training. This is done only once for the main
+                    # process and at the last batch.
+                    if (
+                        current_epochs % config["ckpt_freq"][args.method] == 0
+                        or current_epochs == training_epochs
+                    ) and accelerator.is_main_process and j == len(remaining_dataloader) - 1:
+                        if not args.keep_all_ckpts:
+                            pattern = os.path.join(model_outdir, "ckpt_epochs_*.pt")
+                            for filename in glob.glob(pattern):
+                                os.remove(filename)
+
+                        torch.save(
+                            {
+                                "unet": accelerator.unwrap_model(model).state_dict(),
+                                "unet_ema": ema_model.state_dict(),
+                                "optimizer": optimizer.state_dict(),
+                                "lr_scheduler": lr_scheduler.state_dict(),
+                                "remaining_idx": torch.from_numpy(remaining_idx),
+                                "removed_idx": torch.from_numpy(removed_idx),
+                                "param_update_steps": param_update_steps,
+                                "total_epochs_time": total_epochs_time,
+                            },
+                            os.path.join(model_outdir, f"ckpt_epochs_{current_epochs:0>5}.pt"),
+                        )
+                        print(f"Checkpoint saved at epoch {current_epochs}")
+
         # Generate samples for evaluation. This is done only once for the
         # main process.
         if (
@@ -817,31 +847,6 @@ def main(args):
                 os.path.join(sample_outdir, f"epochs_{current_epochs:0>5}.png"),
                 nrow=img_nrows,
             )
-
-        # Checkpoints for training. This is done only once for the main
-        # process.
-        if (
-            current_epochs % config["ckpt_freq"][args.method] == 0
-            or current_epochs == training_epochs
-        ) and accelerator.is_main_process:
-            if not args.keep_all_ckpts:
-                pattern = os.path.join(model_outdir, "ckpt_epochs_*.pt")
-                for filename in glob.glob(pattern):
-                    os.remove(filename)
-
-            torch.save(
-                {
-                    "unet": accelerator.unwrap_model(model).state_dict(),
-                    "unet_ema": ema_model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "lr_scheduler": lr_scheduler.state_dict(),
-                    "remaining_idx": torch.from_numpy(remaining_idx),
-                    "removed_idx": torch.from_numpy(removed_idx),
-                    "total_epochs_time": total_epochs_time,
-                },
-                os.path.join(model_outdir, f"ckpt_epochs_{current_epochs:0>5}.pt"),
-            )
-            print(f"Checkpoint saved at epoch {current_epochs}")
 
         current_epochs += 1
 
