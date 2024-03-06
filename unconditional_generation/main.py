@@ -613,15 +613,15 @@ def main(args):
         lr_scheduler,
     )
 
+    param_update_steps = (current_epochs - 1) * len(remaining_dataloader)
+    training_steps = len(remaining_dataloader) * training_epochs
+
     progress_bar = tqdm(
-        range(training_epochs * len(remaining_dataloader)),
-        initial=current_epochs,
+        range(training_steps),
+        initial=param_update_steps,
         desc="Epochs",
         disable=not accelerator.is_main_process,
     )
-
-    param_update_steps = (current_epochs - 1) * len(remaining_dataloader)
-    training_steps = len(remaining_dataloader) * training_epochs
 
     steps_start_time = time.time()
 
