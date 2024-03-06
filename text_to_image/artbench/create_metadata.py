@@ -28,6 +28,11 @@ if __name__ == "__main__":
         type=str,
         required=True,
     )
+    parser.add_argument(
+        "--diverse",
+        help="whether to generate diverse captions",
+        action="store_true",
+    )
     args = parser.parse_args()
 
     caption_dict = PromptConfig.artbench_config
@@ -48,16 +53,24 @@ if __name__ == "__main__":
             img_files.append(os.path.join(art_style, img_file))
             artist = img_file.split("_")[0]
             artists.append(artist)
-            formatted_artist = artist.replace("-", " ")
-            formatted_artist = formatted_artist.title()
 
-            # Handle the suffixes II, III, etc.
-            formatted_artist = re.sub(" i+$", lambda x: x[0].upper(), formatted_artist)
+            if args.diverse:
+                formatted_artist = artist.replace("-", " ")
+                formatted_artist = formatted_artist.title()
 
-            title = img_file.replace(".jpg", "").split("_")[1]
-            title = title.replace("-", " ").title()
+                # Handle the suffixes II, III, etc.
+                formatted_artist = re.sub(
+                    " i+$", lambda x: x[0].upper(), formatted_artist
+                )
 
-            caption = title + ", " + caption_dict[art_style] + " by " + formatted_artist
+                title = img_file.replace(".jpg", "").split("_")[1]
+                title = title.replace("-", " ").title()
+
+                caption = (
+                    title + ", " + caption_dict[art_style] + " by " + formatted_artist
+                )
+            else:
+                caption = caption_dict[art_style]
             captions.append(caption)
 
         art_style_captions.append(caption_dict[art_style])
