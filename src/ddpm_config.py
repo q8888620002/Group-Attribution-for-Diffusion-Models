@@ -402,3 +402,26 @@ class PromptConfig:
         "surrealism": "a Surrealist painting",
         "ukiyo_e": "a ukiyo-e print",
     }
+
+
+class LoraTrainingConfig:
+    """Training configurations for text_to_image/train_text_to_image_lora.py"""
+
+    artbench_post_impressionism_config = {
+        "pretrained_model_name_or_path": "lambdalabs/miniSD-diffusers",
+        "resolution": 256,
+        "train_batch_size": 64,
+        "dataloader_num_workers": 4,
+        "checkpointing_steps": 500,
+        "resume_from_checkpoint": "latest",
+        "checkpoints_total_limit": 1,
+        "center_crop": True,
+        "random_flip": True,
+        "num_train_epochs": 200,
+        "learning_rate": 3e-4,
+        "lr_scheduler": "cosine",
+        "adam_weight_decay": 1e-6,
+        "rank": 256,
+        "cls_key": "style",
+        "cls": "post_impressionism",
+    }
