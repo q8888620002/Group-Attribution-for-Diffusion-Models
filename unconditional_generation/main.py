@@ -848,7 +848,7 @@ def main(args):
                 nrow=img_nrows,
             )
 
-        # Save checkpoints when the training is done.
+        # Save checkpoints for evaluation when training is done.
 
         if current_epochs == training_epochs and accelerator.is_main_process:
             if not args.keep_all_ckpts:
@@ -869,10 +869,9 @@ def main(args):
                 },
                 os.path.join(model_outdir, f"ckpt_epochs_{current_epochs:0>5}.pt"),
             )
+            print(f"Checkpoint saved at epoch {current_epochs}")
 
         current_epochs += 1
-
-
 
     return accelerator.is_main_process
 
