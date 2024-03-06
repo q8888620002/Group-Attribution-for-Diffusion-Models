@@ -55,6 +55,7 @@ from torchvision.utils import save_image
 from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
+import time
 from src.datasets import remove_data_by_shapley, remove_data_by_uniform
 from src.ddpm_config import PromptConfig
 
@@ -989,7 +990,14 @@ def main():
         disable=not accelerator.is_local_main_process,
     )
 
+    # CSV file to record training time.
+    time_file = os.path.join(args.model_outdir, "time.csv")
+    if not os.path.exists(time_file) and accelerator.is_main_process:
+        with open(time_file, "w") as f:
+            f.write("epoch,time,gpu\n")
     for epoch in range(first_epoch, args.num_train_epochs):
+        if accelerator.is_main_process:
+            start_time = time.time()
         unet.train()
         train_loss = 0.0
         for step, batch in enumerate(train_dataloader):
@@ -1208,6 +1216,11 @@ def main():
 
                 del pipeline
                 torch.cuda.empty_cache()
+            epoch_time = time.time() - start_time
+            time_record = f"{epoch},{epoch_time:.8f},{torch.cuda.get_device_name()}\n"
+            with open(time_file, "a") as f:
+                f.write(time_record)
+                print(f"Epoch training time recorded at {time_file}")
 
     # Save the lora layers
     accelerator.wait_for_everyone()
