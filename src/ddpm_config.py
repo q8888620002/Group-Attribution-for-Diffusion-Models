@@ -425,3 +425,14 @@ class LoraTrainingConfig:
         "cls_key": "style",
         "cls": "post_impressionism",
     }
+
+
+class TextToImageGenerationConfig:
+    """Configurations for text_to_image/generate_samples.py"""
+
+    artbench_post_impressionism_config = {
+        "pretrained_model_name_or_path": "lambdalabs/miniSD-diffusers",
+        "resolution": 256,
+        "dataset": "artbench",
+        "cls": "post_impressionism",
+    }

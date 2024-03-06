@@ -5,6 +5,7 @@ import os
 
 from src.constants import DATASET_DIR, LOGDIR, OUTDIR
 from src.ddpm_config import LoraTrainingConfig
+from src.experiment_utils import format_config_arg, update_job_file
 from src.utils import print_args
 
 
@@ -61,20 +62,6 @@ def parse_args():
     return args
 
 
-def format_config_arg(key, val):
-    """Format a training configuration key-value pair as command line argument."""
-    if val is None:
-        command_arg = ""
-    elif type(val) is bool:
-        if val:
-            command_arg = "--{}".format(key)
-        else:
-            command_arg = ""
-    else:
-        command_arg = "--{}={}".format(key, val)
-    return command_arg
-
-
 def main(args):
     """Main function."""
     if args.dataset == "artbench_post_impressionism":
@@ -100,12 +87,12 @@ def main(args):
         else f"{args.removal_unit}_{args.removal_dist}",
     )
     command_outdir = os.path.join(
-        os.getcwd(), "text_to_image", "experiments", "commands", exp_name
+        os.getcwd(), "text_to_image", "experiments", "commands", "train", exp_name
     )
     os.makedirs(command_outdir, exist_ok=True)
     command_file = os.path.join(command_outdir, "command.txt")
 
-    logdir = os.path.join(LOGDIR, exp_name)
+    logdir = os.path.join(LOGDIR, "train", exp_name)
     os.makedirs(logdir, exist_ok=True)
 
     num_jobs = 0
@@ -143,25 +130,16 @@ def main(args):
 
     # Update the SLURM job submission file.
     job_file = os.path.join(os.getcwd(), "text_to_image", "experiments", "train.job")
-    job_array = f"1-{num_jobs}" if num_jobs > 1 else "1"
-    updated_job_lines = []
-    with open(job_file, "r") as handle:
-        job_lines = handle.readlines()
-        for line in job_lines:
-            if line.startswith("#SBATCH --job-name"):
-                line = "#SBATCH --job-name=" + exp_name.replace("/", "-") + "\n"
-            if line.startswith("#SBATCH --output"):
-                line = "#SBATCH --output=" + os.path.join(logdir, "run-%A-%a.out\n")
-            if line.startswith("#SBATCH --array"):
-                line = f"#SBATCH --array={job_array}\n"
-            if line.startswith("PARAMS_FILE"):
-                line = 'PARAMS_FILE="{}"\n'.format(command_file)
-            updated_job_lines.append(line)
-
-    with open(job_file, "w") as handle:
-        for line in updated_job_lines:
-            handle.write(line)
-    print(f"SLURM job file updated at {job_file}")
+    array = f"1-{num_jobs}" if num_jobs > 1 else "1"
+    job_name = "train-" + exp_name.replace("/", "-")
+    output = os.path.join(logdir, "run-%A-%a.out")
+    update_job_file(
+        job_file=job_file,
+        job_name=job_name,
+        output=output,
+        array=array,
+        command_file=command_file,
+    )
 
 
 if __name__ == "__main__":
