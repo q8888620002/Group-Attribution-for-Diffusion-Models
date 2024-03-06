@@ -20,16 +20,18 @@ from src.ddpm_config import DDPMConfig
 from src.utils import get_max_steps, print_args
 
 
-def load_model_ckpt(model, ckpt_dir, use_ema, return_ckpt: bool = False):
+def load_model_ckpt(model, ckpt_dir, use_ema, trained_steps, return_ckpt: bool = False):
     """Load model parameters from the latest checkpoint in a directory."""
-    steps = get_max_steps(ckpt_dir)
 
-    if steps != 200000:
-        raise NameError("The steps needs to be 200000.")
+    trained_steps = (
+        trained_steps
+        if trained_steps is not None
+        else get_max_steps(ckpt_dir)
+    )
 
-    if steps is None:
+    if trained_steps is None:
         raise RuntimeError(f"No checkpoints found in {ckpt_dir}")
-    ckpt_path = os.path.join(ckpt_dir, f"ckpt_steps_{steps:0>8}.pt")
+    ckpt_path = os.path.join(ckpt_dir, f"ckpt_steps_{trained_steps:0>8}.pt")
     ckpt = torch.load(ckpt_path, map_location="cpu")
     model.load_state_dict(ckpt["unet"])
     model_str = "U-Net"
@@ -89,7 +91,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "celeba", "imagenette"],
+        choices=["mnist", "cifar2","cifar", "celeba", "imagenette"],
         default="cifar",
     )
     parser.add_argument(
@@ -120,7 +122,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["retrain", "gd", "ga", "esd"],
+        choices=["retrain", "prune_fine_tune", "gd", "ga", "esd"],
     )
     parser.add_argument(
         "--pruning_ratio",
@@ -153,7 +155,19 @@ def parse_args():
         "--n_samples",
         type=int,
         help="number of generated samples for computing local model behaviors",
-        default=100,
+        default=1000,
+    )
+    parser.add_argument(
+        "--trained_steps_full",
+        type=int,
+        help="steps for specific ckeck points",
+        default=None,
+    )
+    parser.add_argument(
+        "--trained_steps_removal",
+        type=int,
+        help="steps for specific ckeck points",
+        default=None,
     )
     parser.add_argument(
         "--n_noises",
@@ -187,6 +201,8 @@ def main(args):
     # Load model architectures.
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
+    elif args.dataset == "cifar2":
+        config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -197,7 +213,7 @@ def main(args):
         raise ValueError(
             (
                 f"dataset={args.dataset} is not one of "
-                "['cifar', 'mnist', 'celeba', 'imagenette']"
+                "['cifar', 'cifar2', 'mnist', 'celeba', 'imagenette']"
             )
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
@@ -248,11 +264,11 @@ def main(args):
 
     # Load full and removal model checkpoints.
     print("Loading full model checkpoint...")
-    load_model_ckpt(full_model, args.full_model_dir, args.use_ema)
+    load_model_ckpt(full_model, args.full_model_dir, args.use_ema, args.trained_steps_full)
 
     print("Loading removal model checkpoint...")
     removal_ckpt = load_model_ckpt(
-        removal_model, removal_model_dir, args.use_ema, return_ckpt=True
+        removal_model, removal_model_dir, args.use_ema, args.trained_steps_removal, return_ckpt=True
     )
     info_dict["remaining_idx"] = removal_ckpt["remaining_idx"].numpy().tolist()
     info_dict["removed_idx"] = removal_ckpt["removed_idx"].numpy().tolist()

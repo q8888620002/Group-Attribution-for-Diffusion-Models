@@ -237,13 +237,28 @@ def main(args):
             removal_dir += f"_alpha={args.datamodel_alpha}"
         removal_dir += f"_seed={args.removal_seed}"
 
-    model_outdir = os.path.join(
-        args.outdir,
-        args.dataset,
-        args.method,
-        "models",
-        removal_dir,
-    )
+    if args.method == "prune_fine_tune":
+
+        model_outdir = os.path.join(
+            args.outdir,
+            args.dataset,
+            args.method,
+            "models",
+            (
+                f"pruner={args.pruner}"
+                + f"_pruning_ratio={args.pruning_ratio}"
+            ),
+            removal_dir,
+        )
+    else:
+        model_outdir = os.path.join(
+            args.outdir,
+            args.dataset,
+            args.method,
+            "models",
+            removal_dir,
+        )
+
     sample_outdir = os.path.join(
         args.outdir, args.dataset, args.method, "samples", removal_dir
     )

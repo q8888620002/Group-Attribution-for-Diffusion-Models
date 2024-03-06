@@ -29,7 +29,7 @@ from tqdm import tqdm
 import src.constants as constants
 from src.datasets import create_dataset
 from src.ddpm_config import DDPMConfig
-from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer
+from src.diffusion_utils import build_pipeline
 from src.utils import get_max_steps
 
 
@@ -58,7 +58,12 @@ def parse_args():
         help="random seed for model training or unlearning",
         default=42,
     )
-
+    parser.add_argument(
+        "--trained_steps",
+        type=int,
+        help="steps for specific ckeck points",
+        default=None,
+    )
     parser.add_argument(
         "--pruning_ratio",
         type=float,
@@ -200,7 +205,8 @@ def main(args):
         mixed_precision=args.mixed_precision,
     )
     device = accelerator.device
-
+    args.device = device
+    
     if accelerator.is_main_process:
         print_args(args)
 
@@ -254,12 +260,16 @@ def main(args):
 
     # load model and scheduler
 
-    existing_steps = get_max_steps(pre_trained_path)
-    if existing_steps is not None:
+    trained_steps = (
+        args.trained_steps
+        if args.trained_steps is not None
+        else get_max_steps(pre_trained_path)
+    )
+    if trained_steps is not None:
         # Check if there is an existing checkpoint to resume from. This occurs when
         # model runs are interrupted (e.g., exceeding job time limit).
         ckpt_path = os.path.join(
-            pre_trained_path, f"ckpt_steps_{existing_steps:0>8}.pt"
+            pre_trained_path, f"ckpt_steps_{trained_steps:0>8}.pt"
         )
         ckpt = torch.load(ckpt_path, map_location="cpu")
         model = model_cls(**config["unet_config"])
@@ -271,41 +281,7 @@ def main(args):
     else:
         raise ValueError(f"No pre-trained checkpoints found at {args.load}")
 
-    if args.dataset == "imagenette":
-        # The pipeline is of class LDMTextToImagePipeline.
-        pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-text2im-large-256")
-        pipeline.unet = model
-
-        vqvae = pipeline.vqvae
-        text_encoder = pipeline.bert
-        tokenizer = pipeline.tokenizer
-        captioner = ImagenetteCaptioner(train_dataset)
-        label_tokenizer = LabelTokenizer(captioner=captioner, tokenizer=tokenizer)
-
-        vqvae.requires_grad_(False)
-        text_encoder.requires_grad_(False)
-
-        vqvae = vqvae.to(device)
-        text_encoder = text_encoder.to(device)
-    elif args.dataset == "celeba":
-        model_id = "CompVis/ldm-celebahq-256"
-        vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
-
-        for param in vqvae.parameters():
-            param.requires_grad = False
-
-        pipeline = LDMPipeline(
-            unet=model,
-            vqvae=vqvae,
-            scheduler=DDIMScheduler(**config["scheduler_config"]),
-        ).to(device)
-        captioner = None
-    else:
-        pipeline = DDPMPipeline(
-            unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
-        ).to(device)
-        vqvae = None
-        captioner = None
+    pipeline = build_pipeline(args, model)
 
     pipeline_scheduler = pipeline.scheduler
 

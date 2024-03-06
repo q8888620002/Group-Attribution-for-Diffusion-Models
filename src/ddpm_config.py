@@ -101,7 +101,7 @@ class DDPMConfig:
         # Training params
         "optimizer_config": {
             "class_name": "Adam",
-            "kwargs": {"lr": 1e-5},
+            "kwargs": {"lr": 1e-4},
         },
         "lr_scheduler_config": {
             "name": "constant",
