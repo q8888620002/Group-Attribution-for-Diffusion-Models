@@ -108,13 +108,7 @@ class DDPMConfig:
             "kwargs": {"num_warmup_steps": 0},
         },
         "batch_size": 128,
-        # "training_steps": {
-        #     "retrain": 20000,
-        #     "prune_fine_tune": 20000,
-        #     "ga": 2000,
-        #     "gd": 4000,
-        #     "esd": 5000,
-        # },
+
         "training_epochs": {
             "retrain": 250,
             "prune_fine_tune": 250,
@@ -122,16 +116,32 @@ class DDPMConfig:
             "gd": 10,
             "esd": 10,
         },
-        "ckpt_freq": {
+        "ckpt_freq_epochs": {
             "retrain": 50,
             "prune_fine_tune": 50,
             "ga": 5,
             "gd": 5,
             "esd": 5,
         },
+
+        "training_steps": {
+            "retrain": 20000,
+            "prune_fine_tune": 20000,
+            "ga": 2000,
+            "gd": 4000,
+            "esd": 5000,
+        },
+        "ckpt_freq": {
+            "retrain": 5000,
+            "prune_fine_tune": 5000,
+            "ga": 5,
+            "gd": 5,
+            "esd": 5,
+        },
+
         "sample_freq": {
-            "retrain": 50,
-            "prune_fine_tune": 50,
+            "retrain": 5000,
+            "prune_fine_tune": 5000,
             "ga": 3,
             "gd": 3,
             "esd": 3,

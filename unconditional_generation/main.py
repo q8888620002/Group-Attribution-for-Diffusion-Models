@@ -31,7 +31,7 @@ from src.datasets import (
 )
 from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer, run_inference
-from src.utils import compute_grad_norm, compute_param_norm, get_max_epochs, print_args
+from src.utils import compute_grad_norm, compute_param_norm, get_max_steps, print_args
 
 
 def parse_args():
@@ -48,14 +48,14 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=constants.DATASET,
+        choices=["mnist", "cifar", "cifar2", "celeba", "imagenette"],
         default="mnist",
     )
     parser.add_argument(
         "--log_freq",
         type=int,
         help="training log message printing frequence",
-        default=50,
+        default=20,
     )
     parser.add_argument(
         "--excluded_class",
@@ -237,25 +237,13 @@ def main(args):
             removal_dir += f"_alpha={args.datamodel_alpha}"
         removal_dir += f"_seed={args.removal_seed}"
 
-    if args.method == "prune_fine_tune":
-
-        model_outdir = os.path.join(
-            args.outdir,
-            args.dataset,
-            args.method,
-            "models",
-            (f"pruner={args.pruner}" + f"_pruning_ratio={args.pruning_ratio}"),
-            removal_dir,
-        )
-    else:
-        model_outdir = os.path.join(
-            args.outdir,
-            args.dataset,
-            args.method,
-            "models",
-            removal_dir,
-        )
-
+    model_outdir = os.path.join(
+        args.outdir,
+        args.dataset,
+        args.method,
+        "models",
+        removal_dir,
+    )
     sample_outdir = os.path.join(
         args.outdir, args.dataset, args.method, "samples", removal_dir
     )
@@ -295,9 +283,9 @@ def main(args):
 
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
-    total_epochs_time = 0
-    training_epochs = config["training_epochs"][args.method]
-    existing_epochs = get_max_epochs(model_outdir)
+    total_steps_time = 0
+    training_steps = config["training_steps"][args.method]
+    existing_steps = get_max_steps(model_outdir)
 
     # Load full model instead of state_dict for pruned model.
     # if method is retrain.
@@ -313,17 +301,17 @@ def main(args):
                 + f"_pruning_ratio={args.pruning_ratio}"
                 + f"_threshold={args.thr}"
             ),
-            f"ckpt_epochs_{1:0>5}.pt",
+            f"ckpt_steps_{0:0>8}.pt",
         )
         pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
         model = pruned_model_ckpt["unet"]
     else:
         model = model_cls(**config["unet_config"])
 
-    if existing_epochs is not None:
+    if existing_steps is not None:
         # Check if there is an existing checkpoint to resume from. This occurs when
         # model runs are interrupted (e.g., exceeding job time limit).
-        ckpt_path = os.path.join(model_outdir, f"ckpt_epochs_{existing_epochs:0>5}.pt")
+        ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{existing_steps:0>8}.pt")
         try:
             ckpt = torch.load(ckpt_path, map_location="cpu")
 
@@ -338,17 +326,16 @@ def main(args):
                 model_config=model.config,
             )
             ema_model.load_state_dict(ckpt["unet_ema"])
-            current_epochs = existing_epochs + 1
+            param_update_steps = existing_steps
 
-            param_update_steps = ckpt["param_update_steps"]
             remaining_idx = ckpt["remaining_idx"].numpy()
             removed_idx = ckpt["removed_idx"].numpy()
-            total_epochs_time = ckpt["total_epochs_time"]
+            total_steps_time = ckpt["total_steps_time"]
 
             accelerator.print(f"U-Net and U-Net EMA resumed from {ckpt_path}")
 
         except RuntimeError:
-            existing_epochs = None
+            existing_steps = None
             # If the ckpt file is corrupted, reinit the model.
             accelerator.print(
                 f"Check point {ckpt_path} is corrupted, "
@@ -367,18 +354,15 @@ def main(args):
                 model_cls=model_cls,
                 model_config=model.config,
             )
-            current_epochs = 1
             param_update_steps = 0
             accelerator.print("Model randomly initialized")
 
     elif args.load:
         # If there are no checkpoints to resume from, and a pre-trained model is
         # specified for fine-tuning or unlearning.
-        pretrained_epochs = get_max_epochs(args.load)
-        if pretrained_epochs is not None:
-            ckpt_path = os.path.join(
-                args.load, f"ckpt_epochs_{pretrained_epochs:0>5}.pt"
-            )
+        pretrained_steps = get_max_steps(args.load)
+        if pretrained_steps is not None:
+            ckpt_path = os.path.join(args.load, f"ckpt_steps_{pretrained_steps:0>8}.pt")
             ckpt = torch.load(ckpt_path, map_location="cpu")
 
             model.load_state_dict(ckpt["unet"])
@@ -394,7 +378,6 @@ def main(args):
                 model_cls=model_cls,
                 model_config=model.config,
             )
-            current_epochs = 1
             param_update_steps = 0
 
             accelerator.print(f"Pre-trained model loaded from {args.load}")
@@ -413,9 +396,7 @@ def main(args):
             model_cls=model_cls,
             model_config=model.config,
         )
-        current_epochs = 1
         param_update_steps = 0
-
         accelerator.print("Model randomly initialized")
     ema_model.to(device)
 
@@ -571,10 +552,10 @@ def main(args):
     lr_scheduler = get_scheduler(
         config["lr_scheduler_config"]["name"],
         optimizer=optimizer,
-        num_training_steps=training_epochs * len(remaining_dataloader),
+        num_training_steps=training_steps,
         **lr_scheduler_kwargs,
     )
-    if existing_epochs is not None:
+    if existing_steps is not None:
         optimizer.load_state_dict(ckpt["optimizer"])
         lr_scheduler.load_state_dict(ckpt["lr_scheduler"])
         accelerator.print(f"Optimizer and lr scheduler resumed from {ckpt_path}")
@@ -595,7 +576,7 @@ def main(args):
             dir="/gscratch/aims/diffusion-attr/results_ming/wandb",
             tags=[f"{args.method}"],
             config={
-                "training_epochs": training_epochs,
+                "training_steps": training_steps,
                 "batch_size": config["batch_size"],
                 "gradient_accumulation_steps": args.gradient_accumulation_steps,
                 "model": model.config._class_name,
@@ -618,18 +599,15 @@ def main(args):
         lr_scheduler,
     )
 
-    training_steps = len(remaining_dataloader) * training_epochs
-
     progress_bar = tqdm(
         range(training_steps),
         initial=param_update_steps,
-        desc="Epochs",
+        desc="Step",
         disable=not accelerator.is_main_process,
     )
-
     steps_start_time = time.time()
 
-    while current_epochs <= training_epochs:
+    while param_update_steps < training_steps:
         for j, (
             batch_r,
             batch_f,
@@ -741,10 +719,9 @@ def main(args):
                         and accelerator.is_main_process
                     ):
                         steps_time = time.time() - steps_start_time
-                        total_epochs_time += steps_time
+                        total_steps_time += steps_time
 
-                        info = f"Epochs:{current_epochs}"
-                        info += f", steps[{param_update_steps}/{training_steps}]"
+                        info = f"Step[{param_update_steps}/{training_steps}]"
                         info += f", steps_time: {steps_time:.3f}"
                         info += f", loss: {loss.detach().cpu().item():.5f}"
 
@@ -763,7 +740,6 @@ def main(args):
                         if args.wandb:
                             wandb.log(
                                 {
-                                    "Epoch": current_epochs,
                                     "Step": param_update_steps,
                                     "loss": loss.detach().cpu().item(),
                                     "steps_time": steps_time,
@@ -781,7 +757,7 @@ def main(args):
                         or param_update_steps == training_steps
                     ) and accelerator.is_main_process:
                         if not args.keep_all_ckpts:
-                            pattern = os.path.join(model_outdir, "ckpt_epochs_*.pt")
+                            pattern = os.path.join(model_outdir, "ckpt_steps_*.pt")
                             for filename in glob.glob(pattern):
                                 os.remove(filename)
 
@@ -793,86 +769,94 @@ def main(args):
                                 "lr_scheduler": lr_scheduler.state_dict(),
                                 "remaining_idx": torch.from_numpy(remaining_idx),
                                 "removed_idx": torch.from_numpy(removed_idx),
-                                "param_update_steps": param_update_steps,
-                                "total_epochs_time": total_epochs_time,
+                                "total_steps_time": total_steps_time,
                             },
-                            os.path.join(model_outdir, f"ckpt_epochs_{current_epochs:0>5}.pt"),
+                            os.path.join(
+                                model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"
+                            ),
                         )
-                        print(f"Checkpoint saved at epoch {current_epochs}")
+                        print(f"Checkpoint saved at step {param_update_steps}")
+                        steps_start_time = time.time()
+                    
+                    current_epochs = param_update_steps/len(remaining_dataloader)
 
-        # Generate samples for evaluation. This is done only once for the
-        # main process.
-        if (
-            current_epochs % config["sample_freq"][args.method] == 0
-            or current_epochs == training_epochs
-        ) and accelerator.is_main_process:
-            sampling_start_time = time.time()
-            samples = run_inference(
-                accelerator=accelerator,
-                model=model,
-                ema_model=ema_model,
-                config=config,
-                args=args,
-                vqvae=vqvae,
-                captioner=captioner,
-                pipeline=pipeline,
-                pipeline_scheduler=pipeline_scheduler,
-            )
-            sampling_time = time.time() - sampling_start_time
-            sampling_info = (
-                f"Epoch:[{current_epochs};steps:{param_update_steps}/{training_steps}]"
-            )
-            sampling_info += f", sampling_time: {sampling_time:.3f}"
-            print(sampling_info, flush=True)
+                    # save checkpoints at the end of each epoch.
 
-            if args.db is not None:
-                info_dict = vars(args)
-                info_dict["epochs"] = current_epochs
-                info_dict["loss"] = f"{loss.detach().cpu().item():.5f}"
-                info_dict["lr"] = f"{lr_scheduler.get_last_lr()[0]:.6f}"
-                info_dict["steps_time"] = f"{steps_time:.3f}"
-                info_dict["sampling_time"] = f"{sampling_time:.3f}"
+                    if (
+                        current_epochs % config["ckpt_freq_epochs"][args.method] == 0
+                        or param_update_steps == training_steps
+                    ) and accelerator.is_main_process:
+                        if not args.keep_all_ckpts:
+                            pattern = os.path.join(model_outdir, "ckpt_epochs_*.pt")
+                            for filename in glob.glob(pattern):
+                                os.remove(filename)
 
-                with open(args.db, "a+") as f:
-                    f.write(json.dumps(info_dict) + "\n")
-                print(f"Results saved to the database at {args.db}")
+                        torch.save(
+                            {
+                                "unet": accelerator.unwrap_model(model).state_dict(),
+                                "unet_ema": ema_model.state_dict(),
+                                "remaining_idx": torch.from_numpy(remaining_idx),
+                                "removed_idx": torch.from_numpy(removed_idx),
+                                "total_steps_time": total_steps_time,
+                            },
+                            os.path.join(
+                                model_outdir, f"ckpt_epochs_{current_epochs:0>5}.pt"
+                            ),
+                        )
+                        print(f"Checkpoint saved at step {param_update_steps}; epoch {current_epochs}")
+                        steps_start_time = time.time()
 
-            if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
-                samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
-            img_nrows = int(math.sqrt(config["n_samples"]))
-            if args.dataset == "imagenette":
-                img_nrows = captioner.num_classes
-            save_image(
-                samples,
-                os.path.join(sample_outdir, f"epochs_{current_epochs:0>5}.png"),
-                nrow=img_nrows,
-            )
+                    # Generate samples for evaluation. This is done only once for the
+                    # main process.
+                    if (
+                        param_update_steps % config["sample_freq"][args.method] == 0
+                        or param_update_steps == training_steps
+                    ) and accelerator.is_main_process:
+                        sampling_start_time = time.time()
+                        samples = run_inference(
+                            accelerator=accelerator,
+                            model=model,
+                            ema_model=ema_model,
+                            config=config,
+                            args=args,
+                            vqvae=vqvae,
+                            captioner=captioner,
+                            pipeline=pipeline,
+                            pipeline_scheduler=pipeline_scheduler,
+                        )
+                        sampling_time = time.time() - sampling_start_time
+                        sampling_info = f"Step[{param_update_steps}/{training_steps}]"
+                        sampling_info += f", sampling_time: {sampling_time:.3f}"
+                        print(sampling_info, flush=True)
 
-        # Save checkpoints for evaluation when training is done.
+                        if args.db is not None:
+                            info_dict = vars(args)
+                            info_dict["param_update_steps"] = f"{param_update_steps}"
+                            info_dict["loss"] = f"{loss.detach().cpu().item():.5f}"
+                            info_dict["lr"] = f"{lr_scheduler.get_last_lr()[0]:.6f}"
+                            info_dict["steps_time"] = f"{steps_time:.3f}"
+                            info_dict["sampling_time"] = f"{sampling_time:.3f}"
 
-        if current_epochs == training_epochs and accelerator.is_main_process:
-            if not args.keep_all_ckpts:
-                pattern = os.path.join(model_outdir, "ckpt_epochs_*.pt")
-                for filename in glob.glob(pattern):
-                    os.remove(filename)
+                            with open(args.db, "a+") as f:
+                                f.write(json.dumps(info_dict) + "\n")
+                            print(f"Results saved to the database at {args.db}")
 
-            torch.save(
-                {
-                    "unet": accelerator.unwrap_model(model).state_dict(),
-                    "unet_ema": ema_model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "lr_scheduler": lr_scheduler.state_dict(),
-                    "remaining_idx": torch.from_numpy(remaining_idx),
-                    "removed_idx": torch.from_numpy(removed_idx),
-                    "param_update_steps": param_update_steps,
-                    "total_epochs_time": total_epochs_time,
-                },
-                os.path.join(model_outdir, f"ckpt_epochs_{current_epochs:0>5}.pt"),
-            )
-            print(f"Checkpoint saved at epoch {current_epochs}")
+                        if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
+                            samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
+                        img_nrows = int(math.sqrt(config["n_samples"]))
+                        if args.dataset == "imagenette":
+                            img_nrows = captioner.num_classes
+                        save_image(
+                            samples,
+                            os.path.join(
+                                sample_outdir, f"steps_{param_update_steps:0>8}.png"
+                            ),
+                            nrow=img_nrows,
+                        )
+                        steps_start_time = time.time()
 
-        current_epochs += 1
-
+            if param_update_steps == training_steps:
+                break
     return accelerator.is_main_process
 
 
