@@ -415,9 +415,16 @@ def main(args):
         batch_size=config["batch_size"],
         shuffle=True,
         num_workers=4,
+        generator=torch.Generator().manual_seed(args.opt_seed),
     )
 
-    training_steps = len(remaining_dataloader) * config["training_epochs"][args.method]
+    # Round up with math.ceil to ensure all batches are used in each epoch.
+    num_update_steps_per_epoch = math.ceil(
+        len(remaining_dataloader) / args.gradient_accumulation_steps
+    )
+    training_steps = num_update_steps_per_epoch * config["training_epochs"][args.method]
+
+    current_epochs = math.ceil(param_update_steps / num_update_steps_per_epoch)
 
     if args.method == "esd":
         # Only esd requires the removed data loader.
@@ -723,11 +730,10 @@ def main(args):
                     # model parameters are updated).
                     ema_model.step(model.parameters())
                     param_update_steps += 1
-                    progress_bar.update(1)
+                    if param_update_steps % num_update_steps_per_epoch == 0:
+                        current_epochs += 1
 
-                    current_epochs = math.ceil(
-                        param_update_steps / len(remaining_dataloader)
-                    )
+                    progress_bar.update(1)
 
                     # Print info when the parameters have enough number of updates.
                     # This is done only once with the main process.
@@ -768,8 +774,8 @@ def main(args):
                             )
                         steps_start_time = time.time()
 
-                    # Checkpoints for training. This is done only once for the main
-                    # process.
+                    # Save checkpoints for training based on steps.
+                    # This is done only once for the main process.
                     if (
                         param_update_steps % config["ckpt_freq"][args.method] == 0
                         or param_update_steps == training_steps
@@ -796,13 +802,10 @@ def main(args):
                         print(f"Checkpoint saved at step {param_update_steps}")
                         steps_start_time = time.time()
 
-                    # save checkpoints at the end of each epoch.
-
+                    # Save checkpoints based on epoch frequency for evaluation.
                     if (
-                        (param_update_steps / len(remaining_dataloader))
-                        % config["ckpt_freq_epochs"][args.method]
-                        == 0
-                        or param_update_steps == training_steps
+                        current_epochs % config["ckpt_freq_epochs"][args.method] == 0
+                        and param_update_steps % num_update_steps_per_epoch == 0
                     ) and accelerator.is_main_process:
                         if not args.keep_all_ckpts:
                             pattern = os.path.join(model_outdir, "ckpt_epochs_*.pt")
