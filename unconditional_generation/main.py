@@ -295,7 +295,6 @@ def main(args):
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
     total_steps_time = 0
-    training_steps = config["training_steps"][args.method]
     existing_steps = get_max_steps(model_outdir)
 
     # Load full model instead of state_dict for pruned model.
@@ -417,6 +416,9 @@ def main(args):
         shuffle=True,
         num_workers=4,
     )
+    
+    training_steps = len(remaining_dataloader)*config["training_epochs"][args.method]
+
     if args.method == "esd":
         # Only esd requires the removed data loader.
         # Note that each epoch will iterate though the data loader with the smaller
