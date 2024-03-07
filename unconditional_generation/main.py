@@ -48,7 +48,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "cifar2", "celeba", "imagenette"],
+        choices=constants.DATASET,
         default="mnist",
     )
     parser.add_argument(
@@ -237,13 +237,24 @@ def main(args):
             removal_dir += f"_alpha={args.datamodel_alpha}"
         removal_dir += f"_seed={args.removal_seed}"
 
-    model_outdir = os.path.join(
-        args.outdir,
-        args.dataset,
-        args.method,
-        "models",
-        removal_dir,
-    )
+    if args.method == "prune_fine_tune":
+
+        model_outdir = os.path.join(
+            args.outdir,
+            args.dataset,
+            args.method,
+            "models",
+            (f"pruner={args.pruner}" + f"_pruning_ratio={args.pruning_ratio}"),
+            removal_dir,
+        )
+    else:
+        model_outdir = os.path.join(
+            args.outdir,
+            args.dataset,
+            args.method,
+            "models",
+            removal_dir,
+        )
     sample_outdir = os.path.join(
         args.outdir, args.dataset, args.method, "samples", removal_dir
     )
@@ -777,8 +788,8 @@ def main(args):
                         )
                         print(f"Checkpoint saved at step {param_update_steps}")
                         steps_start_time = time.time()
-                    
-                    current_epochs = param_update_steps/len(remaining_dataloader)
+
+                    current_epochs = param_update_steps / len(remaining_dataloader)
 
                     # save checkpoints at the end of each epoch.
 
@@ -803,7 +814,10 @@ def main(args):
                                 model_outdir, f"ckpt_epochs_{current_epochs:0>5}.pt"
                             ),
                         )
-                        print(f"Checkpoint saved at step {param_update_steps}; epoch {current_epochs}")
+                        print(
+                            f"Checkpoint saved at step {param_update_steps}"
+                            f"; epoch {current_epochs}"
+                        )
                         steps_start_time = time.time()
 
                     # Generate samples for evaluation. This is done only once for the
