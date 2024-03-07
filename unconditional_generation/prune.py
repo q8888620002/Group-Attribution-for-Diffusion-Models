@@ -38,7 +38,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar2", "cifar", "celeba"],
+        choices=constants.DATASET,
         default=None,
     )
     parser.add_argument(
@@ -55,7 +55,7 @@ def parse_args():
         "--trained_epochs",
         type=int,
         help="epochs for specific ckeck points",
-        default=None,
+        required=True
     )
     parser.add_argument(
         "--pruning_ratio",

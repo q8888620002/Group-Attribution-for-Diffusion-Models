@@ -117,8 +117,8 @@ class DDPMConfig:
             "esd": 10,
         },
         "ckpt_freq_epochs": {
-            "retrain": 50,
-            "prune_fine_tune": 50,
+            "retrain": 25,
+            "prune_fine_tune": 25,
             "ga": 5,
             "gd": 5,
             "esd": 5,
