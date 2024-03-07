@@ -8,8 +8,8 @@ from torchvision.transforms.functional import to_tensor
 from torchvision.utils import save_image
 from tqdm import tqdm
 
-from ddpm_config import PromptConfig
-from utils import print_args
+from src.ddpm_config import PromptConfig
+from src.utils import print_args
 
 
 def parse_args():

@@ -11,7 +11,7 @@ import re
 
 import pandas as pd
 
-from ddpm_config import PromptConfig
+from src.ddpm_config import PromptConfig
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="create ArtBench-10 metdata.csv")
@@ -28,17 +28,22 @@ if __name__ == "__main__":
         type=str,
         required=True,
     )
+    parser.add_argument(
+        "--diverse",
+        help="whether to generate diverse captions",
+        action="store_true",
+    )
     args = parser.parse_args()
 
     caption_dict = PromptConfig.artbench_config
 
     data_dir = os.path.join(args.parent_dir, args.split)
-    print(f"Creating metadata.csv for {data_dir}")
+    print(f"Creating metadata for {data_dir}")
 
     art_styles = [
         item
         for item in os.listdir(data_dir)
-        if not item.startswith(".") and item != "metadata.csv"
+        if not item.startswith(".") and not item.endswith(".csv")
     ]
     df_list = []
     art_style_captions = []
@@ -48,29 +53,48 @@ if __name__ == "__main__":
             img_files.append(os.path.join(art_style, img_file))
             artist = img_file.split("_")[0]
             artists.append(artist)
-            formatted_artist = artist.replace("-", " ")
-            formatted_artist = formatted_artist.title()
 
-            # Handle the suffixes II, III, etc.
-            formatted_artist = re.sub(" i+$", lambda x: x[0].upper(), formatted_artist)
+            if args.diverse:
+                formatted_artist = artist.replace("-", " ")
+                formatted_artist = formatted_artist.title()
 
-            title = img_file.replace(".jpg", "").split("_")[1]
-            title = title.replace("-", " ").title()
+                # Handle the suffixes II, III, etc.
+                formatted_artist = re.sub(
+                    " i+$", lambda x: x[0].upper(), formatted_artist
+                )
 
-            caption = title + ", " + caption_dict[art_style] + " by " + formatted_artist
+                title = img_file.replace(".jpg", "").split("_")[1]
+                title = title.replace("-", " ").title()
+
+                caption = (
+                    title + ", " + caption_dict[art_style] + " by " + formatted_artist
+                )
+            else:
+                caption = caption_dict[art_style]
             captions.append(caption)
 
         art_style_captions.append(caption_dict[art_style])
-        df_list.append(
-            pd.DataFrame(
-                {
-                    "file_name": img_files,
-                    "caption": captions,
-                    "artist": artists,
-                    "style": art_style,
-                }
-            )
+        art_style_df = pd.DataFrame(
+            {
+                "file_name": img_files,
+                "caption": captions,
+                "artist": artists,
+                "style": art_style,
+                "filename": img_files,  # Duplicate for access in Hugging Face dataset.
+            }
         )
+        unique_artists = art_style_df["artist"].unique().tolist()
+        unique_artists = sorted(unique_artists)
+
+        artists_outfile = os.path.join(data_dir, f"{art_style}_artists.csv")
+        pd.DataFrame({"artist": unique_artists}).to_csv(artists_outfile, index=False)
+        print(f"{art_style} artist names saved to {artists_outfile}")
+
+        file_names_outfile = os.path.join(data_dir, f"{art_style}_filenames.csv")
+        pd.DataFrame({"filename": img_files}).to_csv(file_names_outfile, index=False)
+        print(f"{art_style} image file names saved to {file_names_outfile}")
+
+        df_list.append(art_style_df)
     df = pd.concat(df_list)
 
     # Check known statistics.
