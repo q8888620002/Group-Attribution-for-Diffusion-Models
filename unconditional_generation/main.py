@@ -435,6 +435,7 @@ def main(args):
             batch_size=config["batch_size"],
             shuffle=True,
             num_workers=4,
+            generator=torch.Generator().manual_seed(args.opt_seed),
         )
     else:
         # Hack to ensure that all the remaining data are used in each epoch.
