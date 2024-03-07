@@ -416,8 +416,8 @@ def main(args):
         shuffle=True,
         num_workers=4,
     )
-    
-    training_steps = len(remaining_dataloader)*config["training_epochs"][args.method]
+
+    training_steps = len(remaining_dataloader) * config["training_epochs"][args.method]
 
     if args.method == "esd":
         # Only esd requires the removed data loader.
@@ -725,6 +725,10 @@ def main(args):
                     param_update_steps += 1
                     progress_bar.update(1)
 
+                    current_epochs = math.ceil(
+                        param_update_steps / len(remaining_dataloader)
+                    )
+
                     # Print info when the parameters have enough number of updates.
                     # This is done only once with the main process.
                     if (
@@ -734,7 +738,8 @@ def main(args):
                         steps_time = time.time() - steps_start_time
                         total_steps_time += steps_time
 
-                        info = f"Step[{param_update_steps}/{training_steps}]"
+                        info = f"Epoch: {current_epochs}"
+                        info += f", Step[{param_update_steps}/{training_steps}]"
                         info += f", steps_time: {steps_time:.3f}"
                         info += f", loss: {loss.detach().cpu().item():.5f}"
 
@@ -791,12 +796,12 @@ def main(args):
                         print(f"Checkpoint saved at step {param_update_steps}")
                         steps_start_time = time.time()
 
-                    current_epochs = param_update_steps / len(remaining_dataloader)
-
                     # save checkpoints at the end of each epoch.
 
                     if (
-                        current_epochs % config["ckpt_freq_epochs"][args.method] == 0
+                        (param_update_steps / len(remaining_dataloader))
+                        % config["ckpt_freq_epochs"][args.method]
+                        == 0
                         or param_update_steps == training_steps
                     ) and accelerator.is_main_process:
                         if not args.keep_all_ckpts:
