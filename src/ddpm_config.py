@@ -125,9 +125,9 @@ class DDPMConfig:
         "sample_freq": {
             "retrain": 2000,
             "prune_fine_tune": 2000,
-            "ga": 2000,
-            "gd": 4000,
-            "esd": 5000,
+            "ga": 400,
+            "gd": 400,
+            "esd": 100,
         },
         "n_samples": 64,
         "unet_config": {

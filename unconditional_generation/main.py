@@ -401,20 +401,26 @@ def main(args):
     ema_model.to(device)
 
     if len(remaining_idx) < config["batch_size"]:
-        batch_size = len(remaining_idx)
         shuffle = False
         num_workers = 1
+
+        idx = np.repeat(remaining_idx, 10)
+        remaining_dataloader = DataLoader(
+            Subset(train_dataset, idx),
+            batch_size=len(remaining_idx),
+            shuffle=shuffle,
+            num_workers=num_workers,
+        )
     else:
-        batch_size = config["batch_size"]
         shuffle = True
         num_workers = 4
 
-    remaining_dataloader = DataLoader(
-        Subset(train_dataset, remaining_idx),
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=num_workers,
-    )
+        remaining_dataloader = DataLoader(
+            Subset(train_dataset, remaining_idx),
+            batch_size=config["batch_size"],
+            shuffle=shuffle,
+            num_workers=num_workers,
+        )
 
     if args.dataset == "imagenette":
         # The pipeline is of class LDMTextToImagePipeline.
