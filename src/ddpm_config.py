@@ -109,8 +109,8 @@ class DDPMConfig:
         },
         "batch_size": 128,
         "training_steps": {
-            "retrain": 50000,
-            "prune_fine_tune": 30000,
+            "retrain": 20000,
+            "prune_fine_tune": 10000,
             "ga": 2000,
             "gd": 4000,
             "esd": 5000,

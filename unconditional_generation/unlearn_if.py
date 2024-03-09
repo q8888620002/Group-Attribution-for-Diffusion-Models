@@ -1,8 +1,11 @@
-"""Train or perform unlearning on a diffusion model."""
+"""
+Perform influence unlearning based on [1]
+
+[1]: https://github.com/OPTML-Group/Unlearn-Sparse/blob/public/unlearn/Wfisher.py
+"""
 
 import argparse
 import glob
-import json
 import math
 import os
 import time
@@ -16,12 +19,12 @@ from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
+from torch.autograd import grad
 from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
 from tqdm import tqdm
 
 import src.constants as constants
-import wandb  # wandb for monitoring loss https://wandb.ai/
 from src.datasets import (
     create_dataset,
     remove_data_by_class,
@@ -31,7 +34,8 @@ from src.datasets import (
 )
 from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer, run_inference
-from src.utils import compute_grad_norm, compute_param_norm, get_max_steps, print_args
+from src.unlearn.Wfisher import get_grad
+from src.utils import get_max_steps, print_args
 
 
 def parse_args():
@@ -49,13 +53,7 @@ def parse_args():
         type=str,
         help="dataset for training or unlearning",
         choices=constants.DATASET,
-        required=True
-    )
-    parser.add_argument(
-        "--log_freq",
-        type=int,
-        help="training log message printing frequence",
-        default=20,
+        default="mnist",
     )
     parser.add_argument(
         "--excluded_class",
@@ -69,12 +67,6 @@ def parse_args():
         help="distribution for removing data",
         choices=["uniform", "datamodel", "shapley"],
         default=None,
-    )
-    parser.add_argument(
-        "--wandb",
-        help="whether to monitor model training with wandb",
-        action="store_true",
-        default=False,
     )
     parser.add_argument(
         "--datamodel_alpha",
@@ -109,12 +101,6 @@ def parse_args():
         help="whether to keep all the checkpoints",
         action="store_true",
         default=False,
-    )
-    parser.add_argument(
-        "--db", type=str, help="database file for storing results", default=None
-    )
-    parser.add_argument(
-        "--exp_name", type=str, help="experiment name in the database", default=None
     )
     parser.add_argument(
         "--gradient_accumulation_steps",
@@ -197,6 +183,16 @@ def parse_args():
     return parser.parse_args()
 
 
+def sam_grad(model, loss):
+    """Function to change model weights"""
+    params = []
+    for param in model.parameters():
+        params.append(param)
+    sample_grad = grad(loss, params)
+    sample_grad = [x.view(-1) for x in sample_grad]
+    return torch.cat(sample_grad)
+
+
 def main(args):
     """Main function for training or unlearning."""
 
@@ -237,13 +233,24 @@ def main(args):
             removal_dir += f"_alpha={args.datamodel_alpha}"
         removal_dir += f"_seed={args.removal_seed}"
 
-    model_outdir = os.path.join(
-        args.outdir,
-        args.dataset,
-        args.method,
-        "models",
-        removal_dir,
-    )
+    if args.method == "prune_fine_tune":
+
+        model_outdir = os.path.join(
+            args.outdir,
+            args.dataset,
+            args.method,
+            "models",
+            (f"pruner={args.pruner}" + f"_pruning_ratio={args.pruning_ratio}"),
+            removal_dir,
+        )
+    else:
+        model_outdir = os.path.join(
+            args.outdir,
+            args.dataset,
+            args.method,
+            "models",
+            removal_dir,
+        )
     sample_outdir = os.path.join(
         args.outdir, args.dataset, args.method, "samples", removal_dir
     )
@@ -277,14 +284,9 @@ def main(args):
         remaining_idx = np.arange(len(train_dataset))
         removed_idx = np.array([], dtype=int)
 
-    if args.method == "ga":
-        # Gradient ascent trains on the removed images.
-        remaining_idx, removed_idx = removed_idx, remaining_idx
-
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
     total_steps_time = 0
-    training_steps = config["training_steps"][args.method]
     existing_steps = get_max_steps(model_outdir)
 
     # Load full model instead of state_dict for pruned model.
@@ -400,21 +402,23 @@ def main(args):
         accelerator.print("Model randomly initialized")
     ema_model.to(device)
 
-    if len(remaining_idx) < config["batch_size"]:
-        batch_size = len(remaining_idx)
-        shuffle = False
-        num_workers = 1
-    else:
-        batch_size = config["batch_size"]
-        shuffle = True
-        num_workers = 4
-
     remaining_dataloader = DataLoader(
         Subset(train_dataset, remaining_idx),
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=num_workers,
+        batch_size=config["batch_size"],
+        shuffle=True,
+        num_workers=4,
+        generator=torch.Generator().manual_seed(args.opt_seed),
     )
+
+    # Round up with math.ceil to ensure all batches are used in each epoch.
+    num_update_steps_per_epoch = math.ceil(
+        len(remaining_dataloader) / args.gradient_accumulation_steps
+    )
+    training_steps = num_update_steps_per_epoch * config["training_epochs"][args.method]
+
+    current_epochs = math.ceil(param_update_steps / num_update_steps_per_epoch)
+
+    removed_dataloader = remaining_dataloader
 
     if args.dataset == "imagenette":
         # The pipeline is of class LDMTextToImagePipeline.
@@ -558,232 +562,161 @@ def main(args):
 
     loss_fn = nn.MSELoss(reduction="mean")
 
-    if args.wandb:
-        wandb.init(
-            project="Data Shapley for Diffusion",
-            notes=f"Experiment for {args.method};{args.removal_dist};{args.dataset}",
-            dir="/gscratch/aims/diffusion-attr/results_ming/wandb",
-            tags=[f"{args.method}"],
-            config={
-                "training_steps": training_steps,
-                "batch_size": config["batch_size"],
-                "gradient_accumulation_steps": args.gradient_accumulation_steps,
-                "model": model.config._class_name,
-            },
-        )
-
     (
         remaining_dataloader,
+        removed_dataloader,
         model,
         optimizer,
         pipeline_scheduler,
         lr_scheduler,
     ) = accelerator.prepare(
         remaining_dataloader,
+        removed_dataloader,
         model,
         optimizer,
         pipeline_scheduler,
         lr_scheduler,
     )
 
-    progress_bar = tqdm(
-        range(training_steps),
-        initial=param_update_steps,
-        desc="Step",
-        disable=not accelerator.is_main_process,
-    )
-    steps_start_time = time.time()
-    while param_update_steps < training_steps:
-        for j, batch_r in enumerate(remaining_dataloader):
-            model.train()
+    # Unlearning with influence unlearning
 
-            image_r, label_r = batch_r[0], batch_r[1]
+    params = []
+    for param in model.parameters():
+        params.append(param.view(-1))
+    forget_grad = torch.zeros_like(torch.cat(params)).to(device)
+    retain_grad = torch.zeros_like(torch.cat(params)).to(device)
 
-            if args.precompute_stage == "reuse":
-                imageid_r = batch_r[2]
+    total = 0
+    model.eval()
 
-            image_r = image_r.to(device)
+    if args.dataset == "celeba" and args.precompute_stage == "reuse":
+        total = get_grad(args, removed_dataloader, pipeline, vqvae_latent)
+        total_2 = get_grad(args, removed_dataloader, pipeline, vqvae_latent)
+    else:
+        total = get_grad(args, removed_dataloader, pipeline)
+        total_2 = get_grad(args, removed_dataloader, pipeline)
 
-            if args.dataset == "imagenette":
-                image_r = vqvae.encode(image_r).latent_dist.sample()
-                image_r = image_r * vqvae.config.scaling_factor
-                input_ids_r = label_tokenizer(label_r).to(device)
-                encoder_hidden_states_r = text_encoder(input_ids_r)[0]
-            elif args.dataset == "celeba":
-                if args.precompute_stage is None:
-                    # Directly encode the images if there's no precomputation
-                    image_r = vqvae.encode(image_r, False)[0]
-                elif args.precompute_stage == "reuse":
-                    # Retrieve the latent representations.
-                    image_r = torch.stack(
-                        [vqvae_latent_dict[imageid_r[i]] for i in range(len(image_r))]
-                    ).to(device)
-                image_r = image_r * vqvae.config.scaling_factor
-            noise = torch.randn_like(image_r).to(device)
+    retain_grad *= total / ((total + total_2) * total_2)
+    forget_grad /= total + total_2
 
-            # Antithetic sampling of time steps.
-            timesteps = torch.randint(
-                0,
-                pipeline_scheduler.config.num_train_timesteps,
-                (len(image_r) // 2 + 1,),
-                device=image_r.device,
-            ).long()
-            timesteps = torch.cat(
-                [
-                    timesteps,
-                    pipeline_scheduler.config.num_train_timesteps - timesteps - 1,
-                ],
-                dim=0,
-            )[: len(image_r)]
+    k_vec = torch.clone(retain_grad - forget_grad)
 
-            noisy_images_r = pipeline_scheduler.add_noise(image_r, noise, timesteps)
+    for idx, batch_r in enumerate(remaining_dataloader):
+        image_r, label_r = batch_r[0], batch_r[1]
 
-            with accelerator.accumulate(model):
-                optimizer.zero_grad()
-                if args.dataset == "imagenette":
-                    eps_r = model(
-                        noisy_images_r, timesteps, encoder_hidden_states_r
-                    ).sample
-                else:
-                    eps_r = model(noisy_images_r, timesteps).sample
-                loss = loss_fn(eps_r, noise)
+        if args.precompute_stage == "reuse":
+            imageid_r = batch_r[2]
 
-                if args.method == "ga":
-                    loss *= -1.0
+        image_r = image_r.to(device)
 
-                accelerator.backward(loss)
-                if accelerator.sync_gradients:
-                    # Clip the gradients when the gradients are synced. This has to
-                    # happen before calling optimizer.step() to update the model
-                    # parameters.
-                    accelerator.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer.step()
-                lr_scheduler.step()
+        if args.dataset == "imagenette":
+            image_r = vqvae.encode(image_r).latent_dist.sample()
+            image_r = image_r * vqvae.config.scaling_factor
+            input_ids_r = label_tokenizer(label_r).to(device)
+            encoder_hidden_states_r = text_encoder(input_ids_r)[0]
+        elif args.dataset == "celeba":
+            if args.precompute_stage is None:
+                # Directly encode the images if there's no precomputation
+                image_r = vqvae.encode(image_r, False)[0]
+            elif args.precompute_stage == "reuse":
+                # Retrieve the latent representations.
+                image_r = torch.stack(
+                    [vqvae_latent_dict[imageid_r[i]] for i in range(len(image_r))]
+                ).to(device)
+            image_r = image_r * vqvae.config.scaling_factor
 
-                if accelerator.sync_gradients:
-                    # Update the EMA model when the gradients are synced (that is, when
-                    # model parameters are updated).
-                    ema_model.step(model.parameters())
-                    param_update_steps += 1
-                    progress_bar.update(1)
+        noise = torch.randn_like(image_r).to(device)
 
-                    # Print info when the parameters have enough number of updates.
-                    # This is done only once with the main process.
-                    if (
-                        param_update_steps % args.log_freq == 0
-                        and accelerator.is_main_process
-                    ):
-                        steps_time = time.time() - steps_start_time
-                        total_steps_time += steps_time
+        # Antithetic sampling of time steps.
+        timesteps = torch.randint(
+            0,
+            pipeline_scheduler.config.num_train_timesteps,
+            (len(image_r) // 2 + 1,),
+            device=image_r.device,
+        ).long()
+        timesteps = torch.cat(
+            [
+                timesteps,
+                pipeline_scheduler.config.num_train_timesteps - timesteps - 1,
+            ],
+            dim=0,
+        )[: len(image_r)]
 
-                        info = f"Step[{param_update_steps}/{training_steps}]"
-                        info += f", steps_time: {steps_time:.3f}"
-                        info += f", loss: {loss.detach().cpu().item():.5f}"
+        noisy_images_r = pipeline_scheduler.add_noise(image_r, noise, timesteps)
+        eps_r = model(noisy_images_r, timesteps).sample
+        loss = loss_fn(eps_r, noise)
 
-                        # Check gradient norm and parameter norm.
-                        grad_norm = compute_grad_norm(
-                            accelerator=accelerator, model=model
-                        )
-                        param_norm = compute_param_norm(
-                            accelerator=accelerator, model=model
-                        )
-                        info += f", gradient norms: {grad_norm:.5f}"
-                        info += f", parameters norms: {param_norm:.5f}"
-                        info += f", lr: {lr_scheduler.get_last_lr()[0]:.6f}"
-                        print(info, flush=True)
+        sample_grad = sam_grad(model, loss)
+        if idx == 0:
+            o_vec = torch.clone(sample_grad)
+        else:
+            tmp = torch.dot(o_vec, sample_grad)
+            k_vec -= (
+                torch.dot(k_vec, sample_grad) / (len(remaining_dataloader) + tmp)
+            ) * o_vec
+            o_vec -= (tmp / (len(remaining_dataloader) + tmp)) * o_vec
 
-                        if args.wandb:
-                            wandb.log(
-                                {
-                                    "Step": param_update_steps,
-                                    "loss": loss.detach().cpu().item(),
-                                    "steps_time": steps_time,
-                                    "gradient norm": grad_norm,
-                                    "parameter norm": param_norm,
-                                    "lr": lr_scheduler.get_last_lr()[0],
-                                }
-                            )
-                        steps_start_time = time.time()
+    # Apply purturbation to model params.
 
-                    # Generate samples for evaluation. This is done only once for the
-                    # main process.
-                    if (
-                        param_update_steps % config["sample_freq"][args.method] == 0
-                        or param_update_steps == training_steps
-                    ) and accelerator.is_main_process:
-                        sampling_start_time = time.time()
-                        samples = run_inference(
-                            accelerator=accelerator,
-                            model=model,
-                            ema_model=ema_model,
-                            config=config,
-                            args=args,
-                            vqvae=vqvae,
-                            captioner=captioner,
-                            pipeline=pipeline,
-                            pipeline_scheduler=pipeline_scheduler,
-                        )
-                        sampling_time = time.time() - sampling_start_time
-                        sampling_info = f"Step[{param_update_steps}/{training_steps}]"
-                        sampling_info += f", sampling_time: {sampling_time:.3f}"
-                        print(sampling_info, flush=True)
+    curr = 0
+    for param in model.parameters():
+        length = param.view(-1).shape[0]
+        param.view(-1).data += k_vec[curr : curr + length].data
+        curr += length
 
-                        if args.db is not None:
-                            info_dict = vars(args)
-                            info_dict["param_update_steps"] = f"{param_update_steps}"
-                            info_dict["loss"] = f"{loss.detach().cpu().item():.5f}"
-                            info_dict["lr"] = f"{lr_scheduler.get_last_lr()[0]:.6f}"
-                            info_dict["steps_time"] = f"{steps_time:.3f}"
-                            info_dict["sampling_time"] = f"{sampling_time:.3f}"
+    # Save checkpoints.
+    if (
+        current_epochs % config["ckpt_freq_epochs"][args.method] == 0
+        and param_update_steps % num_update_steps_per_epoch == 0
+    ) and accelerator.is_main_process:
+        if not args.keep_all_ckpts:
+            pattern = os.path.join(model_outdir, "ckpt_epochs_*.pt")
+            for filename in glob.glob(pattern):
+                os.remove(filename)
 
-                            with open(args.db, "a+") as f:
-                                f.write(json.dumps(info_dict) + "\n")
-                            print(f"Results saved to the database at {args.db}")
+        torch.save(
+            {
+                "unet": accelerator.unwrap_model(model).state_dict(),
+                "unet_ema": ema_model.state_dict(),
+                "remaining_idx": torch.from_numpy(remaining_idx),
+                "removed_idx": torch.from_numpy(removed_idx),
+                "total_steps_time": total_steps_time,
+            },
+            os.path.join(model_outdir, f"ckpt_epochs_{current_epochs:0>5}.pt"),
+        )
+        print(f"Checkpoint saved epoch {current_epochs}")
 
-                        if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
-                            samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
-                        img_nrows = int(math.sqrt(config["n_samples"]))
-                        if args.dataset == "imagenette":
-                            img_nrows = captioner.num_classes
-                        save_image(
-                            samples,
-                            os.path.join(
-                                sample_outdir, f"steps_{param_update_steps:0>8}.png"
-                            ),
-                            nrow=img_nrows,
-                        )
-                        steps_start_time = time.time()
+    # Generate samples for evaluation. This is done only once for the
+    # main process.
+    if accelerator.is_main_process:
+        sampling_start_time = time.time()
+        samples = run_inference(
+            accelerator=accelerator,
+            model=model,
+            ema_model=ema_model,
+            config=config,
+            args=args,
+            vqvae=vqvae,
+            captioner=captioner,
+            pipeline=pipeline,
+            pipeline_scheduler=pipeline_scheduler,
+        )
+        sampling_time = time.time() - sampling_start_time
+        sampling_info = f"Step[{param_update_steps}/{training_steps}]"
+        sampling_info += f", sampling_time: {sampling_time:.3f}"
+        print(sampling_info, flush=True)
 
-                    # Checkpoints for training. This is done only once for the main
-                    # process.
-                    if (
-                        param_update_steps % config["ckpt_freq"][args.method] == 0
-                        or param_update_steps == training_steps
-                    ) and accelerator.is_main_process:
-                        if not args.keep_all_ckpts:
-                            pattern = os.path.join(model_outdir, "ckpt_steps_*.pt")
-                            for filename in glob.glob(pattern):
-                                os.remove(filename)
+        if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
+            samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
+        img_nrows = int(math.sqrt(config["n_samples"]))
+        if args.dataset == "imagenette":
+            img_nrows = captioner.num_classes
+        save_image(
+            samples,
+            os.path.join(sample_outdir, f"steps_{param_update_steps:0>8}.png"),
+            nrow=img_nrows,
+        )
 
-                        torch.save(
-                            {
-                                "unet": accelerator.unwrap_model(model).state_dict(),
-                                "unet_ema": ema_model.state_dict(),
-                                "optimizer": optimizer.state_dict(),
-                                "lr_scheduler": lr_scheduler.state_dict(),
-                                "remaining_idx": torch.from_numpy(remaining_idx),
-                                "removed_idx": torch.from_numpy(removed_idx),
-                                "total_steps_time": total_steps_time,
-                            },
-                            os.path.join(
-                                model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"
-                            ),
-                        )
-                        print(f"Checkpoint saved at step {param_update_steps}")
-                        steps_start_time = time.time()
-
-            if param_update_steps == training_steps:
-                break
     return accelerator.is_main_process
 
 
