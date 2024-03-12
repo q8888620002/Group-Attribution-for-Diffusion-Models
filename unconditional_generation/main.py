@@ -49,7 +49,7 @@ def parse_args():
         type=str,
         help="dataset for training or unlearning",
         choices=constants.DATASET,
-        required=True
+        required=True,
     )
     parser.add_argument(
         "--log_freq",
@@ -400,26 +400,27 @@ def main(args):
         accelerator.print("Model randomly initialized")
     ema_model.to(device)
 
+    num_workers = 4 if torch.get_num_threads() >= 4 else torch.get_num_threads()
+
     if len(remaining_idx) < config["batch_size"]:
         shuffle = False
-        num_workers = 1
 
-        idx = np.repeat(remaining_idx, 10)
         remaining_dataloader = DataLoader(
-            Subset(train_dataset, idx),
+            Subset(train_dataset, remaining_idx),
             batch_size=len(remaining_idx),
             shuffle=shuffle,
             num_workers=num_workers,
+            pin_memory=True,
         )
     else:
         shuffle = True
-        num_workers = 4
 
         remaining_dataloader = DataLoader(
             Subset(train_dataset, remaining_idx),
             batch_size=config["batch_size"],
-            shuffle=shuffle,
+            shuffle=True,
             num_workers=num_workers,
+            pin_memory=True,
         )
 
     if args.dataset == "imagenette":
@@ -601,9 +602,11 @@ def main(args):
     steps_start_time = time.time()
     while param_update_steps < training_steps:
         for j, batch_r in enumerate(remaining_dataloader):
+
             model.train()
 
             image_r, label_r = batch_r[0], batch_r[1]
+            print(len(image_r))
 
             if args.precompute_stage == "reuse":
                 imageid_r = batch_r[2]
