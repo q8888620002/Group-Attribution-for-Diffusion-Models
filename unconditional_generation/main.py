@@ -401,8 +401,6 @@ def main(args):
     ema_model.to(device)
 
     num_workers = 4 if torch.get_num_threads() >= 4 else torch.get_num_threads()
-    print(len(remaining_idx))
-    import ipdb;ipdb.set_trace()
 
     if len(remaining_idx) < config["batch_size"]:
         shuffle = False
@@ -608,7 +606,6 @@ def main(args):
             model.train()
 
             image_r, label_r = batch_r[0], batch_r[1]
-            print(len(image_r))
 
             if args.precompute_stage == "reuse":
                 imageid_r = batch_r[2]
