@@ -11,6 +11,7 @@ import diffusers
 import numpy as np
 import torch
 import torch.nn as nn
+import wandb  # wandb for monitoring loss https://wandb.ai/
 from accelerate import Accelerator
 from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
 from diffusers.optimization import get_scheduler
@@ -21,7 +22,6 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 import src.constants as constants
-import wandb  # wandb for monitoring loss https://wandb.ai/
 from src.datasets import (
     create_dataset,
     remove_data_by_class,
@@ -269,7 +269,9 @@ def main(args):
             )
         elif args.removal_dist == "shapley":
             remaining_idx, removed_idx = remove_data_by_shapley(
-                train_dataset, seed=args.removal_seed
+                train_dataset,
+                seed=args.removal_seed,
+                by_class=True if args.dataset == "celeba" else False,
             )
         else:
             raise NotImplementedError

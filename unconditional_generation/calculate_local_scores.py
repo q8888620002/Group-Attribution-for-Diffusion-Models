@@ -1,4 +1,5 @@
 """Calcaulate local model behaviors."""
+
 # TODO: Implement conditional generation for Imagenette Text LDM.
 import argparse
 import json
@@ -50,6 +51,7 @@ def build_pipeline(dataset, model):
         pipeline.unet = model
     elif args.dataset == "celeba":
         pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256")
+        pipeline.vqvae.config.scaling_factor = 1
         pipeline.unet = model
     else:
         pipeline = DDIMPipeline(unet=model, scheduler=DDIMScheduler())

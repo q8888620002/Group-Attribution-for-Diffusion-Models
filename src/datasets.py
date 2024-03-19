@@ -1,8 +1,10 @@
 """Dataset related functions and classes"""
+
 import os
 from typing import Tuple
 
 import numpy as np
+import pandas as pd
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
@@ -62,30 +64,27 @@ class CelebA(Dataset):
         self.transform = transform
         self.train = train
 
-        all_img_names = os.listdir(root)
+        data_df = pd.read_csv(os.path.join(root, "labels.csv"))
 
-        rng = np.random.RandomState(42)
-        shuffled_indices = rng.permutation([i for i in range(len(all_img_names))])
-
-        train_size = int(0.8 * len(all_img_names))
-
-        if train:
-            self.img_names = [all_img_names[i] for i in shuffled_indices[:train_size]]
-        else:
-            self.img_names = [all_img_names[i] for i in shuffled_indices[train_size:]]
+        assert data_df["filename"].nunique() == len(
+            data_df
+        ), "filename should be unique"
+        self.data_df = data_df[data_df["split"] == ("train" if train else "test")]
 
     def __len__(self):
         """Return the number of dataset"""
-        return len(self.img_names)
+        return len(self.data_df)
 
     def __getitem__(self, idx):
         """Iterate dataloader"""
-        img_path = os.path.join(self.root, self.img_names[idx])
+        row = self.data_df.iloc[idx]
+        img_path = os.path.join(self.root, row["filename"])
         image = Image.open(img_path).convert("RGB")
         if self.transform:
             image = self.transform(image)
 
-        return image, -1, self.img_names[idx]
+        # return image, -1, row["filename"]
+        return image, row["celeb"], row["filename"]
 
 
 class ImageDataset(Dataset):
@@ -191,7 +190,7 @@ def create_dataset(
                 transforms.Normalize([0.5], [0.5]),  # Normalize to [-1,1].
             ]
         )
-        root_dir = os.path.join(dataset_dir, "celeba/celeba_hq_256")
+        root_dir = os.path.join(dataset_dir, "celeba/celeba_hq_256_curated_resized")
         dataset = CelebA(root=root_dir, train=train, transform=preprocess)
     elif dataset_name == "imagenette":
         preprocess = transforms.Compose(
@@ -287,7 +286,7 @@ def remove_data_by_datamodel(
 
 
 def remove_data_by_shapley(
-    dataset: torch.utils.data.Dataset, seed: int = 0
+    dataset: torch.utils.data.Dataset, seed: int = 0, by_class: bool = False
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Split a PyTorch Dataset into indices with the remaining and removed data, where
@@ -308,23 +307,46 @@ def remove_data_by_shapley(
         indices corresponding to the removed data.
     """
     rng = np.random.RandomState(seed)
-    dataset_size = len(dataset)
+    if by_class:
+        # If splitting by class, we need to sample the class to remove.
+        possible_classes = np.unique([data[1] for data in dataset])
+        possible_classes_sizes = np.arange(1, len(possible_classes))
+        remaining_size_probs = (len(possible_classes) - 1) / (
+            possible_classes_sizes * (len(possible_classes) - possible_classes_sizes)
+        )
+        remaining_size_probs /= remaining_size_probs.sum()
+        remaining_size = rng.choice(
+            possible_classes_sizes, size=1, p=remaining_size_probs
+        )[0]
 
-    # First sample the remaining set size.
-    # This corresponds to the term: (n - 1) / (|S| * (n - |S|)).
-    possible_remaining_sizes = np.arange(1, dataset_size)
-    remaining_size_probs = (dataset_size - 1) / (
-        possible_remaining_sizes * (dataset_size - possible_remaining_sizes)
-    )
-    remaining_size_probs /= remaining_size_probs.sum()
-    remaining_size = rng.choice(
-        possible_remaining_sizes, size=1, p=remaining_size_probs
-    )[0]
+        all_idx = np.arange(len(possible_classes))
+        rng.shuffle(all_idx)  # Shuffle in place.
+        removed_classes = possible_classes[all_idx[remaining_size:]]
 
-    # Then sample uniformly given the remaining set size.
-    # This corresponds to the term: 1 / (n choose |S|).
-    all_idx = np.arange(dataset_size)
-    rng.shuffle(all_idx)  # Shuffle in place.
-    remaining_idx = all_idx[:remaining_size]
-    removed_idx = all_idx[remaining_size:]
-    return remaining_idx, removed_idx
+        removed_idx = [
+            i for i, data in enumerate(dataset) if data[1] in removed_classes
+        ]
+        removed_idx = np.array(removed_idx)
+        remaining_idx = np.setdiff1d(np.arange(len(dataset)), removed_idx)
+        return remaining_idx, removed_idx
+    else:
+        dataset_size = len(dataset)
+
+        # First sample the remaining set size.
+        # This corresponds to the term: (n - 1) / (|S| * (n - |S|)).
+        possible_remaining_sizes = np.arange(1, dataset_size)
+        remaining_size_probs = (dataset_size - 1) / (
+            possible_remaining_sizes * (dataset_size - possible_remaining_sizes)
+        )
+        remaining_size_probs /= remaining_size_probs.sum()
+        remaining_size = rng.choice(
+            possible_remaining_sizes, size=1, p=remaining_size_probs
+        )[0]
+
+        # Then sample uniformly given the remaining set size.
+        # This corresponds to the term: 1 / (n choose |S|).
+        all_idx = np.arange(dataset_size)
+        rng.shuffle(all_idx)  # Shuffle in place.
+        remaining_idx = all_idx[:remaining_size]
+        removed_idx = all_idx[remaining_size:]
+        return remaining_idx, removed_idx
