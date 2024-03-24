@@ -199,9 +199,9 @@ class DDPMConfig:
             "kwargs": {"num_warmup_steps": 0},
         },
         "batch_size": 16,
-        "training_steps": {"retrain": 200000, "ga": 5, "gd": 10, "esd": 500},
+        "training_steps": {"retrain": 100000, "ga": 5, "gd": 10, "esd": 500},
         "ckpt_freq": {"retrain": 10000, "ga": 1, "gd": 1, "esd": 100},
-        "sample_freq": {"retrain": 200000, "ga": 1, "gd": 1, "esd": 100},
+        "sample_freq": {"retrain": 100000, "ga": 1, "gd": 1, "esd": 100},
         "n_samples": 32,
         "unet_config": {
             "_class_name": "UNet2DModel",
