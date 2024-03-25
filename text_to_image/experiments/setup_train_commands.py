@@ -85,6 +85,7 @@ def main(args):
         "full"
         if args.removal_dist is None
         else f"{args.removal_unit}_{args.removal_dist}",
+        f"seed{args.seed}",
     )
     command_outdir = os.path.join(
         os.getcwd(), "text_to_image", "experiments", "commands", "train", exp_name
