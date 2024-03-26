@@ -3,9 +3,13 @@
 import glob
 import os
 import sys
+import types
+from functools import reduce
 
 import pynvml
 import torch
+
+from src.diffusers.models.attention_processor import my_get_processor
 
 
 def compute_grad_norm(accelerator, model):
@@ -70,3 +74,23 @@ def get_max_steps(folder_path):
         files, key=lambda x: int(os.path.basename(x).split("_")[-1].split(".")[0])
     )
     return int(os.path.basename(max_steps).split("_")[-1].split(".")[0])
+
+
+def get_module(model: torch.nn.Module, module_name: str):
+    """Get a PyTorch module from a model with the module name."""
+    return reduce(getattr, module_name.split("."), model)
+
+
+def fix_get_processor(model: torch.nn.Module):
+    """
+    Fix the attention get_processor method in a model.
+
+    The bug happens at
+    https://github.com/huggingface/diffusers/blob/v0.24.0/src/diffusers/models/attention_processor.py#L1815
+    """
+    for attn_processor_name, _ in model.attn_processors.items():
+        attn_name = attn_processor_name.replace(".processor", "")
+        attn = get_module(model, attn_name)
+        if hasattr(attn, "get_processor"):
+            attn.get_processor = types.MethodType(my_get_processor, attn)
+    print("get_processor fixed in model")
