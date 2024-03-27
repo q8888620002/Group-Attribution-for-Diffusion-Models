@@ -727,6 +727,8 @@ def main():
         unet.load_attn_procs(
             args.lora_dir, weight_name="pytorch_lora_weights.safetensors"
         )
+        lora_file = os.path.join(args.lora_dir, "pytorch_lora_weights.safetensors")
+        logger.info(f"LoRA weights loaded from {lora_file}")
 
         # Convert non-LoRA parameters to the specified precision.
         unet_state_dict = unet.state_dict()
