@@ -470,6 +470,11 @@ def parse_args():
         default=0.3,
     )
     parser.add_argument(
+        "--checkpoint_attn_procs",
+        action="store_true",
+        help="whether or not to save attention processors when checkpointing",
+    )
+    parser.add_argument(
         "--cls_key",
         type=str,
         default=None,
@@ -719,7 +724,9 @@ def main():
         # Runtime bugfix when LoRA ranks are different across attention to_q, to_k, 
         # to_v, and to_out.
         fix_get_processor(unet)
-        unet.load_attn_procs(args.lora_dir)
+        unet.load_attn_procs(
+            args.lora_dir, weight_name="pytorch_lora_weights.safetensors"
+        )
 
         # Convert non-LoRA parameters to the specified precision.
         unet_state_dict = unet.state_dict()
@@ -1191,6 +1198,16 @@ def main():
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
+                        # Also save the LoRA weights for later usage.
+                        # Unlike the training states, there are no limits to the number
+                        # of LoRA weight files.
+                        if args.checkpoint_attn_procs:
+                            weight_name = f"pytorch_lora_weights_{global_step}.safetensors"
+                            unet.save_attn_procs(
+                                args.model_outdir,
+                                weight_name=weight_name,
+                            )
+
             logs = {
                 "step_loss": loss.detach().item(),
                 "lr": lr_scheduler.get_last_lr()[0],
@@ -1309,7 +1326,9 @@ def main():
         pipeline = pipeline.to(accelerator.device)
 
         # load attention processors
-        pipeline.unet.load_attn_procs(args.model_outdir)
+        pipeline.unet.load_attn_procs(
+            args.model_outdir, weight_name="pytorch_lora_weights.safetensors"
+        )
 
         # run inference
         generator = torch.Generator(device=accelerator.device)
