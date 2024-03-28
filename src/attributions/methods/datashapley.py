@@ -2,12 +2,12 @@
 import os
 
 import numpy as np
-from attribution_utils import load_filtered_behaviors
 
+from src.attributions.methods.attribution_utils import load_filtered_behaviors
 from src.datasets import create_dataset
 
 
-def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
+def data_shapley(dataset_size, x_train, y_train, v1, v0):
     """
     Function to compute kernel shap coefficients with closed form solution
     of Shapley from equation (7) in
@@ -20,7 +20,6 @@ def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
         y_train: model behavior, n x 1
         v1: model behavior with all data presented
         v0: model behavior of null subset
-        num_runs: number of bootstrapped times.
 
     Return:
     ------
@@ -28,34 +27,18 @@ def data_shapley(dataset_size, x_train, y_train, v1, v0, num_runs):
     """
 
     train_size = len(x_train)
-    coeff = []
 
-    for _ in range(num_runs):
+    a_hat = np.dot(x_train.T, x_train) / train_size
+    b_hat = np.dot(x_train.T, (y_train - v0).reshape(-1, 1)) / train_size
 
-        bootstrapped_indices = np.random.choice(train_size, train_size, replace=True)
+    # Using np.linalg.pinv instead of np.linalg.inv in case of singular matrix
+    a_hat_inv = np.linalg.pinv(a_hat)
+    one = np.ones((dataset_size, 1))
 
-        x_train_boot = x_train[bootstrapped_indices]
-        y_train_boot = y_train[bootstrapped_indices]
+    c = one.T @ a_hat_inv @ b_hat - v1 + v0
+    d = one.T @ a_hat_inv @ one
 
-        a_hat = np.zeros((dataset_size, dataset_size))
-        b_hat = np.zeros((dataset_size, 1))
-
-        for j in range(train_size):
-            a_hat += np.outer(x_train_boot[j], x_train_boot[j])
-            b_hat += (x_train_boot[j] * (y_train_boot[j] - v0))[:, None]
-
-        a_hat /= train_size
-        b_hat /= train_size
-
-        # Using np.linalg.pinv instead of np.linalg.inv in case of singular matrix
-        a_hat_inv = np.linalg.pinv(a_hat)
-        one = np.ones((dataset_size, 1))
-
-        c = one.T @ a_hat_inv @ b_hat - v1 + v0
-        d = one.T @ a_hat_inv @ one
-
-        coef = a_hat_inv @ (b_hat - one @ (c / d))
-        coeff.append(coef)
+    coef = a_hat_inv @ (b_hat - one @ (c / d))
 
     return coef
 

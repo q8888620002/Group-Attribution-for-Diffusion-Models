@@ -9,6 +9,8 @@ from sklearn.linear_model import RidgeCV
 from sklearn.model_selection import KFold
 from tqdm import tqdm
 
+import src.constants as constants
+from src.attributions.methods.datashapley import data_shapley
 from src.datasets import create_dataset
 from src.utils import print_args
 
@@ -34,7 +36,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for evaluation",
-        choices=["cifar"],
+        choices=constants.DATASET,
         default="cifar",
     )
     parser.add_argument(
@@ -198,28 +200,37 @@ def main(args):
     common_seeds.sort()
 
     num_targets = train_targets.shape[-1]
+    num_folds = 5
+    kf = KFold(n_splits=num_folds, shuffle=True, random_state=100)
 
-    num_folds = int(len(test_seeds) / args.num_test_subset)
-    kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
     k_fold_lds = []
     fold_idx = 0
+    trained_indices = set()
 
     for _, test_index in kf.split(common_seeds):
+        test_seeds_fold = [common_seeds[i] for i in test_index[: args.num_test_subset]]
 
-        test_seeds_fold = [common_seeds[i] for i in test_index]
+        test_indices_bool = np.isin(test_seeds, test_seeds_fold)
+        test_indices = np.where(test_indices_bool)[0]
 
-        test_indices_fold = np.isin(test_seeds, test_seeds_fold)
-        test_masks_fold = test_masks[test_indices_fold, :]
-        test_targets_fold = test_targets[test_indices_fold, :]
+        test_masks_fold = test_masks[test_indices]
+        test_targets_fold = test_targets[test_indices]
 
-        overlap_indices = np.isin(train_seeds, test_seeds_fold)
-        train_masks_fold = train_masks[~overlap_indices, :]
-        train_targets_fold = train_targets[~overlap_indices, :]
+        overlap_bool = np.isin(train_seeds, test_seeds_fold)
+        # Exclude both the overlapped indices and previously trained indices
 
-        if args.max_train_size is not None:
-            if len(train_targets_fold) > args.max_train_size:
-                train_masks_fold = train_masks_fold[: args.max_train_size, :]
-                train_targets_fold = train_targets_fold[: args.max_train_size, :]
+        train_indices_bool = ~(
+            overlap_bool | np.isin(np.arange(len(train_seeds)), list(trained_indices))
+        )
+        train_indices = np.where(train_indices_bool)[0]
+
+        if args.max_train_size is not None and len(train_indices) > args.max_train_size:
+            train_indices = train_indices[: args.max_train_size]
+
+        train_masks_fold = train_masks[train_indices]
+        train_targets_fold = train_targets[train_indices]
+
+        trained_indices.update(train_indices)
 
         # Fit datamodel to estimate data attribution scores.
         print(
@@ -231,14 +242,34 @@ def main(args):
         fold_lds_results = []
 
         for i in tqdm(range(num_targets)):
-            datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
-                train_masks_fold, train_targets_fold[:, i]
-            )
-            datamodel_str = "Ridge"
-            print("Datamodel parameters")
-            print(f"\tmodel={datamodel_str}")
-            print(f"\talpha={datamodel.alpha_:.8f}")
-            data_attr_list.append(datamodel.coef_)
+
+            if args.removal_dist == "datamodel":
+
+                datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
+                    train_masks_fold, train_targets_fold[:, i]
+                )
+                datamodel_str = "Ridge"
+                print("Datamodel parameters")
+                print(f"\tmodel={datamodel_str}")
+                print(f"\talpha={datamodel.alpha_:.8f}")
+
+                coeff = datamodel.coef_
+
+            elif args.removal_dist == "shapley":
+
+                v1 = 8.54
+                v0 = 348.45
+
+                coeff = data_shapley(
+                    train_masks_fold.shape[-1],
+                    train_masks_fold,
+                    train_targets_fold[:, i],
+                    v1,
+                    v0,
+                )
+
+            data_attr_list.append(coeff)
+
             fold_lds_results.append(
                 spearmanr(
                     test_masks_fold @ data_attr_list[i], test_targets_fold
@@ -263,17 +294,39 @@ def main(args):
         train_masks = train_masks[~overlap_with_test, :]
         train_targets = train_targets[~overlap_with_test, :]
 
+        if args.max_train_size is not None:
+            if len(train_targets) > args.max_train_size:
+                train_masks = train_masks[: args.max_train_size, :]
+                train_targets = train_targets[: args.max_train_size, :]
+
         data_attr_list = []
 
         for i in tqdm(range(num_targets)):
-            datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
-                train_masks, train_targets[:, i]
-            )
-            datamodel_str = "Ridge"
-            print("Datamodel parameters")
-            print(f"\tmodel={datamodel_str}")
-            print(f"\talpha={datamodel.alpha_:.8f}")
-            data_attr_list.append(datamodel.coef_)
+            if args.removal_dist == "datamodel":
+
+                datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
+                    train_masks, train_targets[:, i]
+                )
+                datamodel_str = "Ridge"
+                print("Datamodel parameters")
+                print(f"\tmodel={datamodel_str}")
+                print(f"\talpha={datamodel.alpha_:.8f}")
+
+                coeff = datamodel.coef_
+
+            elif args.removal_dist == "shapley":
+
+                v1 = 8.54
+                v0 = 348.45
+
+                coeff = data_shapley(
+                    train_masks.shape[-1],
+                    train_masks,
+                    train_targets[:, i],
+                    v1,
+                    v0,
+                )
+            data_attr_list.append(coeff)
 
         def my_lds(idx):
             boot_masks = test_masks[idx, :]
