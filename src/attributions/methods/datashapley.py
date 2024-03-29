@@ -1,5 +1,6 @@
 """Function that calculate data shapley"""
 import os
+import warnings
 
 import numpy as np
 
@@ -32,7 +33,7 @@ def data_shapley(dataset_size, x_train, y_train, v1, v0):
     b_hat = np.dot(x_train.T, (y_train - v0).reshape(-1, 1)) / train_size
 
     # Using np.linalg.pinv instead of np.linalg.inv in case of singular matrix
-    a_hat_inv = np.linalg.pinv(a_hat)
+    a_hat_inv = np.linalg.pinv(a_hat, rcond=1e-5)
     one = np.ones((dataset_size, 1))
 
     c = one.T @ a_hat_inv @ b_hat - v1 + v0
@@ -41,6 +42,59 @@ def data_shapley(dataset_size, x_train, y_train, v1, v0):
     coef = a_hat_inv @ (b_hat - one @ (c / d))
 
     return coef
+
+
+def kernel_shap(dataset_size, x_train, y_train, v1, v0):
+    """
+    Function to compute kernel shap coefficients
+    following, https://github.com/shap/shap/blob/master/shap/explainers/_kernel.py
+
+    Args:
+    ----
+        dataset_size: length of reference dataset size
+        x_train: indices of subset, n x d
+        y_train: model behavior, n x 1
+        v1: model behavior with all data presented
+        v0: model behavior of null subset
+
+    Return:
+    ------
+        w: coefficients for kernel shap
+    """
+
+    ones = np.ones((dataset_size, 1))
+    zeros = np.zeros((dataset_size, 1))
+
+    X = np.concatenate((x_train, ones, zeros), axis=0)
+    y = np.concatenate((y_train, np.asarray([v1, v0])), axis=0)
+
+    # init sample kernel weights as 1.0
+
+    kernel_weights = np.ones(len(x_train))
+
+    # concatenate inf weights for v1 and v0
+    kernel_weights = np.concatenate(
+        (kernel_weights, np.asarray([1000000.0, 1000000.0])), axis=0
+    )
+
+    WX = kernel_weights[:, None] * X
+
+    try:
+        w = np.linalg.solve(X.T @ WX, WX.T @ y)
+    except np.linalg.LinAlgError:
+        warnings.warn(
+            "Linear regression equation is singular, a least squares solutions is used instead.\n"
+            "To avoid this situation and get a regular matrix do one of the following:\n"
+            "1) turn up the number of samples,\n"
+            "2) turn up the L1 regularization with num_features(N) where N is less than the number of samples,\n"
+            "3) group features together to reduce the number of inputs that need to be explained."
+        )
+        # XWX = np.linalg.pinv(X.T @ WX)
+        # w = np.dot(XWX, np.dot(np.transpose(WX), y))
+        sqrt_W = np.sqrt(kernel_weights)
+        w = np.linalg.lstsq(sqrt_W[:, None] * X, sqrt_W * y, rcond=None)[0]
+
+    return w
 
 
 def compute_shapley_scores(args, model_behavior_all, train_idx, val_idx):

@@ -235,6 +235,8 @@ def main(args):
 
             v1 = 8.54
             v0 = 348.45
+            # v1 = 5.08
+            # v0 =  1.376
 
             coeff = data_shapley(
                 train_masks.shape[-1],
@@ -243,16 +245,6 @@ def main(args):
                 v1,
                 v0,
             )
-
-        # plots for sanity check
-        fig, axs = plt.subplots(1, 1, figsize=(20, 10))
-        bin_edges = np.histogram_bin_edges(coeff, bins='auto') 
-        sns.histplot(coeff, bins=bin_edges, alpha=0.5)
-        # plt.xscale('symlog')  # Apply symmetric log scale to the x-axis
-        plt.xlabel('Shapley Value (log scale)')
-        plt.ylabel('Frequency')
-        plt.title(f'data shapley: {np.max(coeff)}; {np.min(coeff)}')
-        plt.savefig(f"results/data_shapley_{args.method}_{args.max_train_size}.png")
 
         data_attr_list.append(coeff)
 
@@ -286,6 +278,20 @@ def main(args):
 
         print(f"Mean: {np.mean(k_fold_lds):.3f}")
         print(f"Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}")
+
+        # plots for sanity check
+        fig, axs = plt.subplots(1, 1, figsize=(20, 10))
+        bin_edges = np.histogram_bin_edges(coeff, bins='auto') 
+        sns.histplot(coeff, bins=bin_edges, alpha=0.5)
+
+        plt.xlabel('Shapley Value')
+        plt.ylabel('Frequency')
+        plt.title(
+            f'data shapley: Mean: {np.mean(k_fold_lds):.3f}, '
+            f'Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}\n'
+            f'Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}'
+        )
+        plt.savefig(f"results/data_shapley_{args.model_behavior_key}_{args.method}_{args.max_train_size}.png")
 
     # Calculate test LDS with bootstrapping.
     if args.bootstrapped:
