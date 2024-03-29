@@ -36,6 +36,7 @@ all_prompts = []
 
 pipe = StableDiffusionPipeline.from_pretrained("lambdalabs/miniSD-diffusers")
 pipe = pipe.to("cuda")
+pipeline.safety_checker = None
 
 counter = 1
 

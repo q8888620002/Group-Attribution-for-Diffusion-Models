@@ -2,8 +2,11 @@
 
 import argparse
 import json
+import random
 
+import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 from scipy.stats import bootstrap, spearmanr
 from sklearn.linear_model import RidgeCV
 from sklearn.model_selection import KFold
@@ -194,139 +197,104 @@ def main(args):
         args.n_samples,
     )
 
-    # Calculate LDS with K-Folds
-
     common_seeds = list(set(train_seeds) & set(test_seeds))
     common_seeds.sort()
 
+    random.seed(42)
+    test_seeds_filtered = random.sample(common_seeds, 5 * args.num_test_subset)
+
+    # Select training instances.
+    overlap_bool = np.isin(train_seeds, test_seeds_filtered)
+    train_indices = np.where(~overlap_bool)[0]
+
+    if args.max_train_size is not None and len(train_indices) > args.max_train_size:
+        train_indices = train_indices[: args.max_train_size]
+
+    train_masks = train_masks[train_indices]
+    train_targets = train_targets[train_indices]
+
+    data_attr_list = []
+
     num_targets = train_targets.shape[-1]
-    num_folds = 5
-    kf = KFold(n_splits=num_folds, shuffle=True, random_state=100)
 
-    k_fold_lds = []
-    fold_idx = 0
-    trained_indices = set()
+    for i in tqdm(range(num_targets)):
 
-    for _, test_index in kf.split(common_seeds):
-        test_seeds_fold = [common_seeds[i] for i in test_index[: args.num_test_subset]]
+        if args.removal_dist == "datamodel":
 
-        test_indices_bool = np.isin(test_seeds, test_seeds_fold)
-        test_indices = np.where(test_indices_bool)[0]
+            datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
+                train_masks, train_targets[:, i]
+            )
+            datamodel_str = "Ridge"
+            print("Datamodel parameters")
+            print(f"\tmodel={datamodel_str}")
+            print(f"\talpha={datamodel.alpha_:.8f}")
 
-        test_masks_fold = test_masks[test_indices]
-        test_targets_fold = test_targets[test_indices]
+            coeff = datamodel.coef_
 
-        overlap_bool = np.isin(train_seeds, test_seeds_fold)
-        # Exclude both the overlapped indices and previously trained indices
+        elif args.removal_dist == "shapley":
 
-        train_indices_bool = ~(
-            overlap_bool | np.isin(np.arange(len(train_seeds)), list(trained_indices))
-        )
-        train_indices = np.where(train_indices_bool)[0]
+            v1 = 8.54
+            v0 = 348.45
 
-        if args.max_train_size is not None and len(train_indices) > args.max_train_size:
-            train_indices = train_indices[: args.max_train_size]
+            coeff = data_shapley(
+                train_masks.shape[-1],
+                train_masks,
+                train_targets[:, i],
+                v1,
+                v0,
+            )
 
-        train_masks_fold = train_masks[train_indices]
-        train_targets_fold = train_targets[train_indices]
+        # plots for sanity check
+        fig, axs = plt.subplots(1, 1, figsize=(20, 10))
+        bin_edges = np.histogram_bin_edges(coeff, bins='auto') 
+        sns.histplot(coeff, bins=bin_edges, alpha=0.5)
+        # plt.xscale('symlog')  # Apply symmetric log scale to the x-axis
+        plt.xlabel('Shapley Value (log scale)')
+        plt.ylabel('Frequency')
+        plt.title(f'data shapley: {np.max(coeff)}; {np.min(coeff)}')
+        plt.savefig(f"results/data_shapley_{args.method}_{args.max_train_size}.png")
 
-        trained_indices.update(train_indices)
+        data_attr_list.append(coeff)
 
-        # Fit datamodel to estimate data attribution scores.
-        print(
-            f"Estimating scores with {len(train_targets_fold)} subsets"
-            f" in {fold_idx+1}-fold"
-        )
+        # Calculate LDS with K-Folds
 
-        data_attr_list = []
-        fold_lds_results = []
+        num_folds = 5
+        k_fold_lds = []
 
-        for i in tqdm(range(num_targets)):
+        kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
 
-            if args.removal_dist == "datamodel":
+        for fold_idx, (_, test_index) in enumerate(kf.split(test_seeds_filtered)):
+            test_seeds_fold = [test_seeds_filtered[i] for i in test_index]
 
-                datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
-                    train_masks_fold, train_targets_fold[:, i]
-                )
-                datamodel_str = "Ridge"
-                print("Datamodel parameters")
-                print(f"\tmodel={datamodel_str}")
-                print(f"\talpha={datamodel.alpha_:.8f}")
+            test_indices_bool = np.isin(test_seeds, test_seeds_fold)
+            test_indices = np.where(test_indices_bool)[0]
 
-                coeff = datamodel.coef_
+            test_masks_fold = test_masks[test_indices]
+            test_targets_fold = test_targets[test_indices]
 
-            elif args.removal_dist == "shapley":
+            print(
+                f"Estimating scores with {len(train_masks)} subsets"
+                f" in {fold_idx+1}-fold"
+            )
 
-                v1 = 8.54
-                v0 = 348.45
-
-                coeff = data_shapley(
-                    train_masks_fold.shape[-1],
-                    train_masks_fold,
-                    train_targets_fold[:, i],
-                    v1,
-                    v0,
-                )
-
-            data_attr_list.append(coeff)
-
-            fold_lds_results.append(
+            k_fold_lds.append(
                 spearmanr(
-                    test_masks_fold @ data_attr_list[i], test_targets_fold
+                    test_masks_fold @ data_attr_list[i], test_targets_fold[:, i]
                 ).statistic
                 * 100
             )
 
-        k_fold_lds.append(np.mean(fold_lds_results))
-        fold_idx += 1
-
-    print(f"Mean: {np.mean(k_fold_lds):.3f}")
-    print(f"Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}")
+        print(f"Mean: {np.mean(k_fold_lds):.3f}")
+        print(f"Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}")
 
     # Calculate test LDS with bootstrapping.
     if args.bootstrapped:
 
-        test_masks = test_masks[: args.num_test_subset, :]
-        test_targets = test_targets[: args.num_test_subset, :]
-        test_seeds = test_seeds[: args.num_test_subset]
+        test_indices_bool = np.isin(test_seeds, test_seeds_filtered)
+        test_indices = np.where(test_indices_bool)[0]
 
-        overlap_with_test = np.isin(train_seeds, test_seeds)
-        train_masks = train_masks[~overlap_with_test, :]
-        train_targets = train_targets[~overlap_with_test, :]
-
-        if args.max_train_size is not None:
-            if len(train_targets) > args.max_train_size:
-                train_masks = train_masks[: args.max_train_size, :]
-                train_targets = train_targets[: args.max_train_size, :]
-
-        data_attr_list = []
-
-        for i in tqdm(range(num_targets)):
-            if args.removal_dist == "datamodel":
-
-                datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
-                    train_masks, train_targets[:, i]
-                )
-                datamodel_str = "Ridge"
-                print("Datamodel parameters")
-                print(f"\tmodel={datamodel_str}")
-                print(f"\talpha={datamodel.alpha_:.8f}")
-
-                coeff = datamodel.coef_
-
-            elif args.removal_dist == "shapley":
-
-                v1 = 8.54
-                v0 = 348.45
-
-                coeff = data_shapley(
-                    train_masks.shape[-1],
-                    train_masks,
-                    train_targets[:, i],
-                    v1,
-                    v0,
-                )
-            data_attr_list.append(coeff)
+        test_masks = test_masks[test_indices]
+        test_targets = test_targets[test_indices]
 
         def my_lds(idx):
             boot_masks = test_masks[idx, :]
@@ -339,9 +307,7 @@ def main(args):
                 )
             return np.mean(lds_list)
 
-        print(
-            f"Estimating scores with {len(train_targets_fold)} subsets with bootstrap."
-        )
+        print(f"Estimating scores with {len(train_targets)} subsets with bootstrap.")
         boot_result = bootstrap(
             data=(list(range(len(test_targets))),),
             statistic=my_lds,
