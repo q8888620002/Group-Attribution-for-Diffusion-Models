@@ -114,6 +114,7 @@ class DDPMConfig:
             "ga": 2000,
             "gd": 4000,
             "esd": 5000,
+            "if": 1
         },
         "ckpt_freq": {
             "retrain": 10000,
@@ -121,6 +122,7 @@ class DDPMConfig:
             "ga": 400,
             "gd": 400,
             "esd": 1000,
+            "if": 1,
         },
         "sample_freq": {
             "retrain": 2000,
@@ -128,6 +130,7 @@ class DDPMConfig:
             "ga": 400,
             "gd": 400,
             "esd": 100,
+            "if": 20
         },
         "n_samples": 64,
         "unet_config": {

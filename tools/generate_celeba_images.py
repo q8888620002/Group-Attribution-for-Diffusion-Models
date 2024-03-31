@@ -36,15 +36,15 @@ all_prompts = []
 
 pipe = StableDiffusionPipeline.from_pretrained("lambdalabs/miniSD-diffusers")
 pipe = pipe.to("cuda")
-pipeline.safety_checker = None
+pipe.safety_checker = None
 
 counter = 1
 
 for combo in combinations:
     ethnicity, gender = combo
     for _ in range(40):  # Repeat 40 times for even distribution
-        prompt = f"a vibrant, full-color photograph of a single, {gender} and {ethnicity} celebrity."
+        prompt = f"a full-color photograph of a single, {gender} and {ethnicity} celebrity."
         all_prompts.append(prompt)
         image = pipe(prompt, width=256, height=256).images[0]  
-        image.save(os.path.join(constants.OUTDIR, 'celeba/cluster_img', f'test_{counter}.jpg'))
+        image.save(os.path.join('results/celeba', f'test_{counter}.jpg'))
         counter += 1

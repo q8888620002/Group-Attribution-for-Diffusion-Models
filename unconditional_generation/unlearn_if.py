@@ -19,7 +19,6 @@ from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
-from torch.autograd import grad
 from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
 from tqdm import tqdm
@@ -34,7 +33,7 @@ from src.datasets import (
 )
 from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer, run_inference
-from src.unlearn.Wfisher import get_grad
+from src.unlearn.Wfisher import apply_perturb, get_grad, woodfisher_diff
 from src.utils import get_max_steps, print_args
 
 
@@ -86,6 +85,9 @@ def parse_args():
         help="training or unlearning method",
         choices=constants.METHOD,
         required=True,
+    )
+    parser.add_argument(
+        "--if_alpha", type=float, help="ratio for purturbing model weights", default=0.3
     )
     parser.add_argument(
         "--opt_seed",
@@ -183,16 +185,6 @@ def parse_args():
     return parser.parse_args()
 
 
-def sam_grad(model, loss):
-    """Function to change model weights"""
-    params = []
-    for param in model.parameters():
-        params.append(param)
-    sample_grad = grad(loss, params)
-    sample_grad = [x.view(-1) for x in sample_grad]
-    return torch.cat(sample_grad)
-
-
 def main(args):
     """Main function for training or unlearning."""
 
@@ -287,12 +279,9 @@ def main(args):
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
     total_steps_time = 0
-    existing_steps = get_max_steps(model_outdir)
 
-    # Load full model instead of state_dict for pruned model.
-    # if method is retrain.
     if args.method != "retrain":
-        # Load pruned model
+        # Load pruned model for influence function unlearning
         pruned_model_path = os.path.join(
             args.outdir,
             args.dataset,
@@ -310,56 +299,7 @@ def main(args):
     else:
         model = model_cls(**config["unet_config"])
 
-    if existing_steps is not None:
-        # Check if there is an existing checkpoint to resume from. This occurs when
-        # model runs are interrupted (e.g., exceeding job time limit).
-        ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{existing_steps:0>8}.pt")
-        try:
-            ckpt = torch.load(ckpt_path, map_location="cpu")
-
-            model.load_state_dict(ckpt["unet"])
-            ema_model = EMAModel(
-                model.parameters(),
-                decay=args.ema_max_decay,
-                use_ema_warmup=False,
-                inv_gamma=args.ema_inv_gamma,
-                power=args.ema_power,
-                model_cls=model_cls,
-                model_config=model.config,
-            )
-            ema_model.load_state_dict(ckpt["unet_ema"])
-            param_update_steps = existing_steps
-
-            remaining_idx = ckpt["remaining_idx"].numpy()
-            removed_idx = ckpt["removed_idx"].numpy()
-            total_steps_time = ckpt["total_steps_time"]
-
-            accelerator.print(f"U-Net and U-Net EMA resumed from {ckpt_path}")
-
-        except RuntimeError:
-            existing_steps = None
-            # If the ckpt file is corrupted, reinit the model.
-            accelerator.print(
-                f"Check point {ckpt_path} is corrupted, "
-                " reintialize model and remove old check point.."
-            )
-
-            os.system(f"rm -rf {model_outdir}")
-            # Randomly initialize the model.
-            model = model_cls(**config["unet_config"])
-            ema_model = EMAModel(
-                model.parameters(),
-                decay=args.ema_max_decay,
-                use_ema_warmup=False,
-                inv_gamma=args.ema_inv_gamma,
-                power=args.ema_power,
-                model_cls=model_cls,
-                model_config=model.config,
-            )
-            param_update_steps = 0
-            accelerator.print("Model randomly initialized")
-
-    elif args.load:
+    if args.load:
         # If there are no checkpoints to resume from, and a pre-trained model is
         # specified for fine-tuning or unlearning.
         pretrained_steps = get_max_steps(args.load)
@@ -414,7 +354,7 @@ def main(args):
     num_update_steps_per_epoch = math.ceil(
         len(remaining_dataloader) / args.gradient_accumulation_steps
     )
-    training_steps = num_update_steps_per_epoch * config["training_epochs"][args.method]
+    training_steps = len(remaining_dataloader)
 
     current_epochs = math.ceil(param_update_steps / num_update_steps_per_epoch)
 
@@ -555,12 +495,6 @@ def main(args):
         num_training_steps=training_steps,
         **lr_scheduler_kwargs,
     )
-    if existing_steps is not None:
-        optimizer.load_state_dict(ckpt["optimizer"])
-        lr_scheduler.load_state_dict(ckpt["lr_scheduler"])
-        accelerator.print(f"Optimizer and lr scheduler resumed from {ckpt_path}")
-
-    loss_fn = nn.MSELoss(reduction="mean")
 
     (
         remaining_dataloader,
@@ -580,97 +514,44 @@ def main(args):
 
     # Unlearning with influence unlearning
 
-    params = []
-    for param in model.parameters():
-        params.append(param.view(-1))
-    forget_grad = torch.zeros_like(torch.cat(params)).to(device)
-    retain_grad = torch.zeros_like(torch.cat(params)).to(device)
-
-    total = 0
     model.eval()
 
     if args.dataset == "celeba" and args.precompute_stage == "reuse":
-        total = get_grad(args, removed_dataloader, pipeline, vqvae_latent)
-        total_2 = get_grad(args, removed_dataloader, pipeline, vqvae_latent)
+        total, forget_grad = get_grad(args, removed_dataloader, pipeline, vqvae_latent)
+        total_2, retain_grad = get_grad(
+            args, remaining_dataloader, pipeline, vqvae_latent
+        )
     else:
-        total = get_grad(args, removed_dataloader, pipeline)
-        total_2 = get_grad(args, removed_dataloader, pipeline)
+        total, forget_grad = get_grad(args, removed_dataloader, pipeline)
+        total_2, retain_grad = get_grad(args, remaining_dataloader, pipeline)
 
     retain_grad *= total / ((total + total_2) * total_2)
     forget_grad /= total + total_2
 
-    k_vec = torch.clone(retain_grad - forget_grad)
-
-    for idx, batch_r in enumerate(remaining_dataloader):
-        image_r, label_r = batch_r[0], batch_r[1]
-
-        if args.precompute_stage == "reuse":
-            imageid_r = batch_r[2]
-
-        image_r = image_r.to(device)
-
-        if args.dataset == "imagenette":
-            image_r = vqvae.encode(image_r).latent_dist.sample()
-            image_r = image_r * vqvae.config.scaling_factor
-            input_ids_r = label_tokenizer(label_r).to(device)
-            encoder_hidden_states_r = text_encoder(input_ids_r)[0]
-        elif args.dataset == "celeba":
-            if args.precompute_stage is None:
-                # Directly encode the images if there's no precomputation
-                image_r = vqvae.encode(image_r, False)[0]
-            elif args.precompute_stage == "reuse":
-                # Retrieve the latent representations.
-                image_r = torch.stack(
-                    [vqvae_latent_dict[imageid_r[i]] for i in range(len(image_r))]
-                ).to(device)
-            image_r = image_r * vqvae.config.scaling_factor
-
-        noise = torch.randn_like(image_r).to(device)
-
-        # Antithetic sampling of time steps.
-        timesteps = torch.randint(
-            0,
-            pipeline_scheduler.config.num_train_timesteps,
-            (len(image_r) // 2 + 1,),
-            device=image_r.device,
-        ).long()
-        timesteps = torch.cat(
-            [
-                timesteps,
-                pipeline_scheduler.config.num_train_timesteps - timesteps - 1,
-            ],
-            dim=0,
-        )[: len(image_r)]
-
-        noisy_images_r = pipeline_scheduler.add_noise(image_r, noise, timesteps)
-        eps_r = model(noisy_images_r, timesteps).sample
-        loss = loss_fn(eps_r, noise)
-
-        sample_grad = sam_grad(model, loss)
-        if idx == 0:
-            o_vec = torch.clone(sample_grad)
-        else:
-            tmp = torch.dot(o_vec, sample_grad)
-            k_vec -= (
-                torch.dot(k_vec, sample_grad) / (len(remaining_dataloader) + tmp)
-            ) * o_vec
-            o_vec -= (tmp / (len(remaining_dataloader) + tmp)) * o_vec
+    if args.dataset == "celeba" and args.precompute_stage == "reuse":
+        perturb = woodfisher_diff(
+            args,
+            remaining_dataloader,
+            pipeline,
+            retain_grad - forget_grad,
+            vqvae_latent,
+        )
+    else:
+        perturb = woodfisher_diff(
+            args, remaining_dataloader, pipeline, retain_grad - forget_grad
+        )
 
     # Apply purturbation to model params.
 
-    curr = 0
-    for param in model.parameters():
-        length = param.view(-1).shape[0]
-        param.view(-1).data += k_vec[curr : curr + length].data
-        curr += length
+    model = apply_perturb(model, args.if_alpha * perturb)
 
     # Save checkpoints.
     if (
-        current_epochs % config["ckpt_freq_epochs"][args.method] == 0
-        and param_update_steps % num_update_steps_per_epoch == 0
+        param_update_steps % config["ckpt_freq"][args.method] == 0
+        or param_update_steps == training_steps
     ) and accelerator.is_main_process:
         if not args.keep_all_ckpts:
-            pattern = os.path.join(model_outdir, "ckpt_epochs_*.pt")
+            pattern = os.path.join(model_outdir, "ckpt_steps_*.pt")
             for filename in glob.glob(pattern):
                 os.remove(filename)
 
@@ -678,13 +559,15 @@ def main(args):
             {
                 "unet": accelerator.unwrap_model(model).state_dict(),
                 "unet_ema": ema_model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "lr_scheduler": lr_scheduler.state_dict(),
                 "remaining_idx": torch.from_numpy(remaining_idx),
                 "removed_idx": torch.from_numpy(removed_idx),
                 "total_steps_time": total_steps_time,
             },
-            os.path.join(model_outdir, f"ckpt_epochs_{current_epochs:0>5}.pt"),
+            os.path.join(model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"),
         )
-        print(f"Checkpoint saved epoch {current_epochs}")
+    print(f"Checkpoint saved epoch {current_epochs}")
 
     # Generate samples for evaluation. This is done only once for the
     # main process.
@@ -724,4 +607,4 @@ if __name__ == "__main__":
     args = parse_args()
     is_main_process = main(args)
     if is_main_process:
-        print("Model optimization done!")
+        print("Influence unlearning done!")

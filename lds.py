@@ -13,7 +13,7 @@ from sklearn.model_selection import KFold
 from tqdm import tqdm
 
 import src.constants as constants
-from src.attributions.methods.datashapley import data_shapley
+from src.attributions.methods.datashapley import data_shapley, kernel_shap, kernel_shap_ridge
 from src.datasets import create_dataset
 from src.utils import print_args
 
@@ -189,6 +189,11 @@ def main(args):
         "datamodel_alpha": args.datamodel_alpha,
         "method": args.method,
     }
+    # Set random states
+    
+    random.seed(42)
+    np.random.seed(42)
+
     train_masks, train_targets, train_seeds = collect_data(
         args.train_db,
         train_condition_dict,
@@ -200,7 +205,6 @@ def main(args):
     common_seeds = list(set(train_seeds) & set(test_seeds))
     common_seeds.sort()
 
-    random.seed(42)
     test_seeds_filtered = random.sample(common_seeds, 5 * args.num_test_subset)
 
     # Select training instances.
@@ -208,6 +212,7 @@ def main(args):
     train_indices = np.where(~overlap_bool)[0]
 
     if args.max_train_size is not None and len(train_indices) > args.max_train_size:
+        np.random.shuffle(train_indices)
         train_indices = train_indices[: args.max_train_size]
 
     train_masks = train_masks[train_indices]
@@ -233,8 +238,11 @@ def main(args):
 
         elif args.removal_dist == "shapley":
 
-            v1 = 8.54
+            # Fid
+            v1 = 1.0
             v0 = 348.45
+            
+            # IS
             # v1 = 5.08
             # v0 =  1.376
 
@@ -268,7 +276,9 @@ def main(args):
                 f"Estimating scores with {len(train_masks)} subsets"
                 f" in {fold_idx+1}-fold"
             )
-
+            np.set_printoptions(suppress=True)
+            print((test_masks_fold @ data_attr_list[i]).reshape(-1))
+            print(test_targets_fold[:, i])
             k_fold_lds.append(
                 spearmanr(
                     test_masks_fold @ data_attr_list[i], test_targets_fold[:, i]
@@ -281,7 +291,7 @@ def main(args):
 
         # plots for sanity check
         fig, axs = plt.subplots(1, 1, figsize=(20, 10))
-        bin_edges = np.histogram_bin_edges(coeff, bins='auto') 
+        bin_edges = np.histogram_bin_edges(coeff, bins='auto')
         sns.histplot(coeff, bins=bin_edges, alpha=0.5)
 
         plt.xlabel('Shapley Value')
@@ -291,7 +301,7 @@ def main(args):
             f'Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}\n'
             f'Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}'
         )
-        plt.savefig(f"results/data_shapley_{args.model_behavior_key}_{args.method}_{args.max_train_size}.png")
+        plt.savefig(f"results/lds/{args.method}/{args.model_behavior_key}_{args.max_train_size}.png")
 
     # Calculate test LDS with bootstrapping.
     if args.bootstrapped:
