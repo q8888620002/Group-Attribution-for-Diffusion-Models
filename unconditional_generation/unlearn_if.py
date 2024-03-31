@@ -17,7 +17,6 @@ import torch.nn as nn
 from accelerate import Accelerator
 from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
 from diffusers.optimization import get_scheduler
-from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
@@ -37,8 +36,9 @@ from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import (
     ImagenetteCaptioner,
     LabelTokenizer,
+    build_pipeline,
     generate_images,
-    run_inference,
+    load_ckpt_model,
 )
 from src.unlearn.Wfisher import apply_perturb, get_grad, woodfisher_diff
 from src.utils import get_max_steps, print_args
@@ -53,11 +53,6 @@ def parse_args():
         type=str,
         help="directory path for loading pre-trained model",
         default=None,
-    )
-    parser.add_argument(
-        "--db",
-        type=str,
-        help="filepath of database for recording scores",
         required=True,
     )
     parser.add_argument(
@@ -121,6 +116,26 @@ def parse_args():
         type=int,
         default=1,
         help="Number of steps to accumulate before a backward/update pass.",
+    )
+    # Global behavior calculation related.
+
+    parser.add_argument(
+        "--db",
+        type=str,
+        help="filepath of database for recording scores",
+        required=True,
+    )
+    parser.add_argument(
+        "--reference_dir",
+        type=str,
+        help="directory path of reference samples, from a dataset or a diffusion model",
+        default=None,
+    )
+    parser.add_argument(
+        "--use_ema",
+        help="whether to use the EMA model",
+        action="store_true",
+        default=False,
     )
     parser.add_argument(
         "--batch_size",
@@ -214,6 +229,8 @@ def main(args):
         mixed_precision=args.mixed_precision,
     )
     device = accelerator.device
+    args.device = device
+
     info_dict = vars(args)
 
     if accelerator.is_main_process:
@@ -247,31 +264,12 @@ def main(args):
             removal_dir += f"_alpha={args.datamodel_alpha}"
         removal_dir += f"_seed={args.removal_seed}"
 
-    if args.method == "prune_fine_tune":
-
-        model_outdir = os.path.join(
-            args.outdir,
-            args.dataset,
-            args.method,
-            "models",
-            (f"pruner={args.pruner}" + f"_pruning_ratio={args.pruning_ratio}"),
-            removal_dir,
-        )
-    else:
-        model_outdir = os.path.join(
-            args.outdir,
-            args.dataset,
-            args.method,
-            "models",
-            removal_dir,
-        )
     sample_outdir = os.path.join(
         args.outdir, args.dataset, args.method, "samples", removal_dir
     )
 
     if accelerator.is_main_process:
         # Make the output directories once in the main process.
-        os.makedirs(model_outdir, exist_ok=True)
         os.makedirs(sample_outdir, exist_ok=True)
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
@@ -300,65 +298,14 @@ def main(args):
 
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
-    if args.method != "retrain":
-        # Load pruned model for influence function unlearning
-        pruned_model_path = os.path.join(
-            args.outdir,
-            args.dataset,
-            "pruned",
-            "models",
-            (
-                f"pruner={args.pruner}"
-                + f"_pruning_ratio={args.pruning_ratio}"
-                + f"_threshold={args.thr}"
-            ),
-            f"ckpt_steps_{0:0>8}.pt",
-        )
-        pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
-        model = pruned_model_ckpt["unet"]
-    else:
-        model = model_cls(**config["unet_config"])
+    model_strc = model_cls(**config["unet_config"])
 
-    if args.load:
-        # If there are no checkpoints to resume from, and a pre-trained model is
-        # specified for fine-tuning or unlearning.
-        pretrained_steps = get_max_steps(args.load)
-        if pretrained_steps is not None:
-            ckpt_path = os.path.join(args.load, f"ckpt_steps_{pretrained_steps:0>8}.pt")
-            ckpt = torch.load(ckpt_path, map_location="cpu")
+    args.trained_steps = get_max_steps(args.load)
 
-            model.load_state_dict(ckpt["unet"])
-
-            # Consider the pre-trained model as model weight initialization, so the EMA
-            # starts with the pre-trained model.
-            ema_model = EMAModel(
-                model.parameters(),
-                decay=args.ema_max_decay,
-                use_ema_warmup=False,
-                inv_gamma=args.ema_inv_gamma,
-                power=args.ema_power,
-                model_cls=model_cls,
-                model_config=model.config,
-            )
-
-            accelerator.print(f"Pre-trained model loaded from {args.load}")
-            accelerator.print(f"\tU-Net loaded from {ckpt_path}")
-            accelerator.print("\tEMA started from the loaded U-Net")
-        else:
-            raise ValueError(f"No pre-trained checkpoints found at {args.load}")
-    else:
-        # Randomly initialize the model.
-        ema_model = EMAModel(
-            model.parameters(),
-            decay=args.ema_max_decay,
-            use_ema_warmup=False,
-            inv_gamma=args.ema_inv_gamma,
-            power=args.ema_power,
-            model_cls=model_cls,
-            model_config=model.config,
-        )
-        accelerator.print("Model randomly initialized")
-    ema_model.to(device)
+    model, remaining_idx, removed_idx = load_ckpt_model(
+        args, model_cls, model_strc, args.load
+    )
+    pipeline = build_pipeline(args, model)
 
     remaining_dataloader = DataLoader(
         Subset(train_dataset, remaining_idx),
@@ -563,22 +510,19 @@ def main(args):
     # This is done only once for the main process.
 
     if accelerator.is_main_process:
+        samples = pipeline(
+            batch_size=config["n_samples"],
+            num_inference_steps=args.num_inference_steps,
+            output_type="numpy",
+        ).images
 
-        samples = run_inference(
-            accelerator=accelerator,
-            model=model,
-            ema_model=ema_model,
-            config=config,
-            args=args,
-            vqvae=vqvae,
-            captioner=captioner,
-            pipeline=pipeline,
-            pipeline_scheduler=pipeline_scheduler,
-        )
+        samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
 
         save_image(
             samples,
-            os.path.join(sample_outdir, f"steps_{0:0>8}.png"),
+            os.path.join(
+                sample_outdir, f"prutirb_ratio_{args.if_alpha}_steps_{0:0>8}.png"
+            ),
             nrow=int(math.sqrt(config["n_samples"])),
         )
         print(f"Save test images, steps_{0:0>8}.png, in {sample_outdir}.")
@@ -599,7 +543,7 @@ def main(args):
             row_batch_size=10000,
             col_batch_size=10000,
             nhood_size=3,
-            device=args.device,
+            device=device,
             reference_dir=args.reference_dir,
         )
 
@@ -607,7 +551,7 @@ def main(args):
             args.dataset,
             images_dataset,
             args.batch_size,
-            args.device,
+            device,
             args.reference_dir,
         )
 

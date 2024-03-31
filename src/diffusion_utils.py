@@ -5,8 +5,15 @@ from typing import List
 
 import numpy as np
 import torch
-from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline, LDMPipeline
+from diffusers import (
+    DDIMPipeline,
+    DDIMScheduler,
+    DDPMPipeline,
+    DiffusionPipeline,
+    LDMPipeline,
+)
 from diffusers.training_utils import EMAModel
+from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from tqdm import tqdm
@@ -175,23 +182,107 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
 def build_pipeline(args, model):
     """Build the diffusion pipeline for the sepcific dataset and U-Net model."""
     # Get the diffusion model pipeline for inference.
+
+    device = args.device
+
     if args.dataset == "imagenette":
         # The pipeline is of class LDMTextToImagePipeline.
         train_dataset = create_dataset(dataset_name=args.dataset, train=True)
-        captioner = ImagenetteCaptioner(train_dataset)
-
         pipeline = DiffusionPipeline.from_pretrained(
             "CompVis/ldm-text2im-large-256"
-        ).to(args.device)
-        pipeline.unet = model.to(args.device)
+        ).to(device)
+        pipeline.unet = model.to(device)
+
+        vqvae = pipeline.vqvae
+        text_encoder = pipeline.bert
+        tokenizer = pipeline.tokenizer
+        captioner = ImagenetteCaptioner(train_dataset)
+        label_tokenizer = LabelTokenizer(captioner=captioner, tokenizer=tokenizer)
+
+        vqvae.requires_grad_(False)
+        text_encoder.requires_grad_(False)
+
+        vqvae = vqvae.to(device)
+        text_encoder = text_encoder.to(device)
     elif args.dataset == "celeba":
+        # The pipeline is of class LDMPipeline.
         pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256").to(
-            args.device
+            device
         )
+        pipeline.unet = model.to(device)
+
+        vqvae = pipeline.vqvae
         pipeline.vqvae.config.scaling_factor = 1
-        pipeline.unet = model.to(args.device)
+        vqvae.requires_grad_(False)
+
+        if args.precompute_stage is None:
+            # Move the VQ-VAE model to the device without any operations.
+            vqvae = vqvae.to(device)
+
+        elif args.precompute_stage == "save":
+            assert (
+                args.removal_dist is None
+            ), "Precomputation should be done for full data"
+            # Precompute and save the VQ-VAE latents
+            vqvae = vqvae.to(device)
+            vqvae.train()  # The vqvae output is STATIC even in train mode.
+
+            vqvae_latent_dict = {}
+            with torch.no_grad():
+                for image_temp, label_temp, imageid_temp in tqdm(
+                    DataLoader(
+                        dataset=train_dataset,
+                        batch_size=32,
+                        num_workers=4,
+                        shuffle=False,
+                    )
+                ):
+                    vqvae_latent = vqvae.encode(image_temp.to(device), False)[0]
+                    assert len(vqvae_latent) == len(
+                        image_temp
+                    ), "Output and input batch sizes should match"
+
+                    # Store the encoded outputs in the dictionary
+                    for i in range(len(vqvae_latent)):
+                        vqvae_latent_dict[imageid_temp[i]] = vqvae_latent[i]
+
+            # Save the dictionary of latents to a file
+            vqvae_latent_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "precomputed_emb",
+            )
+            os.makedirs(vqvae_latent_dir, exist_ok=True)
+            torch.save(
+                vqvae_latent_dict,
+                os.path.join(vqvae_latent_dir, "vqvae_output.pt"),
+            )
+
+            print(
+                "VQVAE output saved. Set precompute_state=reuse to unload VQVAE model."
+            )
+            raise SystemExit(0)
+        elif args.precompute_stage == "reuse":
+            # Load the precomputed output, avoiding GPU memory usage by the VQ-VAE model
+            pipeline.vqvae = None
+            vqvae_latent_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "precomputed_emb",
+            )
+            vqvae_latent_dict = torch.load(
+                os.path.join(
+                    vqvae_latent_dir,
+                    "vqvae_output.pt",
+                ),
+                map_location="cpu",
+            )
+
+        captioner = None
     else:
-        pipeline = DDIMPipeline(unet=model, scheduler=DDIMScheduler()).to(args.device)
+        pipeline = DDPMPipeline(unet=model, scheduler=DDIMScheduler()).to(args.device)
+        vqvae = None
+        captioner = None
 
     return pipeline
 
@@ -212,9 +303,7 @@ def generate_images(args, pipeline):
         with torch.no_grad():
             counter = 0
             for batch_size in tqdm(batch_size_list):
-                noise_generator = torch.Generator().manual_seed(
-                    counter
-                )
+                noise_generator = torch.Generator().manual_seed(counter)
                 images = pipeline(
                     batch_size=batch_size,
                     num_inference_steps=args.num_inference_steps,
