@@ -1,14 +1,14 @@
 """
-Perform influence unlearning based on [1]
+Influence unlearning (IU)[1,2] and calculate correpsonding global scores.
 
-[1]: https://github.com/OPTML-Group/Unlearn-Sparse/blob/public/unlearn/Wfisher.py
+[1]: https://github.com/OPTML-Group/Unlearn-Sparse/tree/public
+[2]: https://github.com/OPTML-Group/Unlearn-Sparse/blob/public/unlearn/Wfisher.py
 """
 
 import argparse
-import glob
+import json
 import math
 import os
-import time
 
 import diffusers
 import numpy as np
@@ -24,7 +24,9 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 import src.constants as constants
+from src.attributions.global_scores import fid_score, inception_score, precision_recall
 from src.datasets import (
+    TensorDataset,
     create_dataset,
     remove_data_by_class,
     remove_data_by_datamodel,
@@ -32,7 +34,12 @@ from src.datasets import (
     remove_data_by_uniform,
 )
 from src.ddpm_config import DDPMConfig
-from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer, run_inference
+from src.diffusion_utils import (
+    ImagenetteCaptioner,
+    LabelTokenizer,
+    generate_images,
+    run_inference,
+)
 from src.unlearn.Wfisher import apply_perturb, get_grad, woodfisher_diff
 from src.utils import get_max_steps, print_args
 
@@ -46,6 +53,12 @@ def parse_args():
         type=str,
         help="directory path for loading pre-trained model",
         default=None,
+    )
+    parser.add_argument(
+        "--db",
+        type=str,
+        help="filepath of database for recording scores",
+        required=True,
     )
     parser.add_argument(
         "--dataset",
@@ -83,8 +96,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=constants.METHOD,
-        required=True,
+        choices="if",
     )
     parser.add_argument(
         "--if_alpha", type=float, help="ratio for purturbing model weights", default=0.3
@@ -109,6 +121,15 @@ def parse_args():
         type=int,
         default=1,
         help="Number of steps to accumulate before a backward/update pass.",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        help="batch size for computation",
+        default=128,
+    )
+    parser.add_argument(
+        "--n_samples", type=int, default=10240, help="number of generated samples"
     )
     parser.add_argument(
         "--pruning_ratio",
@@ -193,6 +214,7 @@ def main(args):
         mixed_precision=args.mixed_precision,
     )
     device = accelerator.device
+    info_dict = vars(args)
 
     if accelerator.is_main_process:
         print_args(args)
@@ -278,8 +300,6 @@ def main(args):
 
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
-    total_steps_time = 0
-
     if args.method != "retrain":
         # Load pruned model for influence function unlearning
         pruned_model_path = os.path.join(
@@ -320,7 +340,6 @@ def main(args):
                 model_cls=model_cls,
                 model_config=model.config,
             )
-            param_update_steps = 0
 
             accelerator.print(f"Pre-trained model loaded from {args.load}")
             accelerator.print(f"\tU-Net loaded from {ckpt_path}")
@@ -338,7 +357,6 @@ def main(args):
             model_cls=model_cls,
             model_config=model.config,
         )
-        param_update_steps = 0
         accelerator.print("Model randomly initialized")
     ema_model.to(device)
 
@@ -350,14 +368,7 @@ def main(args):
         generator=torch.Generator().manual_seed(args.opt_seed),
     )
 
-    # Round up with math.ceil to ensure all batches are used in each epoch.
-    num_update_steps_per_epoch = math.ceil(
-        len(remaining_dataloader) / args.gradient_accumulation_steps
-    )
     training_steps = len(remaining_dataloader)
-
-    current_epochs = math.ceil(param_update_steps / num_update_steps_per_epoch)
-
     removed_dataloader = remaining_dataloader
 
     if args.dataset == "imagenette":
@@ -512,67 +523,47 @@ def main(args):
         lr_scheduler,
     )
 
-    # Unlearning with influence unlearning
+    # Influence Unlearning (IU)
+    # This is mainly from Wfisher() in
+    # https://github.com/OPTML-Group/Unlearn-Sparse/blob/public/unlearn/Wfisher.py#L113.
 
     model.eval()
 
-    if args.dataset == "celeba" and args.precompute_stage == "reuse":
-        total, forget_grad = get_grad(args, removed_dataloader, pipeline, vqvae_latent)
-        total_2, retain_grad = get_grad(
-            args, remaining_dataloader, pipeline, vqvae_latent
-        )
-    else:
-        total, forget_grad = get_grad(args, removed_dataloader, pipeline)
-        total_2, retain_grad = get_grad(args, remaining_dataloader, pipeline)
+    vqvae_latent_dict = (
+        None
+        if not (args.dataset == "celeba" and args.precompute_stage == "reuse")
+        else vqvae_latent_dict
+    )
+
+    print("Calculating forget gradients....")
+    total, forget_grad = get_grad(args, removed_dataloader, pipeline, vqvae_latent_dict)
+
+    print("Calculating remaining gradients...")
+    total_2, retain_grad = get_grad(
+        args, remaining_dataloader, pipeline, vqvae_latent_dict
+    )
 
     retain_grad *= total / ((total + total_2) * total_2)
     forget_grad /= total + total_2
 
-    if args.dataset == "celeba" and args.precompute_stage == "reuse":
-        perturb = woodfisher_diff(
-            args,
-            remaining_dataloader,
-            pipeline,
-            retain_grad - forget_grad,
-            vqvae_latent,
-        )
-    else:
-        perturb = woodfisher_diff(
-            args, remaining_dataloader, pipeline, retain_grad - forget_grad
-        )
+    perturb = woodfisher_diff(
+        args,
+        remaining_dataloader,
+        pipeline,
+        retain_grad - forget_grad,
+        vqvae_latent_dict,
+    )
 
-    # Apply purturbation to model params.
+    # Apply parameter purturbation to Unet.
 
     model = apply_perturb(model, args.if_alpha * perturb)
+    pipeline.unet = model
 
-    # Save checkpoints.
-    if (
-        param_update_steps % config["ckpt_freq"][args.method] == 0
-        or param_update_steps == training_steps
-    ) and accelerator.is_main_process:
-        if not args.keep_all_ckpts:
-            pattern = os.path.join(model_outdir, "ckpt_steps_*.pt")
-            for filename in glob.glob(pattern):
-                os.remove(filename)
+    # Calculate global model score.
+    # This is done only once for the main process.
 
-        torch.save(
-            {
-                "unet": accelerator.unwrap_model(model).state_dict(),
-                "unet_ema": ema_model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "lr_scheduler": lr_scheduler.state_dict(),
-                "remaining_idx": torch.from_numpy(remaining_idx),
-                "removed_idx": torch.from_numpy(removed_idx),
-                "total_steps_time": total_steps_time,
-            },
-            os.path.join(model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"),
-        )
-    print(f"Checkpoint saved epoch {current_epochs}")
-
-    # Generate samples for evaluation. This is done only once for the
-    # main process.
     if accelerator.is_main_process:
-        sampling_start_time = time.time()
+
         samples = run_inference(
             accelerator=accelerator,
             model=model,
@@ -584,23 +575,56 @@ def main(args):
             pipeline=pipeline,
             pipeline_scheduler=pipeline_scheduler,
         )
-        sampling_time = time.time() - sampling_start_time
-        sampling_info = f"Step[{param_update_steps}/{training_steps}]"
-        sampling_info += f", sampling_time: {sampling_time:.3f}"
-        print(sampling_info, flush=True)
 
-        if len(samples) > constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE:
-            samples = samples[: constants.MAX_NUM_SAMPLE_IMAGES_TO_SAVE]
-        img_nrows = int(math.sqrt(config["n_samples"]))
-        if args.dataset == "imagenette":
-            img_nrows = captioner.num_classes
         save_image(
             samples,
-            os.path.join(sample_outdir, f"steps_{param_update_steps:0>8}.png"),
-            nrow=img_nrows,
+            os.path.join(sample_outdir, f"steps_{0:0>8}.png"),
+            nrow=int(math.sqrt(config["n_samples"])),
+        )
+        print(f"Save test images, steps_{0:0>8}.png, in {sample_outdir}.")
+        print(f"Generating {args.n_samples}...")
+
+        generated_samples = generate_images(args, pipeline)
+
+        images_dataset = TensorDataset(generated_samples)
+
+        is_value = inception_score.eval_is(
+            images_dataset, args.batch_size, resize=True, normalize=True
         )
 
-    return accelerator.is_main_process
+        precision, recall = precision_recall.eval_pr(
+            args.dataset,
+            images_dataset,
+            args.batch_size,
+            row_batch_size=10000,
+            col_batch_size=10000,
+            nhood_size=3,
+            device=args.device,
+            reference_dir=args.reference_dir,
+        )
+
+        fid_value_str = fid_score.calculate_fid(
+            args.dataset,
+            images_dataset,
+            args.batch_size,
+            args.device,
+            args.reference_dir,
+        )
+
+        print(
+            f"FID score: {fid_value_str}; Precision:{precision};"
+            f"Recall:{recall}; inception score: {is_value}"
+        )
+        info_dict["fid_value"] = fid_value_str
+        info_dict["precision"] = precision
+        info_dict["recall"] = recall
+        info_dict["is"] = is_value
+
+        with open(args.db, "a+") as f:
+            f.write(json.dumps(info_dict) + "\n")
+        print(f"Results saved to the database at {args.db}")
+
+        return accelerator.is_main_process
 
 
 if __name__ == "__main__":
