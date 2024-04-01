@@ -190,7 +190,7 @@ def create_dataset(
                 transforms.Normalize([0.5], [0.5]),  # Normalize to [-1,1].
             ]
         )
-        root_dir = os.path.join(dataset_dir, "celeba/celeba_hq_256_curated_resized")
+        root_dir = os.path.join(dataset_dir, "celeba_hq_256_curated_resized")
         dataset = CelebA(root=root_dir, train=train, transform=preprocess)
     elif dataset_name == "imagenette":
         preprocess = transforms.Compose(
