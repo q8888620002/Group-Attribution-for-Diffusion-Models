@@ -7,7 +7,7 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
-from torchvision.datasets import CIFAR10, MNIST, ImageFolder
+from torchvision.datasets import CIFAR10, CIFAR100, MNIST, ImageFolder
 
 import src.constants as constants
 
@@ -47,6 +47,78 @@ class CIFAR2(CIFAR10):
         # Update class labels and class names
         self.classes = ["automobile", "horse"]
         self.class_to_idx = {"automobile": 0, "horse": 1}
+
+
+class CIFAR100(CIFAR100):
+    """
+    Dataloader for CIFAR-100 dataset to include only animal classes.
+
+    Return_
+        3x32x32 CIFAR-100 images, and its corresponding label
+        (filtered to only animals, 35 classes.)
+    """
+
+    def __init__(
+        self, root, train=True, transform=None, target_transform=None, download=False
+    ):
+        super().__init__(
+            root,
+            train=train,
+            transform=transform,
+            target_transform=target_transform,
+            download=download,
+        )
+
+        # Update this list based on CIFAR-100 animal class indices
+        self.classes_to_keep = [
+            0,
+            1,
+            2,
+            3,
+            4,  # Aquatic mammals
+            5,
+            6,
+            7,
+            8,
+            9,  # Fish
+            40,
+            41,
+            42,
+            43,
+            44,  # Large carnivores
+            55,
+            56,
+            57,
+            58,
+            59,  # Large omnivores and herbivores
+            60,
+            61,
+            62,
+            63,
+            64,  # Medium mammals
+            75,
+            76,
+            77,
+            78,
+            79,  # Reptiles
+            80,
+            81,
+            82,
+            83,
+            84,  # Small mammals
+        ]
+        # Filter the dataset
+
+        filtered_indices = [
+            i for i, target in enumerate(self.targets) if target in self.classes_to_keep
+        ]
+        self.data = self.data[filtered_indices]
+        print(len(self.data))
+        self.targets = [
+            self.classes_to_keep.index(target)
+            for i, target in enumerate(self.targets)
+            if target in self.classes_to_keep
+        ]
 
 
 class CelebA(Dataset):
@@ -169,8 +241,22 @@ def create_dataset(
                 ),  # Normalize to [-1,1].
             ]
         )
-        root_dir = os.path.join(dataset_dir, "cifar")
+        root_dir = os.path.join(dataset_dir, "cifar2")
         dataset = CIFAR2(
+            root=root_dir, train=train, download=True, transform=preprocess
+        )
+    elif dataset_name == "cifar100":
+        preprocess = transforms.Compose(
+            [
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),  # Normalize to [0,1].
+                transforms.Normalize(
+                    (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
+                ),  # Normalize to [-1,1].
+            ]
+        )
+        root_dir = os.path.join(dataset_dir, "cifar100")
+        dataset = CIFAR100(
             root=root_dir, train=train, download=True, transform=preprocess
         )
     elif dataset_name == "mnist":
@@ -287,7 +373,7 @@ def remove_data_by_datamodel(
 
 
 def remove_data_by_shapley(
-    dataset: torch.utils.data.Dataset, seed: int = 0
+    dataset: torch.utils.data.Dataset, seed: int = 0, by_class: bool = False
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Split a PyTorch Dataset into indices with the remaining and removed data, where
@@ -308,23 +394,46 @@ def remove_data_by_shapley(
         indices corresponding to the removed data.
     """
     rng = np.random.RandomState(seed)
-    dataset_size = len(dataset)
+    if by_class:
+        # If splitting by class, we need to sample the class to remove.
+        possible_classes = np.unique([data[1] for data in dataset])
+        possible_classes_sizes = np.arange(1, len(possible_classes))
+        remaining_size_probs = (len(possible_classes) - 1) / (
+            possible_classes_sizes * (len(possible_classes) - possible_classes_sizes)
+        )
+        remaining_size_probs /= remaining_size_probs.sum()
+        remaining_size = rng.choice(
+            possible_classes_sizes, size=1, p=remaining_size_probs
+        )[0]
 
-    # First sample the remaining set size.
-    # This corresponds to the term: (n - 1) / (|S| * (n - |S|)).
-    possible_remaining_sizes = np.arange(1, dataset_size)
-    remaining_size_probs = (dataset_size - 1) / (
-        possible_remaining_sizes * (dataset_size - possible_remaining_sizes)
-    )
-    remaining_size_probs /= remaining_size_probs.sum()
-    remaining_size = rng.choice(
-        possible_remaining_sizes, size=1, p=remaining_size_probs
-    )[0]
+        all_idx = np.arange(len(possible_classes))
+        rng.shuffle(all_idx)  # Shuffle in place.
+        removed_classes = possible_classes[all_idx[remaining_size:]]
 
-    # Then sample uniformly given the remaining set size.
-    # This corresponds to the term: 1 / (n choose |S|).
-    all_idx = np.arange(dataset_size)
-    rng.shuffle(all_idx)  # Shuffle in place.
-    remaining_idx = all_idx[:remaining_size]
-    removed_idx = all_idx[remaining_size:]
-    return remaining_idx, removed_idx
+        removed_idx = [
+            i for i, data in enumerate(dataset) if data[1] in removed_classes
+        ]
+        removed_idx = np.array(removed_idx)
+        remaining_idx = np.setdiff1d(np.arange(len(dataset)), removed_idx)
+        return remaining_idx, removed_idx
+    else:
+        dataset_size = len(dataset)
+
+        # First sample the remaining set size.
+        # This corresponds to the term: (n - 1) / (|S| * (n - |S|)).
+        possible_remaining_sizes = np.arange(1, dataset_size)
+        remaining_size_probs = (dataset_size - 1) / (
+            possible_remaining_sizes * (dataset_size - possible_remaining_sizes)
+        )
+        remaining_size_probs /= remaining_size_probs.sum()
+        remaining_size = rng.choice(
+            possible_remaining_sizes, size=1, p=remaining_size_probs
+        )[0]
+
+        # Then sample uniformly given the remaining set size.
+        # This corresponds to the term: 1 / (n choose |S|).
+        all_idx = np.arange(dataset_size)
+        rng.shuffle(all_idx)  # Shuffle in place.
+        remaining_idx = all_idx[:remaining_size]
+        removed_idx = all_idx[remaining_size:]
+        return remaining_idx, removed_idx

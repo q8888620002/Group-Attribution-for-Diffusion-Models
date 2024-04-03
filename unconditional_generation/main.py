@@ -213,6 +213,8 @@ def main(args):
         config = {**DDPMConfig.cifar_config}
     elif args.dataset == "cifar2":
         config = {**DDPMConfig.cifar2_config}
+    elif args.dataset == "cifar100":
+        config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -222,8 +224,7 @@ def main(args):
     else:
         raise ValueError(
             (
-                f"dataset={args.dataset} is not one of "
-                "['cifar', 'mnist', 'celeba', 'imagenette']"
+                f"dataset={args.dataset} is not one of {constants.DATASET}"
             )
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
