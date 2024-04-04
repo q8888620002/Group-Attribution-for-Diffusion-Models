@@ -676,7 +676,7 @@ def main():
 
     # Set correct lora layers
     if args.lora_dir is None:
-        unet.to(accelerator.device, type=weight_dtype)
+        unet.to(accelerator.device, dtype=weight_dtype)
         unet_lora_parameters = []
         for attn_processor_name, attn_processor in unet.attn_processors.items():
             # Parse the attention module.
