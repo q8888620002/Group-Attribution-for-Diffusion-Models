@@ -214,7 +214,7 @@ def main(args):
     elif args.dataset == "cifar2":
         config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "cifar100":
-        config = {**DDPMConfig.cifar2_config}
+        config = {**DDPMConfig.cifar100_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -269,9 +269,14 @@ def main(args):
                 train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed
             )
         elif args.removal_dist == "shapley":
-            remaining_idx, removed_idx = remove_data_by_shapley(
-                train_dataset, seed=args.removal_seed
-            )
+            if args.dataset == "cifar100" or "celeba":
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed, by_class=True
+                )
+            else:
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed
+                )
         else:
             raise NotImplementedError
     else:

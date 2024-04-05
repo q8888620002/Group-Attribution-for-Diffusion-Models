@@ -27,7 +27,7 @@ def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=Non
     inceptionNet.eval()  # Important: .eval() is needed to turn off dropout
 
     # Calculate mu and sigma for reference images
-
+    # Fix bugs when overwritting pkl when specifying  reference_dir 
     if reference_dir is not None:
         mu, sigma = compute_statistics_of_path(
             reference_dir, inceptionNet, batch_size, dims, device

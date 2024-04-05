@@ -71,41 +71,14 @@ class CIFAR100(CIFAR100):
 
         # Update this list based on CIFAR-100 animal class indices
         self.classes_to_keep = [
-            0,
-            1,
-            2,
-            3,
-            4,  # Aquatic mammals
-            5,
-            6,
-            7,
-            8,
-            9,  # Fish
-            40,
-            41,
-            42,
-            43,
-            44,  # Large carnivores
-            55,
-            56,
-            57,
-            58,
-            59,  # Large omnivores and herbivores
-            60,
-            61,
-            62,
-            63,
-            64,  # Medium mammals
-            75,
-            76,
-            77,
-            78,
-            79,  # Reptiles
-            80,
-            81,
-            82,
-            83,
-            84,  # Small mammals
+            # 0, 1, 2, 3, 4,   # Aquatic mammals
+            # 5, 6, 7, 8, 9,   # Fish
+            # 75, 76, 77, 78, 79,  # Reptiles
+
+            40, 41, 42, 43, 44,  # Large carnivores
+            55, 56, 57, 58, 59,  # Large omnivores and herbivores
+            60, 61, 62, 63, 64,  # Medium mammals
+            80, 81, 82, 83, 84   # Small mammals
         ]
         # Filter the dataset
 
@@ -113,7 +86,6 @@ class CIFAR100(CIFAR100):
             i for i, target in enumerate(self.targets) if target in self.classes_to_keep
         ]
         self.data = self.data[filtered_indices]
-        print(len(self.data))
         self.targets = [
             self.classes_to_keep.index(target)
             for i, target in enumerate(self.targets)
