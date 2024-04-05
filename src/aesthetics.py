@@ -3,12 +3,11 @@
 import os
 import torch
 import torch.nn as nn
-from os.path import expanduser  # pylint: disable=import-outside-toplevel
 from urllib.request import urlretrieve  # pylint: disable=import-outside-toplevel
+
 def get_aesthetic_model(clip_model="vit_l_14"):
     """load the aethetic model"""
-    home = expanduser("~")
-    cache_folder = home + "/.cache/emb_reader"
+    cache_folder = os.path.join(os.environ["XDG_CACHE_HOME"], "emb_reader")
     path_to_model = cache_folder + "/sa_0_4_"+clip_model+"_linear.pth"
     if not os.path.exists(path_to_model):
         os.makedirs(cache_folder, exist_ok=True)
