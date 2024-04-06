@@ -66,9 +66,8 @@ export PYTHONPATH="$PYTHONPATH:$PWD"
 │   ├── train_text_to_image_lora.py
 │   ├── prune_lora.py
 │   ├── generate_samples.py
-│   ├── calculate_local_scores.py
+│   ├── compute_model_behaviors.py
 │   ├── artbench/
-│   │   ├── calculate_global_scores.py
 │   │   └── results.ipynb
 │   └── experiments/  # Files for managing SLURM experiments.
 │
