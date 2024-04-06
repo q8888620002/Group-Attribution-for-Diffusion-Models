@@ -1,5 +1,9 @@
 """Configuration for DDPM."""
 
+import os
+
+from src.constants import OUTDIR
+
 
 class DDPMConfig:
     """DDPM configurations."""
@@ -435,4 +439,18 @@ class TextToImageGenerationConfig:
         "resolution": 256,
         "dataset": "artbench",
         "cls": "post_impressionism",
+    }
+
+
+class TextToImageModelBehaviorConfig:
+    """Configurations for text_to_image/compute_model_behaviors.py"""
+
+    artbench_post_impressionism_config = {
+        "pretrained_model_name_or_path": "lambdalabs/miniSD-diffusers",
+        "dataset": "artbench",
+        "cls": "post_impressionism",
+        "no_duplicate": True,
+        "reference_lora_dir": os.path.join(
+            OUTDIR, "seed42", "artbench_post_impressionism", "retrain", "models", "full"
+        ),
     }
