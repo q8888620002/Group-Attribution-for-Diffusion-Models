@@ -89,7 +89,7 @@ def parse_args():
     parser.add_argument(
         "--ckpt_freq",
         type=int,
-        default=25,
+        default=10,
         help="number of images before saving a checkpoint",
     )
     parser.add_argument(
@@ -204,12 +204,20 @@ def main(args):
     reference_generator.manual_seed(args.seed)
 
     pipeline = load_pipeline(args)
+    remaining_idx, removal_idx = None, None
     if args.lora_dir is not None:
         weight_name = "pytorch_lora_weights"
         if args.lora_steps is not None:
             weight_name += f"_{args.lora_steps}"
         weight_name += ".safetensors"
         pipeline.unet.load_attn_procs(args.lora_dir, weight_name=weight_name)
+
+        removal_idx_file = os.path.join(args.lora_dir, "removal_idx.csv")
+        if os.path.exists(removal_idx_file):
+            removal_idx_df = pd.read_csv(removal_idx_file)
+            print(f"Removal index file loaded from {removal_idx_file}")
+            remaining_idx = removal_idx_df["idx"][removal_idx_df["remaining"]].to_list()
+            removal_idx = removal_idx_df["idx"][~removal_idx_df["remaining"]].to_list()
     else:
         print("Pretrained model is loaded")
     generator = torch.Generator(device="cuda")
@@ -485,6 +493,8 @@ def main(args):
         results_dict["aesthetic_score_time"] = np.sum(aesthetic_score_time_list)
         results_dict["clip_prompt_score_time"] = np.sum(clip_prompt_score_time_list)
 
+        results_dict["remaining_idx"] = remaining_idx
+        results_dict["removal_idx"] = removal_idx
         with open(args.db, "a+") as f:
             f.write(json.dumps(results_dict) + "\n")
         print(f"Results saved to the database at {args.db}")
