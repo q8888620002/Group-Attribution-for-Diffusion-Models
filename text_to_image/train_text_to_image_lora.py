@@ -20,6 +20,7 @@ import argparse
 import logging
 import math
 import os
+import sys
 import random
 import shutil
 from pathlib import Path
@@ -557,6 +558,16 @@ def main():
         args.output_dir = os.path.join(args.output_dir, args.dataset, args.method)
         args.model_outdir = os.path.join(args.output_dir, "models", removal_dir)
         args.sample_outdir = os.path.join(args.output_dir, "samples", removal_dir)
+
+        # If trained weights already exist, skip the script.
+        lora_weight_path = os.path.join(
+            args.model_outdir, "pytorch_lora_weights.safetensors"
+        )
+        if os.path.exists(lora_weight_path):
+            print(
+                f"Found trained LoRA weights at {lora_weight_path}. Process cancelled."
+            )
+            sys.exit(0)  # Exit without raising an error.
 
     prompt_list_dict = {"artbench": list(PromptConfig.artbench_config.values())}
 
