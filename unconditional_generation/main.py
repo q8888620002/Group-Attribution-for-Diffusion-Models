@@ -222,11 +222,7 @@ def main(args):
     elif args.dataset == "imagenette":
         config = {**DDPMConfig.imagenette_config}
     else:
-        raise ValueError(
-            (
-                f"dataset={args.dataset} is not one of {constants.DATASET}"
-            )
-        )
+        raise ValueError((f"dataset={args.dataset} is not one of {constants.DATASET}"))
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
     removal_dir = "full"

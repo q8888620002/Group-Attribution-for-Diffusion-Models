@@ -50,14 +50,22 @@ def parse_args():
     parser.add_argument(
         "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
     )
+
+    parser.add_argument(
+        "--subset_size",
+        type=int,
+        help="Number of subset size",
+        default=1000,
+    )
+
     return parser.parse_args()
 
 
 def main(args):
-    seed_range = 5000
+
     training_time = []
 
-    for seed in range(seed_range):
+    for seed in range(args.subset_size):
 
         removal_dir = "full"
         if args.excluded_class is not None:
@@ -89,7 +97,7 @@ def main(args):
     axs.set_title(f'Histogram Plot of Training Time for {args.method}: {np.mean(training_time):.2f}; {np.median(training_time):.2f}')
 
     plt.tight_layout()
-    plt.savefig(f"results/training_time_{args.method}.png")
+    plt.savefig(f"results/lds/{args.dataset}/{args.method}/training_time.png")
 
 if __name__ == "__main__":
     args = parse_args()

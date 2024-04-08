@@ -98,28 +98,6 @@ def create_removal_path(args, seed_index):
     raise ValueError(f"No record found for sample_dir: {removal_dir}")
 
 
-def load_gradient_data(args, seed_index):
-    """Load gradient data based on the removal distribution and subset index."""
-
-    removal_dir, remaining_idx = create_removal_path(args, seed_index)
-
-    grad_result_dir = os.path.join(
-        args.outdir,
-        args.dataset,
-        args.method,
-        args.attribution_method,
-        removal_dir,
-        f"f={args.model_behavior}_t={args.t_strategy}",
-    )
-
-    return np.memmap(
-        grad_result_dir,
-        dtype=np.float32,
-        mode="r",
-        shape=(len(remaining_idx), args.projector_dim),
-    )
-
-
 def process_images_np(file_list):
     """Function to load and process images into numpy"""
     images = []

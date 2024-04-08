@@ -140,10 +140,7 @@ def main(args):
         config = {**DDPMConfig.imagenette_config}
     else:
         raise ValueError(
-            (
-                f"dataset={args.dataset} is not one of "
-                f"{constants.DATASET}"
-            )
+            (f"dataset={args.dataset} is not one of " f"{constants.DATASET}")
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 

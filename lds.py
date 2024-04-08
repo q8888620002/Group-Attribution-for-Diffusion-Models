@@ -1,7 +1,13 @@
-"""Evaluate data attributions using the linear datamodel score (LDS)."""
+"""
+Evaluate data attributions using the linear datamodel score (LDS).
+
+LDS calculateion for D-TRAK/TRAK is based on
+https://github.com/sail-sg/D-TRAK/blob/main/CIFAR2/methods/04_if/01_IF_val_5000-0.5.ipynb
+"""
 
 import argparse
 import json
+import os
 import random
 
 import matplotlib.pyplot as plt
@@ -13,7 +19,10 @@ from sklearn.model_selection import KFold
 from tqdm import tqdm
 
 import src.constants as constants
-from src.attributions.methods.datashapley import data_shapley, kernel_shap, kernel_shap_ridge
+from src.attributions.methods.compute_trak_score import compute_dtrak_trak_scores
+from src.attributions.methods.datashapley import (  # kernel_shap,; kernel_shap_ridge,
+    data_shapley,
+)
 from src.datasets import create_dataset
 from src.utils import print_args
 
@@ -83,7 +92,7 @@ def parse_args():
         type=str,
         help="training or unlearning method",
         default="retrain",
-        choices=["retrain", "gd"],
+        choices=constants.METHOD,
     )
     parser.add_argument(
         "--model_behavior_key",
@@ -108,6 +117,12 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
+        "--by_class",
+        help="whether to remove subset by class",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
         "--bootstrapped",
         help="whether to calculate CI with bootstrapped sampling",
         action="store_true",
@@ -119,12 +134,74 @@ def parse_args():
         help="number of bootstrapped iterations",
         default=100,
     )
+    # Data shapley args.
+    parser.add_argument(
+        "--v1",
+        type=float,
+        help="full model behavior, required for data shapley",
+        default=None,
+    )
+    parser.add_argument(
+        "--v0",
+        type=float,
+        help="null model behavior, required for data shapley",
+        default=None,
+    )
+
+    # TRAK/D-TRAK args.
+    parser.add_argument(
+        "--trak_behavior",
+        type=str,
+        choices=[
+            "loss",
+            "mean",
+            "mean-squared-l2-norm",
+            "l1-norm",
+            "l2-norm",
+            "linf-norm",
+        ],
+        default=None,
+        help="Specification for D-TRAK model behavior.",
+    )
+    parser.add_argument(
+        "--t_strategy",
+        type=str,
+        choices=["uniform", "cumulative"],
+        help="strategy for sampling time steps",
+    )
+    parser.add_argument(
+        "--k_partition",
+        type=int,
+        default=None,
+        help="Partition for embeddings across time steps.",
+    )
+    parser.add_argument(
+        "--projector_dim",
+        type=int,
+        default=1024,
+        help="Dimension for TRAK projector",
+    )
+
     return parser.parse_args()
 
 
-def collect_data(db, condition_dict, dataset, model_behavior_key, n_samples):
+def removed_by_classes(index_to_class, remaining_idx):
+    """Function that maps data index to subgroup index"""
+    remaining_classes = set(index_to_class[idx] for idx in remaining_idx)
+    all_classes = set(range(20))  # Assuming 20 classes
+    removed_classes = all_classes - remaining_classes
+
+    return np.array(list(remaining_classes)), np.array(list(removed_classes))
+
+
+def collect_data(
+    db, condition_dict, dataset_name, model_behavior_key, n_samples, by_class
+):
     """Collect data for fitting and evaluating data attribution scores."""
-    train_size = len(create_dataset(dataset_name=dataset, train=True))
+    dataset = create_dataset(dataset_name=dataset_name, train=True)
+    index_to_class = {i: label for i, (_, label) in enumerate(dataset)}
+
+    train_size = len(dataset)
 
     remaining_masks = []
     model_behaviors = []
@@ -141,7 +218,15 @@ def collect_data(db, condition_dict, dataset, model_behavior_key, n_samples):
                 remaining_idx = record["remaining_idx"]
                 if record["method"] == "ga":
                     remaining_idx = record["removal_idx"]
-                remaining_mask = np.zeros(train_size)
+
+                if by_class:
+                    remaining_idx, removed_idx = removed_by_classes(
+                        index_to_class, remaining_idx
+                    )
+                    remaining_mask = np.zeros(len(remaining_idx) + len(removed_idx))
+                else:
+                    remaining_mask = np.zeros(train_size)
+
                 remaining_mask[remaining_idx] = 1
 
                 if n_samples is None:
@@ -154,9 +239,15 @@ def collect_data(db, condition_dict, dataset, model_behavior_key, n_samples):
 
                 if int(record["removal_seed"]) not in removal_seeds:
                     # avoid duplicated records
-                    remaining_masks.append(remaining_mask)
-                    model_behaviors.append(model_behavior)
-                    removal_seeds.append(int(record["removal_seed"]))
+                    if record["method"] == "gd":
+                        if record["trained_steps"] == 4000:
+                            remaining_masks.append(remaining_mask)
+                            model_behaviors.append(model_behavior)
+                            removal_seeds.append(int(record["removal_seed"]))
+                    else:
+                        remaining_masks.append(remaining_mask)
+                        model_behaviors.append(model_behavior)
+                        removal_seeds.append(int(record["removal_seed"]))
 
     remaining_masks = np.stack(remaining_masks)
     model_behaviors = np.stack(model_behaviors)
@@ -180,6 +271,7 @@ def main(args):
         args.dataset,
         args.model_behavior_key,
         args.n_samples,
+        args.by_class,
     )
     # Extract subsets for estimating data attribution scores.
     train_condition_dict = {
@@ -187,10 +279,10 @@ def main(args):
         "dataset": args.dataset,
         "removal_dist": args.removal_dist,
         "datamodel_alpha": args.datamodel_alpha,
-        "method": args.method,
+        "method": "retrain" if args.method == "trak" else args.method,
     }
     # Set random states
-    
+
     random.seed(42)
     np.random.seed(42)
 
@@ -200,6 +292,7 @@ def main(args):
         args.dataset,
         args.model_behavior_key,
         args.n_samples,
+        args.by_class,
     )
 
     common_seeds = list(set(train_seeds) & set(test_seeds))
@@ -224,7 +317,12 @@ def main(args):
 
     for i in tqdm(range(num_targets)):
 
-        if args.removal_dist == "datamodel":
+        if args.method == "trak":
+            coeff = compute_dtrak_trak_scores(
+                args, retraining=False, training_seeds=train_seeds[train_indices]
+            )
+
+        elif args.removal_dist == "datamodel":
 
             datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
                 train_masks, train_targets[:, i]
@@ -238,20 +336,14 @@ def main(args):
 
         elif args.removal_dist == "shapley":
 
-            # Fid
-            v1 = 1.0
-            v0 = 348.45
-            
-            # IS
-            # v1 = 5.08
-            # v0 =  1.376
+            # cifar100: Fid: v1 = 20.0, v0 = 348.45
 
             coeff = data_shapley(
                 train_masks.shape[-1],
                 train_masks,
                 train_targets[:, i],
-                v1,
-                v0,
+                args.v1,
+                args.v0,
             )
 
         data_attr_list.append(coeff)
@@ -291,17 +383,26 @@ def main(args):
 
         # plots for sanity check
         fig, axs = plt.subplots(1, 1, figsize=(20, 10))
-        bin_edges = np.histogram_bin_edges(coeff, bins='auto')
+        bin_edges = np.histogram_bin_edges(coeff, bins="auto")
         sns.histplot(coeff, bins=bin_edges, alpha=0.5)
 
-        plt.xlabel('Shapley Value')
-        plt.ylabel('Frequency')
+        plt.xlabel("Shapley Value")
+        plt.ylabel("Frequency")
         plt.title(
-            f'data shapley: Mean: {np.mean(k_fold_lds):.3f}, '
-            f'Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}\n'
-            f'Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}'
+            f"{args.dataset} with {args.max_train_size} training set\n"
+            f"Mean: {np.mean(k_fold_lds):.3f};"
+            f"Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}\n"
+            f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
         )
-        plt.savefig(f"results/lds/{args.method}/{args.model_behavior_key}_{args.max_train_size}.png")
+
+        result_path = f"results/lds/{args.dataset}/{args.method}/"
+
+        os.makedirs(result_path, exist_ok=True)
+        plt.savefig(
+            os.path.join(
+                result_path, f"{args.model_behavior_key}_{args.max_train_size}.png"
+            )
+        )
 
     # Calculate test LDS with bootstrapping.
     if args.bootstrapped:

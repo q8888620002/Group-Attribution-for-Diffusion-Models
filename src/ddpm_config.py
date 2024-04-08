@@ -114,7 +114,7 @@ class DDPMConfig:
             "ga": 2000,
             "gd": 4000,
             "esd": 5000,
-            "if": 1
+            "if": 1,
         },
         "ckpt_freq": {
             "retrain": 10000,
@@ -130,7 +130,7 @@ class DDPMConfig:
             "ga": 400,
             "gd": 400,
             "esd": 100,
-            "if": 20
+            "if": 20,
         },
         "n_samples": 64,
         "unet_config": {
@@ -206,13 +206,13 @@ class DDPMConfig:
             "ga": 2000,
             "gd": 4000,
             "esd": 5000,
-            "if": 1
+            "if": 1,
         },
         "ckpt_freq": {
             "retrain": 10000,
             "prune_fine_tune": 10000,
             "ga": 400,
-            "gd": 400,
+            "gd": 500,
             "esd": 1000,
             "if": 1,
         },
@@ -220,9 +220,9 @@ class DDPMConfig:
             "retrain": 2000,
             "prune_fine_tune": 2000,
             "ga": 400,
-            "gd": 400,
+            "gd": 500,
             "esd": 100,
-            "if": 20
+            "if": 20,
         },
         "n_samples": 64,
         "unet_config": {
@@ -279,7 +279,6 @@ class DDPMConfig:
             "variance_type": "fixed_large",
         },
     }
-
 
     # CelebA-HQ specific configurations
 

@@ -74,11 +74,26 @@ class CIFAR100(CIFAR100):
             # 0, 1, 2, 3, 4,   # Aquatic mammals
             # 5, 6, 7, 8, 9,   # Fish
             # 75, 76, 77, 78, 79,  # Reptiles
-
-            40, 41, 42, 43, 44,  # Large carnivores
-            55, 56, 57, 58, 59,  # Large omnivores and herbivores
-            60, 61, 62, 63, 64,  # Medium mammals
-            80, 81, 82, 83, 84   # Small mammals
+            40,
+            41,
+            42,
+            43,
+            44,  # Large carnivores
+            55,
+            56,
+            57,
+            58,
+            59,  # Large omnivores and herbivores
+            60,
+            61,
+            62,
+            63,
+            64,  # Medium mammals
+            80,
+            81,
+            82,
+            83,
+            84,  # Small mammals
         ]
         # Filter the dataset
 
@@ -409,3 +424,28 @@ def remove_data_by_shapley(
         remaining_idx = all_idx[:remaining_size]
         removed_idx = all_idx[remaining_size:]
         return remaining_idx, removed_idx
+
+
+def removed_by_classes(dataset: torch.utils.data.Dataset, seed: int = 0):
+    """Function that return remained and removed classes."""
+    # Find all possible classes in the dataset
+
+    rng = np.random.RandomState(seed)
+
+    # If splitting by class, we need to sample the class to remove.
+    possible_classes = np.unique([data[1] for data in dataset])
+    possible_classes_sizes = np.arange(1, len(possible_classes))
+    remaining_size_probs = (len(possible_classes) - 1) / (
+        possible_classes_sizes * (len(possible_classes) - possible_classes_sizes)
+    )
+    remaining_size_probs /= remaining_size_probs.sum()
+    remaining_size = rng.choice(possible_classes_sizes, size=1, p=remaining_size_probs)[
+        0
+    ]
+
+    all_idx = np.arange(len(possible_classes))
+    rng.shuffle(all_idx)  # Shuffle in place.
+    removed_classes = possible_classes[all_idx[remaining_size:]]
+    remaining_classes = possible_classes[all_idx[:remaining_size]]
+
+    return remaining_classes, removed_classes

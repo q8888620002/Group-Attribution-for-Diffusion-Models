@@ -73,7 +73,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=constants.METHOD
+        choices=constants.METHOD,
     )
     parser.add_argument(
         "--exp_name",
@@ -164,10 +164,7 @@ def main(args):
         config = {**DDPMConfig.imagenette_config}
     else:
         raise ValueError(
-            (
-                f"dataset={args.dataset} is not one of "
-                f"{constants.DATASET}"
-            )
+            (f"dataset={args.dataset} is not one of " f"{constants.DATASET}")
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 

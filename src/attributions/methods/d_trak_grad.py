@@ -21,21 +21,16 @@ from trak.projectors import CudaProjector, ProjectionType
 from trak.utils import is_not_buffer
 
 import src.constants as constants
-from src.ddpm_config import DDPMConfig
-from src.datasets import(
+from src.datasets import (
     create_dataset,
     remove_data_by_class,
     remove_data_by_datamodel,
     remove_data_by_shapley,
-    remove_data_by_uniform
+    remove_data_by_uniform,
 )
-from src.utils import (
-    get_max_steps,
-)
-from src.diffusion_utils import(
-    ImagenetteCaptioner,
-    LabelTokenizer
-)
+from src.ddpm_config import DDPMConfig
+from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer
+from src.utils import get_max_steps
 
 
 def parse_args():
@@ -60,8 +55,8 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "celeba", "imagenette"],
-        default="mnist",
+        choices=constants.DATASET,
+        default=None,
     )
     parser.add_argument(
         "--device", type=str, help="device of training", default="cuda:0"
@@ -94,13 +89,6 @@ def parse_args():
         default=0,
     )
     parser.add_argument(
-        "--method",
-        type=str,
-        help="training or unlearning method",
-        choices=["retrain", "gd", "ga", "esd"],
-        required=True,
-    )
-    parser.add_argument(
         "--num_inference_steps",
         type=int,
         default=100,
@@ -126,21 +114,23 @@ def parse_args():
     parser.add_argument(
         "--model_behavior",
         type=str,
-        default=None,
         choices=[
+            "loss",
             "mean",
             "mean-squared-l2-norm",
             "l1-norm",
             "l2-norm",
             "linf-norm",
         ],
+        default=None,
+        required=True,
         help="Specification for D-TRAK model behavior.",
     )
 
     parser.add_argument(
         "--t_strategy",
         type=str,
-        default=None,
+        choices=["uniform", "cumulative"],
         help="strategy for sampling time steps",
     )
     parser.add_argument(
@@ -210,6 +200,10 @@ def main(args):
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
+    elif args.dataset == "cifar2":
+        config = {**DDPMConfig.cifar2_config}
+    elif args.dataset == "cifar100":
+        config = {**DDPMConfig.cifar100_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -218,10 +212,7 @@ def main(args):
         config = {**DDPMConfig.imagenette_config}
     else:
         raise ValueError(
-            (
-                f"dataset={args.dataset} is not one of "
-                "['cifar', 'mnist', 'celeba', 'imagenette']"
-            )
+            (f"dataset={args.dataset} is not one of " f"{constants.DATASET}")
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
@@ -235,11 +226,7 @@ def main(args):
         removal_dir += f"_seed={args.removal_seed}"
 
     model_outdir = os.path.join(
-        args.outdir,
-        args.dataset,
-        args.method,
-        "models",
-        removal_dir,
+        args.outdir, args.dataset, "retrain", "models", removal_dir
     )
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
@@ -258,9 +245,14 @@ def main(args):
                 train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed
             )
         elif args.removal_dist == "shapley":
-            remaining_idx, removed_idx = remove_data_by_shapley(
-                train_dataset, seed=args.removal_seed
-            )
+            if args.dataset == "cifar100" or "celeba":
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed, by_class=True
+                )
+            else:
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed
+                )
         else:
             raise NotImplementedError
     else:
@@ -276,6 +268,8 @@ def main(args):
         num_workers=1,
     )
     existing_steps = get_max_steps(model_outdir)
+
+    ## load full model
 
     ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{existing_steps:0>8}.pt")
     ckpt = torch.load(ckpt_path, map_location="cpu")
@@ -320,7 +314,6 @@ def main(args):
     save_dir = os.path.join(
         args.outdir,
         args.dataset,
-        args.method,
         "d_track",
         removal_dir,
         f"f={args.model_behavior}_t={args.t_strategy}",
@@ -591,7 +584,7 @@ def main(args):
         # If is_grads_dict == True, then turn emb into a dict.
         # emb_dict = {k: v for k, v in zip(keys, emb)}
 
-        emb = projector.project(emb, is_grads_dict=False, model_id=0)
+        emb = projector.project(emb, model_id=0)
         print(emb.size())
         print(emb.dtype)
 
