@@ -14,4 +14,4 @@ conda activate diffusion-attr
 cd /gscratch/aims/clin25/data_attribution
 export PYTHONPATH="$PYTHONPATH:$PWD"
 
-$*
+eval "$*"

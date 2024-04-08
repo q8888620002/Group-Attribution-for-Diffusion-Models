@@ -64,7 +64,7 @@ export PYTHONPATH="$PYTHONPATH:$PWD"
 ├── text_to_image/  # Files for text-to-image diffusion models.
 │   ├── README.md
 │   ├── train_text_to_image_lora.py
-│   ├── prune.py
+│   ├── prune_lora.py
 │   ├── generate_samples.py
 │   ├── calculate_local_scores.py
 │   ├── artbench/

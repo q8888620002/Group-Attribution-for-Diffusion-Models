@@ -58,6 +58,7 @@ from transformers import CLIPTextModel, CLIPTokenizer
 import time
 from src.datasets import remove_data_by_shapley, remove_data_by_uniform
 from src.ddpm_config import PromptConfig
+from src.utils import fix_get_processor
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.24.0")
@@ -459,8 +460,19 @@ def parse_args():
         "--method",
         type=str,
         default="retrain",
-        choices=["retrain"],
+        choices=["retrain", "pruned_ft"],
         help="training or unlearning method",
+    )
+    parser.add_argument(
+        "--pruning_ratio",
+        type=float,
+        help="ratio for remaining parameters",
+        default=0.3,
+    )
+    parser.add_argument(
+        "--checkpoint_attn_procs",
+        action="store_true",
+        help="whether or not to save attention processors when checkpointing",
     )
     parser.add_argument(
         "--cls_key",
@@ -524,6 +536,23 @@ def main():
     if args.cls is not None and args.cls_key is not None:
         args.dataset = args.dataset + f"_{args.cls}"
     args.model_outdir, args.sample_outdir = None, None
+
+    if args.method == "pruned_ft":
+        args.method = f"pruned_ft_ratio={args.pruning_ratio}"
+        args.lora_dir = os.path.join(
+            args.output_dir,
+            args.dataset,
+            f"pruned_ratio={args.pruning_ratio}",
+            "models",
+            removal_dir,
+        )
+        info_df = pd.read_csv(os.path.join(args.lora_dir, "info.csv"))
+        expected_num_lora_params = info_df[info_df["metric"] == "pruned_lora_params"]
+        expected_num_lora_params = expected_num_lora_params["value"].item()
+    else:
+        args.lora_dir = None
+        expected_num_lora_params = None
+
     if args.output_dir is not None:
         args.output_dir = os.path.join(args.output_dir, args.dataset, args.method)
         args.model_outdir = os.path.join(args.output_dir, "models", removal_dir)
@@ -628,8 +657,7 @@ def main():
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-    # Move unet, vae and text_encoder to device and cast to weight_dtype
-    unet.to(accelerator.device, dtype=weight_dtype)
+    # Move vae and text_encoder to device and cast to weight_dtype.
     vae.to(accelerator.device, dtype=weight_dtype)
     text_encoder.to(accelerator.device, dtype=weight_dtype)
 
@@ -647,49 +675,80 @@ def main():
     # => 32 layers
 
     # Set correct lora layers
-    unet_lora_parameters = []
-    for attn_processor_name, attn_processor in unet.attn_processors.items():
-        # Parse the attention module.
-        attn_module = unet
-        for n in attn_processor_name.split(".")[:-1]:
-            attn_module = getattr(attn_module, n)
+    if args.lora_dir is None:
+        unet.to(accelerator.device, type=weight_dtype)
+        unet_lora_parameters = []
+        for attn_processor_name, attn_processor in unet.attn_processors.items():
+            # Parse the attention module.
+            attn_module = unet
+            for n in attn_processor_name.split(".")[:-1]:
+                attn_module = getattr(attn_module, n)
 
-        # Set the `lora_layer` attribute of the attention-related matrices.
-        attn_module.to_q.set_lora_layer(
-            LoRALinearLayer(
-                in_features=attn_module.to_q.in_features,
-                out_features=attn_module.to_q.out_features,
-                rank=args.rank,
-            ).to(device=accelerator.device)
-        )
-        attn_module.to_k.set_lora_layer(
-            LoRALinearLayer(
-                in_features=attn_module.to_k.in_features,
-                out_features=attn_module.to_k.out_features,
-                rank=args.rank,
-            ).to(device=accelerator.device)
-        )
+            # Set the `lora_layer` attribute of the attention-related matrices.
+            attn_module.to_q.set_lora_layer(
+                LoRALinearLayer(
+                    in_features=attn_module.to_q.in_features,
+                    out_features=attn_module.to_q.out_features,
+                    rank=args.rank,
+                ).to(device=accelerator.device)
+            )
+            attn_module.to_k.set_lora_layer(
+                LoRALinearLayer(
+                    in_features=attn_module.to_k.in_features,
+                    out_features=attn_module.to_k.out_features,
+                    rank=args.rank,
+                ).to(device=accelerator.device)
+            )
 
-        attn_module.to_v.set_lora_layer(
-            LoRALinearLayer(
-                in_features=attn_module.to_v.in_features,
-                out_features=attn_module.to_v.out_features,
-                rank=args.rank,
-            ).to(device=accelerator.device)
-        )
-        attn_module.to_out[0].set_lora_layer(
-            LoRALinearLayer(
-                in_features=attn_module.to_out[0].in_features,
-                out_features=attn_module.to_out[0].out_features,
-                rank=args.rank,
-            ).to(device=accelerator.device)
-        )
+            attn_module.to_v.set_lora_layer(
+                LoRALinearLayer(
+                    in_features=attn_module.to_v.in_features,
+                    out_features=attn_module.to_v.out_features,
+                    rank=args.rank,
+                ).to(device=accelerator.device)
+            )
+            attn_module.to_out[0].set_lora_layer(
+                LoRALinearLayer(
+                    in_features=attn_module.to_out[0].in_features,
+                    out_features=attn_module.to_out[0].out_features,
+                    rank=args.rank,
+                ).to(device=accelerator.device)
+            )
 
-        # Accumulate the LoRA params to optimize.
-        unet_lora_parameters.extend(attn_module.to_q.lora_layer.parameters())
-        unet_lora_parameters.extend(attn_module.to_k.lora_layer.parameters())
-        unet_lora_parameters.extend(attn_module.to_v.lora_layer.parameters())
-        unet_lora_parameters.extend(attn_module.to_out[0].lora_layer.parameters())
+            # Accumulate the LoRA params to optimize.
+            unet_lora_parameters.extend(attn_module.to_q.lora_layer.parameters())
+            unet_lora_parameters.extend(attn_module.to_k.lora_layer.parameters())
+            unet_lora_parameters.extend(attn_module.to_v.lora_layer.parameters())
+            unet_lora_parameters.extend(attn_module.to_out[0].lora_layer.parameters())
+    else:
+        # Runtime bugfix when LoRA ranks are different across attention to_q, to_k, 
+        # to_v, and to_out.
+        fix_get_processor(unet)
+        unet.load_attn_procs(
+            args.lora_dir, weight_name="pytorch_lora_weights.safetensors"
+        )
+        lora_file = os.path.join(args.lora_dir, "pytorch_lora_weights.safetensors")
+        logger.info(f"LoRA weights loaded from {lora_file}")
+
+        # Convert non-LoRA parameters to the specified precision.
+        unet_state_dict = unet.state_dict()
+        for name, param in unet_state_dict.items():
+            if "lora_layer" not in name:
+                unet_state_dict[name] = unet_state_dict[name].to(weight_dtype)
+        unet.load_state_dict(unet_state_dict, assign=True)
+        unet.requires_grad_(False)
+        unet.to(accelerator.device)
+
+        # Add LoRA parameters to a list for the optimizer.
+        unet_lora_parameters = []
+        for name, param in unet.named_parameters():
+            if "lora_layer" in name:
+                param.requires_grad_(True)
+                unet_lora_parameters.append(param)
+        total_num_lora_params = sum(
+            [param.numel() for param in unet_lora_parameters]
+        )
+        assert total_num_lora_params == expected_num_lora_params
 
     if args.enable_xformers_memory_efficient_attention:
         if is_xformers_available():
@@ -1141,6 +1200,16 @@ def main():
                         accelerator.save_state(save_path)
                         logger.info(f"Saved state to {save_path}")
 
+                        # Also save the LoRA weights for later usage.
+                        # Unlike the training states, there are no limits to the number
+                        # of LoRA weight files.
+                        if args.checkpoint_attn_procs:
+                            weight_name = f"pytorch_lora_weights_{global_step}.safetensors"
+                            unet.save_attn_procs(
+                                args.model_outdir,
+                                weight_name=weight_name,
+                            )
+
             logs = {
                 "step_loss": loss.detach().item(),
                 "lr": lr_scheduler.get_last_lr()[0],
@@ -1259,7 +1328,9 @@ def main():
         pipeline = pipeline.to(accelerator.device)
 
         # load attention processors
-        pipeline.unet.load_attn_procs(args.model_outdir)
+        pipeline.unet.load_attn_procs(
+            args.model_outdir, weight_name="pytorch_lora_weights.safetensors"
+        )
 
         # run inference
         generator = torch.Generator(device=accelerator.device)
