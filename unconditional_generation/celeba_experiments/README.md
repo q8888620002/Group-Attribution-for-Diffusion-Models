@@ -30,7 +30,6 @@ python main.py
 --gradient_accumulation_steps [1] \
 ```
 
-
 ## Full model training
 
 ```bash
@@ -45,7 +44,7 @@ python unconditional_generation/main.py \
 ```
 
 ```bash
-accelerate launch --config_file deepspeed_config_dp.yaml --gpu_ids 0,1 \
+accelerate launch --config_file unconditional_generation/celeba_experiments/deepspeed_config_dp.yaml --gpu_ids 0,1 \
 unconditional_generation/main.py \
 --dataset celeba \
 --method retrain \
@@ -73,6 +72,7 @@ Make sure to run this from the repo directory (i.e., `data_attribution/`). After
 
 2. (Optional) Submit the SLURM job for running the command.
 With `unconditional_generation/celeba_experiments/train.job` updated, run
+
 ```bash
 cd unconditional_generation/celeba_experiments
 sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
@@ -94,25 +94,10 @@ unconditional_generation/main.py \
 --precompute_stage reuse
 ```
 
-```bash
-accelerate launch --config_file deepspeed_config_dp.yaml --main_process_port 29501 --gpu_ids 0,1,2,3 \
-unconditional_generation/main.py \
---dataset celeba \
---method retrain \
---removal_dist shapley \
---removal_seed 1 \
---keep_all_ckpts \
---mixed_precision fp16 \
---use_8bit_optimizer \
---gradient_accumulation_steps 1 \
---precompute_stage reuse
-```
-
 pruner method, steps,
 any change to the command.
 example code
 training
-
 
 # Generate samples
 
@@ -124,7 +109,7 @@ python unconditional_generation/generate_samples.py \
 --n_samples 3200 \
 --method retrain \
 --num_inference_steps 100 \
---trained_steps 50000 \
+--trained_steps 20000 \
 --batch_size 16 \
 --use_ema \
 --seed $pane_index
@@ -148,4 +133,44 @@ CUDA_VISIBLE_DEVICES=2 \
 python -m pytorch_fid \
 /projects/leelab3/chanwkim/data_attribution/datasets/celeba/celeba_hq_256_curated_resized \
 /projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/50000/ema_generated_samples/full
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=6 \
+python -m pytorch_fid \
+/projects/leelab3/chanwkim/data_attribution/datasets/celeba_hq_256_curated_resized \
+/projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/20000/ema_generated_samples/full
+```
+
+```bash
+CUDA_VISIBLE_DEVICES=5 \
+python -m pytorch_fid \
+/projects/leelab3/chanwkim/data_attribution/datasets/celeba/celeba_hq_256 \
+/projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/20000/ema_generated_samples/full
+```
+
+## Prune and retrain
+
+```bash
+accelerate launch --gpu_ids 1 \
+unconditional_generation/prune.py \
+--load /projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/models/full/ \
+--dataset celeba \
+--pruning_ratio 0.1 \
+--pruner magnitude \
+--thr 0.05 \
+--mixed_precision fp16
+```
+
+```bash
+accelerate launch --config_file unconditional_generation/celeba_experiments/deepspeed_config_dp.yaml --gpu_ids 5,6 \
+unconditional_generation/main.py \
+--dataset celeba \
+--method prune_fine_tune \
+--pruning_ratio 0.3 \
+--keep_all_ckpts \
+--mixed_precision fp16 \
+--use_8bit_optimizer \
+--gradient_accumulation_steps 1 \
+--precompute_stage reuse
 ```

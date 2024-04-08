@@ -307,6 +307,7 @@ def main(args):
         )
         pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
         model = pruned_model_ckpt["unet"]
+        accelerator.print(f"Pruned U-Net resumed from {pruned_model_ckpt}")
     else:
         model = model_cls(**config["unet_config"])
 
@@ -401,10 +402,19 @@ def main(args):
         param_update_steps = 0
         accelerator.print("Model randomly initialized")
     ema_model.to(device)
-
+    if (accelerator.state.num_processes) > 1:
+        assert (
+            config["batch_size"] % accelerator.state.num_processes == 0
+        ), "Batch size should be divisible by number of processes"
+        accelerator.print(
+            f"Batch size is {config['batch_size']} "
+            f"and number of processes is {accelerator.state.num_processes}",
+            f"Batch size will be divided by number of processes."
+            f"Per process batch size is {config['batch_size'] // accelerator.state.num_processes}",
+        )
     remaining_dataloader = DataLoader(
         Subset(train_dataset, remaining_idx),
-        batch_size=config["batch_size"],
+        batch_size=config["batch_size"] // accelerator.state.num_processes,
         shuffle=True,
         num_workers=4,
     )
@@ -414,7 +424,7 @@ def main(args):
         # number of steps.
         removed_dataloader = DataLoader(
             Subset(train_dataset, removed_idx),
-            batch_size=config["batch_size"],
+            batch_size=config["batch_size"] // accelerator.state.num_processes,
             shuffle=True,
             num_workers=4,
         )
