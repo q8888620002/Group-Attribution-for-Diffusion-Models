@@ -1,7 +1,6 @@
 """Utility functions for data attribution calculation."""
 import glob
 import json
-import os
 
 import clip
 import numpy as np
@@ -11,7 +10,7 @@ from PIL import Image
 from src.datasets import (
     create_dataset,
     remove_data_by_datamodel,
-    remove_data_by_shapley
+    remove_data_by_shapley,
 )
 
 
@@ -31,34 +30,35 @@ class CLIPScore:
             images.append(image)
         return torch.cat(images, dim=0)
 
-    def clip_score(self, sample_dir, reference_dir):
+    def clip_score(self, sample_dir, training_dir):
         """
-        Function that calculate CLIP score between images1 and images2
+        Function that calculate CLIP score between generated and training data
 
         Args:
         ----
             sample_dir: directory of the first set of images.
-            reference_dir: directory of the second set of images.
+            training_dir: directory of the second set of images.
 
         Return:
         ------
-            Mean pairwise CLIP score between the two sets of images.
+            Mean pairwise CLIP score as data attribution.
         """
 
         # Get the model's visual features (without text features)
+
         sample_image = self.process_images_clip(glob.glob(sample_dir))
-        ref_image = self.process_images_clip(glob.glob(reference_dir))
+        training_image = self.process_images_clip(glob.glob(training_dir))
 
         with torch.no_grad():
             features1 = self.clip_model.encode_image(sample_image)
-            features2 = self.clip_model.encode_image(ref_image)
+            features2 = self.clip_model.encode_image(training_image)
 
         features1 = features1 / features1.norm(dim=-1, keepdim=True)
         features2 = features2 / features2.norm(dim=-1, keepdim=True)
         similarity = (features1 @ features2.T).cpu().numpy()
-        similarity = np.mean(similarity, axis=1)
+        coeff = np.mean(similarity, axis=0)
 
-        return similarity
+        return coeff
 
 
 def load_filtered_behaviors(file_path, exp_name):
@@ -117,6 +117,7 @@ def sum_scores_by_class(scores, dataset):
 
     return result_array
 
+
 def process_images_np(file_list):
     """Function to load and process images into numpy"""
     images = []
@@ -127,29 +128,33 @@ def process_images_np(file_list):
     return np.stack(images)
 
 
-def pixel_distance(sample_dir, reference_dir):
+def pixel_distance(generated_dir, training_dir):
     """
-    Function that calculate minimum pixel distance between two image sets.
+    Function that calculate the pixel distance between two image sets,
+    generated images and training images. Using the average distance
+    across generated images as attribution value for training data.
 
     Args:
     ----
-        sample_dir: directory of the first set of images.
-        reference_dir: directory of the second set of images.
+        generated_dir: directory of the generated images.
+        training_dir: directory of the training set images.
 
     Return:
     ------
-        Minimum pixel distance to images in reference dir for each image in sample dir.
-    """
-    sample_images = process_images_np(glob.glob(sample_dir))
-    ref_images = process_images_np(glob.glob(reference_dir))
+        Mean of pixel distance as data attribution.
 
-    sample_images = sample_images.reshape(sample_images.shape[0], -1)
+    """
+    generated_images = process_images_np(glob.glob(generated_dir))
+    ref_images = process_images_np(glob.glob(training_dir))
+
+    generated_images = generated_images.reshape(generated_images.shape[0], -1)
     ref_images = ref_images.reshape(ref_images.shape[0], -1)
 
-    similarity = np.zeros(sample_images.shape[0])
+    coeff = np.zeros(len(generated_images), len(training_dir))
 
-    for i, sample in enumerate(sample_images):
-        distance = np.sqrt(np.sum((ref_images - sample) ** 2, axis=1))
-        similarity[i] = np.mean(distance)
+    for i, sample in enumerate(generated_images):
+        coeff[i] = np.sqrt(np.sum((ref_images - sample) ** 2, axis=1))
 
-    return similarity
+    coeff = -np.mean(coeff, axix=0)
+
+    return coeff

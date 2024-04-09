@@ -19,6 +19,7 @@ from sklearn.model_selection import KFold
 from tqdm import tqdm
 
 import src.constants as constants
+from src.attributions.methods.attribution_utils import CLIPScore, pixel_distance
 from src.attributions.methods.compute_trak_score import compute_dtrak_trak_scores
 from src.attributions.methods.datashapley import (  # kernel_shap,; kernel_shap_ridge,
     data_shapley,
@@ -181,7 +182,18 @@ def parse_args():
         default=1024,
         help="Dimension for TRAK projector",
     )
+    # file path for local model behavior, e.g. pixel_distance, clip score
 
+    parser.add_argument(
+        "--sample_dir",
+        type=str,
+        help="filepath of sample (generated) images ",
+    )
+    parser.add_argument(
+        "--training_dir",
+        type=str,
+        help="filepath of training data ",
+    )
     return parser.parse_args()
 
 
@@ -321,6 +333,10 @@ def main(args):
             coeff = compute_dtrak_trak_scores(
                 args, retraining=False, training_seeds=train_seeds[train_indices]
             )
+        elif args.method == "pixel_dist":
+            coeff = pixel_distance(args.sample_dir, args.training_dir)
+        elif args.method == "clip_score":
+            coeff = CLIPScore.clip_score(args.sample_dir, args.training_dir)
 
         elif args.removal_dist == "datamodel":
 
