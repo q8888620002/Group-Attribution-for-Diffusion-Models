@@ -250,10 +250,7 @@ def main(args):
         config = {**DDPMConfig.imagenette_config}
     else:
         raise ValueError(
-            (
-                f"dataset={args.dataset} is not one of "
-                f"{constants.DATASETs}"
-            )
+            (f"dataset={args.dataset} is not one of " f"{constants.DATASETs}")
         )
 
     removal_dir = "full"
@@ -544,7 +541,7 @@ def main(args):
             samples,
             os.path.join(
                 sample_outdir,
-                f"prutirb_ratio_{args.if_ratio}_steps_{training_steps:0>8}.png",
+                f"prutirb_ratio_{args.iu_ratio}_steps_{training_steps:0>8}.png",
             ),
             nrow=int(math.sqrt(config["n_samples"])),
         )
