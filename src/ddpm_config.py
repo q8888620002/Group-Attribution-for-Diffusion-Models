@@ -203,7 +203,7 @@ class DDPMConfig:
         "training_steps": {
             "retrain": 20000,
             "prune_fine_tune": 10000,
-            "ga": 2000,
+            "ga": 20,
             "gd": 4000,
             "esd": 5000,
             "if": 1,

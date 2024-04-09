@@ -10,19 +10,19 @@ import json
 import math
 import os
 
-import diffusers
 import numpy as np
 import torch
 import torch.nn as nn
 from accelerate import Accelerator
-from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
-from diffusers.optimization import get_scheduler
 from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
 from tqdm import tqdm
 
+import diffusers
 import src.constants as constants
+from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
+from diffusers.optimization import get_scheduler
 from src.attributions.global_scores import fid_score, inception_score, precision_recall
 from src.datasets import (
     TensorDataset,
@@ -91,7 +91,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices="if",
+        choices=["if", "ga"],
     )
     parser.add_argument(
         "--if_alpha", type=float, help="ratio for purturbing model weights", default=0.3
@@ -104,12 +104,6 @@ def parse_args():
     )
     parser.add_argument(
         "--outdir", type=str, help="output parent directory", default=constants.OUTDIR
-    )
-    parser.add_argument(
-        "--keep_all_ckpts",
-        help="whether to keep all the checkpoints",
-        action="store_true",
-        default=False,
     )
     parser.add_argument(
         "--gradient_accumulation_steps",
@@ -130,12 +124,6 @@ def parse_args():
         type=str,
         help="directory path of reference samples, from a dataset or a diffusion model",
         default=None,
-    )
-    parser.add_argument(
-        "--use_ema",
-        help="whether to use the EMA model",
-        action="store_true",
-        default=False,
     )
     parser.add_argument(
         "--batch_size",
@@ -206,6 +194,20 @@ def parse_args():
         default=0.9999,
         help="maximum decay magnitude EMA",
     )
+
+    parser.add_argument(
+        "--use_ema",
+        help="whether to use the EMA model",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--exp_name",
+        type=str,
+        help="experiment name to record in the database file",
+        default=None,
+        required=True,
+    )
     parser.add_argument(
         "--num_inference_steps",
         type=int,
@@ -240,6 +242,8 @@ def main(args):
         config = {**DDPMConfig.cifar_config}
     elif args.dataset == "cifar2":
         config = {**DDPMConfig.cifar2_config}
+    elif args.dataset == "cifar100":
+        config = {**DDPMConfig.cifar100_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -253,7 +257,6 @@ def main(args):
                 "['cifar', 'mnist', 'celeba', 'imagenette']"
             )
         )
-    model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
     removal_dir = "full"
     if args.excluded_class is not None:
@@ -287,130 +290,44 @@ def main(args):
                 train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed
             )
         elif args.removal_dist == "shapley":
-            remaining_idx, removed_idx = remove_data_by_shapley(
-                train_dataset, seed=args.removal_seed
-            )
+            if args.dataset == "cifar100" or "celeba":
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed, by_class=True
+                )
+            else:
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed
+                )
         else:
             raise NotImplementedError
     else:
         remaining_idx = np.arange(len(train_dataset))
         removed_idx = np.array([], dtype=int)
 
-    seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
+    # Seed for model optimization.
+    seed_everything(args.opt_seed, workers=True)
 
-    model_strc = model_cls(**config["unet_config"])
+    # Load model structure depending on unlearning methods.
 
     args.trained_steps = get_max_steps(args.load)
 
-    model, remaining_idx, removed_idx = load_ckpt_model(
-        args, model_cls, model_strc, args.load
-    )
+    model, ema_model, remaining_idx, removed_idx = load_ckpt_model(args)
+
+    model.to(device)
+    ema_model.to(device)
+
     pipeline = build_pipeline(args, model)
 
     remaining_dataloader = DataLoader(
         Subset(train_dataset, remaining_idx),
         batch_size=config["batch_size"],
         shuffle=True,
-        num_workers=4,
+        num_workers=1,
         generator=torch.Generator().manual_seed(args.opt_seed),
     )
-
     training_steps = len(remaining_dataloader)
     removed_dataloader = remaining_dataloader
 
-    if args.dataset == "imagenette":
-        # The pipeline is of class LDMTextToImagePipeline.
-        pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-text2im-large-256")
-        pipeline.unet = model
-
-        vqvae = pipeline.vqvae
-        text_encoder = pipeline.bert
-        tokenizer = pipeline.tokenizer
-        captioner = ImagenetteCaptioner(train_dataset)
-        label_tokenizer = LabelTokenizer(captioner=captioner, tokenizer=tokenizer)
-
-        vqvae.requires_grad_(False)
-        text_encoder.requires_grad_(False)
-
-        vqvae = vqvae.to(device)
-        text_encoder = text_encoder.to(device)
-    elif args.dataset == "celeba":
-        # The pipeline is of class LDMPipeline.
-        pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256")
-        pipeline.unet = model
-
-        vqvae = pipeline.vqvae
-        pipeline.vqvae.config.scaling_factor = 1
-        vqvae.requires_grad_(False)
-
-        if args.precompute_stage is None:
-            # Move the VQ-VAE model to the device without any operations.
-            vqvae = vqvae.to(device)
-
-        elif args.precompute_stage == "save":
-            assert removal_dir == "full", "Precomputation should be done for full data"
-            # Precompute and save the VQ-VAE latents
-            vqvae = vqvae.to(device)
-            vqvae.train()  # The vqvae output is STATIC even in train mode.
-            # if accelerator.is_main_process:
-            vqvae_latent_dict = {}
-            with torch.no_grad():
-                for image_temp, label_temp, imageid_temp in tqdm(
-                    DataLoader(
-                        dataset=train_dataset,
-                        batch_size=32,
-                        num_workers=4,
-                        shuffle=False,
-                    )
-                ):
-                    vqvae_latent = vqvae.encode(image_temp.to(device), False)[0]
-                    assert len(vqvae_latent) == len(
-                        image_temp
-                    ), "Output and input batch sizes should match"
-
-                    # Store the encoded outputs in the dictionary
-                    for i in range(len(vqvae_latent)):
-                        vqvae_latent_dict[imageid_temp[i]] = vqvae_latent[i]
-
-            # Save the dictionary of latents to a file
-            vqvae_latent_dir = os.path.join(
-                args.outdir,
-                args.dataset,
-                "precomputed_emb",
-            )
-            os.makedirs(vqvae_latent_dir, exist_ok=True)
-            torch.save(
-                vqvae_latent_dict,
-                os.path.join(vqvae_latent_dir, "vqvae_output.pt"),
-            )
-
-            accelerator.print(
-                "VQVAE output saved. Set precompute_state=reuse to unload VQVAE model."
-            )
-            raise SystemExit(0)
-        elif args.precompute_stage == "reuse":
-            # Load the precomputed output, avoiding GPU memory usage by the VQ-VAE model
-            pipeline.vqvae = None
-            vqvae_latent_dir = os.path.join(
-                args.outdir,
-                args.dataset,
-                "precomputed_emb",
-            )
-            vqvae_latent_dict = torch.load(
-                os.path.join(
-                    vqvae_latent_dir,
-                    "vqvae_output.pt",
-                ),
-                map_location="cpu",
-            )
-
-        captioner = None
-    else:
-        pipeline = DDPMPipeline(
-            unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
-        ).to(device)
-        vqvae = None
-        captioner = None
     pipeline_scheduler = pipeline.scheduler
 
     if not args.use_8bit_optimizer:
@@ -474,36 +391,139 @@ def main(args):
     # This is mainly from Wfisher() in
     # https://github.com/OPTML-Group/Unlearn-Sparse/blob/public/unlearn/Wfisher.py#L113.
 
-    model.eval()
+    if args.method == "if":
+        model.eval()
+        vqvae_latent_dict = (
+            None
+            if not (args.dataset == "celeba" and args.precompute_stage == "reuse")
+            else vqvae_latent_dict
+        )
 
-    vqvae_latent_dict = (
-        None
-        if not (args.dataset == "celeba" and args.precompute_stage == "reuse")
-        else vqvae_latent_dict
-    )
+        print("Calculating forget gradients....")
+        total, forget_grad = get_grad(
+            args, removed_dataloader, pipeline, vqvae_latent_dict
+        )
 
-    print("Calculating forget gradients....")
-    total, forget_grad = get_grad(args, removed_dataloader, pipeline, vqvae_latent_dict)
+        print("Calculating remaining gradients...")
+        total_2, retain_grad = get_grad(
+            args, remaining_dataloader, pipeline, vqvae_latent_dict
+        )
 
-    print("Calculating remaining gradients...")
-    total_2, retain_grad = get_grad(
-        args, remaining_dataloader, pipeline, vqvae_latent_dict
-    )
+        retain_grad *= total / ((total + total_2) * total_2)
+        forget_grad /= total + total_2
 
-    retain_grad *= total / ((total + total_2) * total_2)
-    forget_grad /= total + total_2
+        perturb = woodfisher_diff(
+            args,
+            remaining_dataloader,
+            pipeline,
+            retain_grad - forget_grad,
+            vqvae_latent_dict,
+        )
 
-    perturb = woodfisher_diff(
-        args,
-        remaining_dataloader,
-        pipeline,
-        retain_grad - forget_grad,
-        vqvae_latent_dict,
-    )
+        # Apply parameter purturbation to Unet.
+        model = apply_perturb(model, args.if_alpha * perturb)
 
-    # Apply parameter purturbation to Unet.
+    elif args.method == "ga":
 
-    model = apply_perturb(model, args.if_alpha * perturb)
+        training_steps = config["training_steps"][args.method]
+        param_update_steps = 0
+
+        progress_bar = tqdm(
+            range(training_steps),
+            initial=param_update_steps,
+            desc="Step",
+            disable=not accelerator.is_main_process,
+        )
+
+        loss_fn = nn.MSELoss(reduction="mean")
+
+        while param_update_steps < training_steps:
+
+            for j, batch_r in enumerate(removed_dataloader):
+                
+                model.train()
+
+                image_r, label_r = batch_r[0], batch_r[1]
+
+                if args.precompute_stage == "reuse":
+                    imageid_r = batch_r[2]
+
+                image_r = image_r.to(device)
+
+                if args.dataset == "imagenette":
+                    image_r = vqvae.encode(image_r).latent_dist.sample()
+                    image_r = image_r * vqvae.config.scaling_factor
+                    input_ids_r = label_tokenizer(label_r).to(device)
+                    encoder_hidden_states_r = text_encoder(input_ids_r)[0]
+                elif args.dataset == "celeba":
+                    if args.precompute_stage is None:
+                        # Directly encode the images if there's no precomputation
+                        image_r = vqvae.encode(image_r, False)[0]
+                    elif args.precompute_stage == "reuse":
+                        # Retrieve the latent representations.
+                        image_r = torch.stack(
+                            [
+                                vqvae_latent_dict[imageid_r[i]]
+                                for i in range(len(image_r))
+                            ]
+                        ).to(device)
+                    image_r = image_r * vqvae.config.scaling_factor
+                noise = torch.randn_like(image_r).to(device)
+
+                # Antithetic sampling of time steps.
+                timesteps = torch.randint(
+                    0,
+                    pipeline_scheduler.config.num_train_timesteps,
+                    (len(image_r) // 2 + 1,),
+                    device=image_r.device,
+                ).long()
+                timesteps = torch.cat(
+                    [
+                        timesteps,
+                        pipeline_scheduler.config.num_train_timesteps - timesteps - 1,
+                    ],
+                    dim=0,
+                )[: len(image_r)]
+
+                noisy_images_r = pipeline_scheduler.add_noise(image_r, noise, timesteps)
+
+                with accelerator.accumulate(model):
+                    optimizer.zero_grad()
+                    if args.dataset == "imagenette":
+                        eps_r = model(
+                            noisy_images_r, timesteps, encoder_hidden_states_r
+                        ).sample
+                    else:
+                        eps_r = model(noisy_images_r, timesteps).sample
+
+                    loss = loss_fn(eps_r, noise)
+                    loss *= -1.0
+
+                    accelerator.backward(loss)
+                    if accelerator.sync_gradients:
+                        # Clip the gradients when the gradients are synced. This has to
+                        # happen before calling optimizer.step() to update the model
+                        # parameters.
+                        accelerator.clip_grad_norm_(model.parameters(), 1.0)
+                    optimizer.step()
+                    lr_scheduler.step()
+
+                    if accelerator.sync_gradients:
+                        # Update the EMA model when the gradients are synced (that is, when
+                        # model parameters are updated).
+                        ema_model.step(model.parameters())
+                        param_update_steps += 1
+                        progress_bar.update(1)
+                        
+                if param_update_steps == training_steps:
+                    break
+        
+        model = accelerator.unwrap_model(model).eval()
+    else:
+        raise ValueError((f"Unlearning method: {args.method} doesn't exist "))
+
+    ema_model.store(model.parameters())
+    ema_model.copy_to(model.parameters())  # The EMA is used for inference.
     pipeline.unet = model
 
     # Calculate global model score.
@@ -563,6 +583,9 @@ def main(args):
         info_dict["precision"] = precision
         info_dict["recall"] = recall
         info_dict["is"] = is_value
+        info_dict["trained_steps"] = training_steps
+
+        args.device = ""
 
         with open(args.db, "a+") as f:
             f.write(json.dumps(info_dict) + "\n")

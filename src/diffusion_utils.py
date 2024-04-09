@@ -5,6 +5,13 @@ from typing import List
 
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from torchvision.datasets import ImageFolder
+from tqdm import tqdm
+from transformers import PreTrainedTokenizer
+
+import diffusers
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
@@ -13,13 +20,8 @@ from diffusers import (
     LDMPipeline,
 )
 from diffusers.training_utils import EMAModel
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from torchvision.datasets import ImageFolder
-from tqdm import tqdm
-from transformers import PreTrainedTokenizer
-
 from src.datasets import create_dataset
+from src.ddpm_config import DDPMConfig
 from src.utils import get_max_steps
 
 
@@ -105,28 +107,46 @@ class LabelTokenizer:
         return inputs.input_ids
 
 
-def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
+def load_ckpt_model(args):
     """
         Load model parameters from the latest checkpoint in a directory.
     Args:
     ----
         args: arguments from training pipeline
-        model_cls: class name for diffusion model, e.g. UNet2DModel.
-        model_strc: network architecture e.g. u-net or pruned u-net.
-        model_loaddir: path to model.
     Return:
     ------
         pre-trained model, indices of remaining and removed subset.
     """
 
+    if args.dataset == "cifar":
+        config = {**DDPMConfig.cifar_config}
+    elif args.dataset == "cifar2":
+        config = {**DDPMConfig.cifar2_config}
+    elif args.dataset == "cifar100":
+        config = {**DDPMConfig.cifar100_config}
+    elif args.dataset == "celeba":
+        config = {**DDPMConfig.celeba_config}
+    elif args.dataset == "mnist":
+        config = {**DDPMConfig.mnist_config}
+    elif args.dataset == "imagenette":
+        config = {**DDPMConfig.imagenette_config}
+    else:
+        raise ValueError(
+            (
+                f"dataset={args.dataset} is not one of "
+                "['cifar', 'mnist', 'celeba', 'imagenette']"
+            )
+        )
+    model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
+
     trained_steps = (
         args.trained_steps
         if args.trained_steps is not None
-        else get_max_steps(model_loaddir)
+        else get_max_steps(args.load)
     )
 
     if trained_steps is not None:
-        ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
+        ckpt_path = os.path.join(args.load, f"ckpt_steps_{trained_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
 
         if args.method not in ["retrain"]:
@@ -146,7 +166,7 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
             pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
             model = pruned_model_ckpt["unet"]
         else:
-            model = model_strc
+            model = model_cls(**config["unet_config"])
 
         # There may not be saved indices for pretrained model.
         try:
@@ -171,12 +191,12 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
             ema_model.copy_to(model.parameters())
             model_str = "EMA"
 
-        print(f"Trained model loaded from {model_loaddir}")
+        print(f"Trained model loaded from {args.load}")
         print(f"\t{model_str} loaded from {ckpt_path}")
     else:
-        raise ValueError(f"No trained checkpoints found at {model_loaddir}")
+        raise ValueError(f"No trained checkpoints found at {args.load}")
 
-    return model, remaining_idx, removed_idx
+    return model, ema_model, remaining_idx, removed_idx
 
 
 def build_pipeline(args, model):
