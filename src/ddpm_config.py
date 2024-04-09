@@ -203,10 +203,10 @@ class DDPMConfig:
         "training_steps": {
             "retrain": 20000,
             "prune_fine_tune": 10000,
-            "ga": 20,
+            "ga": 60,
             "gd": 4000,
             "esd": 5000,
-            "if": 1,
+            "iu": 1,
         },
         "ckpt_freq": {
             "retrain": 10000,
@@ -214,7 +214,7 @@ class DDPMConfig:
             "ga": 400,
             "gd": 500,
             "esd": 1000,
-            "if": 1,
+            "iu": 1,
         },
         "sample_freq": {
             "retrain": 2000,
@@ -222,7 +222,7 @@ class DDPMConfig:
             "ga": 400,
             "gd": 500,
             "esd": 100,
-            "if": 20,
+            "iu": 20,
         },
         "n_samples": 64,
         "unet_config": {

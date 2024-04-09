@@ -6,27 +6,7 @@ import torch
 
 import src.constants as constants
 from src.datasets import create_dataset
-
-
-def sum_scores_by_class(scores, dataset):
-    """
-    Sum scores by classes and return group-based scores
-
-    :param scores: sample based coefficients
-    :param dataset: dataset
-    :return: Numpy array with summed scores, indexed by label.
-    """
-    # Initialize a dictionary to accumulate scores for each label
-    score_sum_by_label = {}
-    for score, (_, label) in zip(scores, dataset):
-        score_sum_by_label[label] = score_sum_by_label.get(label, 0) + score
-
-    result_array = np.zeros(max(score_sum_by_label.keys()) + 1)
-    for label, sum_score in score_sum_by_label.items():
-        result_array[label] = sum_score
-
-    return result_array
-
+from src.attributions.medthods.attribution_utils import sum_scores_by_class
 
 def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
     """Compute scores for D-TRAK, TRAK, and influence function."""
@@ -36,57 +16,85 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
         # Retraining based
         scores = np.zeros(len(dataset))
 
-        for seed in training_seeds:
-            removal_dir = f"{args.removal_dist}/{args.removal_dist}"
-            removal_dir += f"_seed={seed}"
-
-            grad_result_dir = os.path.join(
-                constants.OUTDIR,
-                args.dataset,
-                "d_track",
-                removal_dir,
-                f"f={args.trak_behavior}_t={args.t_strategy}",
-            )
-            print(f"Loading pre-calculated gradients from {grad_result_dir}...")
-
-            dstore_keys = np.memmap(
-                grad_result_dir,
-                dtype=np.float32,
-                mode="r",
-                shape=(len(dataset), args.projector_dmi),
-            )
-            dstore_keys = torch.from_numpy(dstore_keys).cuda()
-
-            kernel = dstore_keys.T @ dstore_keys
-            kernel = kernel + 5e-1 * torch.eye(kernel.shape[0]).cuda()
-            kernel = torch.linalg.inv(kernel)
-
-            scores += dstore_keys @ ((dstore_keys @ kernel).T) / len(training_seeds)
-    else:
-        # retraining free TRAK/D-TRAK
-        grad_result_dir = os.path.join(
+        val_grad_path = os.path.join(
             constants.OUTDIR,
             args.dataset,
             "d_track",
             "full",
             f"f={args.trak_behavior}_t={args.t_strategy}",
         )
-        print(f"Loading pre-calculated gradients from {grad_result_dir}...")
-
-        dstore_keys = np.memmap(
-            grad_result_dir,
+        val_phi = np.memmap(
+            val_grad_path,
             dtype=np.float32,
             mode="r",
             shape=(len(dataset), args.projector_dim),
         )
+
+        for seed in training_seeds:
+            removal_dir = f"{args.removal_dist}/{args.removal_dist}"
+            removal_dir += f"_seed={seed}"
+
+            train_grad_path = os.path.join(
+                constants.OUTDIR,
+                args.dataset,
+                "d_track",
+                removal_dir,
+                f"f={args.trak_behavior}_t={args.t_strategy}",
+            )
+            train_phi = np.memmap(
+                train_grad_path,
+                dtype=np.float32,
+                mode="r",
+                shape=(len(dataset), args.projector_dim),
+            )
+            train_phi = torch.from_numpy(train_phi).cuda()
+
+            kernel = train_phi.T @ train_phi
+            kernel = kernel + 5e-1 * torch.eye(kernel.shape[0]).cuda()
+            kernel = torch.linalg.inv(kernel)
+
+            scores += val_phi @ ((train_phi @ kernel).T) / len(training_seeds)
+    else:
+        # retraining free TRAK/D-TRAK
+        print(f"Loading pre-calculated gradients for training set from {grad_result_dir}...")
+
+        train_grad_path = os.path.join(
+            constants.OUTDIR,
+            args.dataset,
+            "d_track",
+            "full",
+            f"f={args.trak_behavior}_t={args.t_strategy}",
+        )
+        train_phi = np.memmap(
+            train_grad_path,
+            dtype=np.float32,
+            mode="r",
+            shape=(len(dataset), args.projector_dim),
+        )
+        print(f"Loading pre-calculated gradients for validation set from {grad_result_dir}...")
+
+        val_grad_path = os.path.join(
+            constants.OUTDIR,
+            args.dataset,
+            "d_track",
+            "full",
+            f"f={args.trak_behavior}_t={args.t_strategy}",
+        )
+        val_phi = np.memmap(
+            val_grad_path,
+            dtype=np.float32,
+            mode="r",
+            shape=(len(dataset), args.projector_dim),
+        )
+
         # dstore_keys = torch.from_numpy(dstore_keys).cuda()
 
-        kernel = dstore_keys.T @ dstore_keys
+        kernel = train_phi.T @ train_phi
         kernel = kernel + 5e-1 * np.eye(kernel.shape[0])
 
         kernel = np.linalg.inv(kernel)
 
-        scores = dstore_keys @ ((dstore_keys @ kernel).T)
+        scores = val_phi @ ((train_phi @ kernel).T)
 
         # TBD
         #   Normalize based on the meganitude.
@@ -101,9 +109,13 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
         #     scores[i] = score.cpu().numpy() / magnitude
         # scores = np.ones(len(dataset))
 
-    if args.dataset == "cifar100":
+    if args.by_class:
         coeff = -sum_scores_by_class(scores, dataset)
     else:
         coeff = -scores
+
+    # using average of local model behavior as global score
+
+    coeff = np.mean(coeff, axis=0)
 
     return coeff

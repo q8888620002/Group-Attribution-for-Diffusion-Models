@@ -299,12 +299,15 @@ def build_pipeline(args, model):
             )
 
         captioner = None
+
+
     else:
         pipeline = DDPMPipeline(unet=model, scheduler=DDIMScheduler()).to(args.device)
         vqvae = None
         captioner = None
+        vqvae_latent_dict = None
 
-    return pipeline
+    return pipeline, vqvae, vqvae_latent_dict
 
 
 def generate_images(args, pipeline):

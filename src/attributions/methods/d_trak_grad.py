@@ -29,7 +29,7 @@ from src.datasets import (
     remove_data_by_uniform,
 )
 from src.ddpm_config import DDPMConfig
-from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer
+from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer, generate_images
 from src.utils import get_max_steps
 
 
@@ -145,6 +145,12 @@ def parse_args():
         default=1024,
         help="Dimension for TRAK projector",
     )
+    parser.add_argument(
+        "--calculate_val_grad",
+        help="whether to generate validation set and calculate phi",
+        action="store_true",
+        default=False,
+    )
 
     return parser.parse_args()
 
@@ -231,6 +237,7 @@ def main(args):
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
 
+
     if args.excluded_class is not None:
         remaining_idx, removed_idx = remove_data_by_class(
             train_dataset, excluded_class=args.excluded_class
@@ -316,7 +323,7 @@ def main(args):
         args.dataset,
         "d_track",
         removal_dir,
-        f"f={args.model_behavior}_t={args.t_strategy}",
+        f"train_f={args.model_behavior}_t={args.t_strategy}",
     )
 
     os.makedirs(os.path.dirname(save_dir), exist_ok=True)
@@ -603,6 +610,113 @@ def main(args):
             ] = (emb.detach().cpu().numpy())
         print(f"{step} / {len(remaining_dataloader)}, {t}")
         print(step * config["batch_size"], step * config["batch_size"] + bsz)
+
+    # Calculating phi for generated images
+
+    if calculate_val_grad:
+        args.batch_size = 128
+        args.n_samples = 1024
+
+        val_save_dir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "d_track",
+            removal_dir,
+            f"val_f={args.model_behavior}_t={args.t_strategy}",
+        )
+
+        os.makedirs(os.path.dirname(val_save_dir), exist_ok=True)
+
+        # Init a memory-mapped array stored on disk directly for D-TRAK results.
+
+        dstore_keys = np.memmap(
+            val_save_dir,
+            dtype=np.float32,
+            mode="w+",
+            shape=(len(remaining_idx), args.projector_dim),
+        )
+
+        generated_samples = generate_images(args, pipeline)
+        images_dataset = TensorDataset(generated_samples)
+
+        for step, (image, _) in enumerate(images_dataset):
+
+            seed_everything(args.opt_seed, workers=True)
+            image = image.to(device)
+            bsz = image.shape[0]
+
+            if args.t_strategy == "uniform":
+                selected_timesteps = range(0, 1000, 1000 // args.k_partition)
+            elif args.t_strategy == "cumulative":
+                selected_timesteps = range(0, args.k_partition)
+
+            for index_t, t in enumerate(selected_timesteps):
+                # Sample a random timestep for each image
+                timesteps = torch.tensor([t] * bsz, device=image.device)
+                timesteps = timesteps.long()
+                seed_everything(args.opt_seed * 1000 + t)  # !!!!
+
+                noise = torch.randn_like(image)
+                noisy_latents = pipeline_scheduler.add_noise(image, noise, timesteps)
+
+                # Get the target for loss depending on the prediction type
+                if pipeline_scheduler.config.prediction_type == "epsilon":
+                    target = noise
+                elif pipeline_scheduler.config.prediction_type == "v_prediction":
+                    target = pipeline_scheduler.get_velocity(image, noise, timesteps)
+                else:
+                    raise ValueError(
+                        f"Unknown prediction type {pipeline_scheduler.config.prediction_type}"
+                    )
+
+                ft_per_sample_grads = ft_compute_sample_grad(
+                    params,
+                    buffers,
+                    noisy_latents,
+                    timesteps,
+                    target,
+                )
+                # if len(keys) == 0:
+                #     keys = ft_per_sample_grads.keys()
+
+                ft_per_sample_grads = vectorize_and_ignore_buffers(
+                    list(ft_per_sample_grads.values())
+                )
+
+                # print(ft_per_sample_grads.size())
+                # print(ft_per_sample_grads.dtype)
+
+                if index_t == 0:
+                    emb = ft_per_sample_grads
+                else:
+                    emb += ft_per_sample_grads
+                # break
+
+            emb = emb / args.k_partition
+            print(emb.size())
+
+            # If is_grads_dict == True, then turn emb into a dict.
+            # emb_dict = {k: v for k, v in zip(keys, emb)}
+
+            emb = projector.project(emb, model_id=0)
+            print(emb.size())
+            print(emb.dtype)
+
+            while (
+                np.abs(
+                    dstore_keys[
+                        step * config["batch_size"] : step * config["batch_size"] + bsz,
+                        0:32,
+                    ]
+                ).sum()
+                == 0
+            ):
+                print("saving")
+                dstore_keys[
+                    step * config["batch_size"] : step * config["batch_size"] + bsz
+                ] = (emb.detach().cpu().numpy())
+            print(f"{step} / {len(remaining_dataloader)}, {t}")
+            print(step * config["batch_size"], step * config["batch_size"] + bsz)
 
 
 if __name__ == "__main__":

@@ -9,10 +9,10 @@ import torch
 from PIL import Image
 
 from src.datasets import (
-    create_dataset, 
-    remove_data_by_datamodel, 
+    create_dataset,
+    remove_data_by_datamodel,
     remove_data_by_shapley
-) 
+)
 
 
 class CLIPScore:
@@ -97,6 +97,25 @@ def create_removal_path(args, seed_index):
 
     raise ValueError(f"No record found for sample_dir: {removal_dir}")
 
+
+def sum_scores_by_class(scores, dataset):
+    """
+    Sum scores by classes and return group-based scores
+
+    :param scores: sample based coefficients
+    :param dataset: dataset
+    :return: Numpy array with summed scores, indexed by label.
+    """
+    # Initialize a dictionary to accumulate scores for each label
+    score_sum_by_label = {}
+    for score, (_, label) in zip(scores, dataset):
+        score_sum_by_label[label] = score_sum_by_label.get(label, 0) + score
+
+    result_array = np.zeros(max(score_sum_by_label.keys()) + 1)
+    for label, sum_score in score_sum_by_label.items():
+        result_array[label] = sum_score
+
+    return result_array
 
 def process_images_np(file_list):
     """Function to load and process images into numpy"""

@@ -19,9 +19,7 @@ from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
 from tqdm import tqdm
 
-import diffusers
 import src.constants as constants
-from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
 from diffusers.optimization import get_scheduler
 from src.attributions.global_scores import fid_score, inception_score, precision_recall
 from src.datasets import (
@@ -91,10 +89,10 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["if", "ga"],
+        choices=["iu", "ga"],
     )
     parser.add_argument(
-        "--if_alpha", type=float, help="ratio for purturbing model weights", default=0.3
+        "--iu_ratio", type=float, help="ratio for purturbing model weights", default=1.0
     )
     parser.add_argument(
         "--opt_seed",
@@ -254,7 +252,7 @@ def main(args):
         raise ValueError(
             (
                 f"dataset={args.dataset} is not one of "
-                "['cifar', 'mnist', 'celeba', 'imagenette']"
+                f"{constants.DATASETs}"
             )
         )
 
@@ -316,7 +314,7 @@ def main(args):
     model.to(device)
     ema_model.to(device)
 
-    pipeline = build_pipeline(args, model)
+    pipeline, vqvae, vqvae_latent_dict = build_pipeline(args, model)
 
     remaining_dataloader = DataLoader(
         Subset(train_dataset, remaining_idx),
@@ -391,7 +389,7 @@ def main(args):
     # This is mainly from Wfisher() in
     # https://github.com/OPTML-Group/Unlearn-Sparse/blob/public/unlearn/Wfisher.py#L113.
 
-    if args.method == "if":
+    if args.method == "iu":
         model.eval()
         vqvae_latent_dict = (
             None
@@ -399,12 +397,12 @@ def main(args):
             else vqvae_latent_dict
         )
 
-        print("Calculating forget gradients....")
+        print("Calculating gradients with removed dataset....")
         total, forget_grad = get_grad(
             args, removed_dataloader, pipeline, vqvae_latent_dict
         )
 
-        print("Calculating remaining gradients...")
+        print("Calculating gradients with remaining dataset...")
         total_2, retain_grad = get_grad(
             args, remaining_dataloader, pipeline, vqvae_latent_dict
         )
@@ -421,7 +419,9 @@ def main(args):
         )
 
         # Apply parameter purturbation to Unet.
-        model = apply_perturb(model, args.if_alpha * perturb)
+        print("Applying perturbation...")
+        model = apply_perturb(model, args.iu_ratio * perturb)
+        ema_model.step(model.parameters())
 
     elif args.method == "ga":
 
@@ -440,7 +440,7 @@ def main(args):
         while param_update_steps < training_steps:
 
             for j, batch_r in enumerate(removed_dataloader):
-                
+
                 model.train()
 
                 image_r, label_r = batch_r[0], batch_r[1]
@@ -509,21 +509,23 @@ def main(args):
                     lr_scheduler.step()
 
                     if accelerator.sync_gradients:
-                        # Update the EMA model when the gradients are synced (that is, when
-                        # model parameters are updated).
+                        # Update the EMA model when the gradients are synced
+                        # (that is, when model parameters are updated).
                         ema_model.step(model.parameters())
                         param_update_steps += 1
                         progress_bar.update(1)
-                        
+
                 if param_update_steps == training_steps:
                     break
-        
+
         model = accelerator.unwrap_model(model).eval()
     else:
         raise ValueError((f"Unlearning method: {args.method} doesn't exist "))
 
+    # The EMA is used for inference.
+
     ema_model.store(model.parameters())
-    ema_model.copy_to(model.parameters())  # The EMA is used for inference.
+    ema_model.copy_to(model.parameters())
     pipeline.unet = model
 
     # Calculate global model score.
@@ -541,11 +543,12 @@ def main(args):
         save_image(
             samples,
             os.path.join(
-                sample_outdir, f"prutirb_ratio_{args.if_alpha}_steps_{0:0>8}.png"
+                sample_outdir,
+                f"prutirb_ratio_{args.if_ratio}_steps_{training_steps:0>8}.png",
             ),
             nrow=int(math.sqrt(config["n_samples"])),
         )
-        print(f"Save test images, steps_{0:0>8}.png, in {sample_outdir}.")
+        print(f"Save test images, steps_{training_steps:0>8}.png, in {sample_outdir}.")
         print(f"Generating {args.n_samples}...")
 
         generated_samples = generate_images(args, pipeline)
