@@ -183,7 +183,12 @@ def parse_args():
         help="Dimension for TRAK projector",
     )
     # file path for local model behavior, e.g. pixel_distance, clip score
-
+    parser.add_argument(
+        "--sample_size",
+        type=int,
+        default=128,
+        help="Number of samples for local model behavior",
+    )
     parser.add_argument(
         "--sample_dir",
         type=str,
@@ -231,6 +236,8 @@ def collect_data(
                 if record["method"] == "ga":
                     remaining_idx = record["removal_idx"]
 
+                # return class labels as indices if removed by subclasses.
+
                 if by_class:
                     remaining_idx, removed_idx = removed_by_classes(
                         index_to_class, remaining_idx
@@ -249,8 +256,9 @@ def collect_data(
                         for i in range(n_samples)
                     ]
 
+                # avoid duplicated records
+
                 if int(record["removal_seed"]) not in removal_seeds:
-                    # avoid duplicated records
                     if record["method"] == "gd":
                         if record["trained_steps"] == 4000:
                             remaining_masks.append(remaining_mask)
@@ -264,6 +272,7 @@ def collect_data(
     remaining_masks = np.stack(remaining_masks)
     model_behaviors = np.stack(model_behaviors)
     removal_seeds = np.array(removal_seeds)
+
     return remaining_masks, model_behaviors, removal_seeds
 
 
@@ -291,7 +300,9 @@ def main(args):
         "dataset": args.dataset,
         "removal_dist": args.removal_dist,
         "datamodel_alpha": args.datamodel_alpha,
-        "method": "retrain" if args.method == "trak" else args.method,
+        "method": "retrain"
+        if args.method in ["trak", "clip_score", "pixel_dist"]
+        else args.method,
     }
     # Set random states
 
@@ -334,10 +345,15 @@ def main(args):
                 args, retraining=False, training_seeds=train_seeds[train_indices]
             )
         elif args.method == "pixel_dist":
-            coeff = pixel_distance(args.sample_dir, args.training_dir)
-        elif args.method == "clip_score":
-            coeff = CLIPScore.clip_score(args.sample_dir, args.training_dir)
+            coeff = pixel_distance(
+                args, args.sample_size, args.sample_dir, args.training_dir
+            )
 
+        elif args.method == "clip_score":
+            clip = CLIPScore("cuda")
+            coeff = clip.clip_score(
+                args, args.sample_size, args.sample_dir, args.training_dir
+            )
         elif args.removal_dist == "datamodel":
 
             datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(

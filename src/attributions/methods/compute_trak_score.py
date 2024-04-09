@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 import src.constants as constants
-from src.attributions.medthods.attribution_utils import sum_scores_by_class
+from src.attributions.methods.attribution_utils import sum_scores_by_class
 from src.datasets import create_dataset
 
 

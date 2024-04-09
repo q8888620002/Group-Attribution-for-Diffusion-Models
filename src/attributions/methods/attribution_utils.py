@@ -6,6 +6,8 @@ import clip
 import numpy as np
 import torch
 from PIL import Image
+from scipy.spatial.distance import cdist
+from tqdm import tqdm
 
 from src.datasets import (
     create_dataset,
@@ -21,21 +23,27 @@ class CLIPScore:
         self.device = device
         self.clip_model, self.clip_transform = clip.load("ViT-B/32", device=device)
 
-    def process_images_clip(self, file_list):
+    def process_images_clip(self, file_list, max_size=None):
         """Function to load and process images with clip transform"""
+
         images = []
-        for filename in file_list:
+        if max_size is not None:
+            file_list = file_list[:max_size]
+
+        for filename in tqdm(file_list):
             image = Image.open(filename)
             image = self.clip_transform(image).unsqueeze(0).to(self.device)
             images.append(image)
         return torch.cat(images, dim=0)
 
-    def clip_score(self, sample_dir, training_dir):
+    def clip_score(self, args, sample_size, sample_dir, training_dir):
         """
         Function that calculate CLIP score between generated and training data
 
         Args:
         ----
+            args: argument for calculating lds.
+            sample_size: number of samples
             sample_dir: directory of the first set of images.
             training_dir: directory of the second set of images.
 
@@ -46,8 +54,10 @@ class CLIPScore:
 
         # Get the model's visual features (without text features)
 
-        sample_image = self.process_images_clip(glob.glob(sample_dir))
-        training_image = self.process_images_clip(glob.glob(training_dir))
+        sample_image = self.process_images_clip(
+            glob.glob(sample_dir + "/*"), sample_size
+        )
+        training_image = self.process_images_clip(glob.glob(training_dir + "/*"))
 
         with torch.no_grad():
             features1 = self.clip_model.encode_image(sample_image)
@@ -56,7 +66,11 @@ class CLIPScore:
         features1 = features1 / features1.norm(dim=-1, keepdim=True)
         features2 = features2 / features2.norm(dim=-1, keepdim=True)
         similarity = (features1 @ features2.T).cpu().numpy()
-        coeff = np.mean(similarity, axis=0)
+        coeff = np.mean(similarity, axis=0).astype(np.float32)
+
+        if args.by_class:
+            dataset = create_dataset(dataset_name=args.dataset, train=True)
+            coeff = sum_scores_by_class(coeff, dataset)
 
         return coeff
 
@@ -118,17 +132,21 @@ def sum_scores_by_class(scores, dataset):
     return result_array
 
 
-def process_images_np(file_list):
+def process_images_np(file_list, max_size=None):
     """Function to load and process images into numpy"""
     images = []
-    for filename in file_list:
+
+    if max_size is not None:
+        file_list = file_list[:max_size]
+
+    for filename in tqdm(file_list):
         image = Image.open(filename).convert("RGB")
         image = np.array(image).astype(np.float32)
         images.append(image)
     return np.stack(images)
 
 
-def pixel_distance(generated_dir, training_dir):
+def pixel_distance(args, sample_size, generated_dir, training_dir):
     """
     Function that calculate the pixel distance between two image sets,
     generated images and training images. Using the average distance
@@ -136,6 +154,8 @@ def pixel_distance(generated_dir, training_dir):
 
     Args:
     ----
+        args: argument for calculating lds.
+        sample_size: number of generated samples.
         generated_dir: directory of the generated images.
         training_dir: directory of the training set images.
 
@@ -144,17 +164,26 @@ def pixel_distance(generated_dir, training_dir):
         Mean of pixel distance as data attribution.
 
     """
-    generated_images = process_images_np(glob.glob(generated_dir))
-    ref_images = process_images_np(glob.glob(training_dir))
+    print(f"Loading images from {generated_dir}..")
+
+    generated_images = process_images_np(glob.glob(generated_dir + "/*"), sample_size)
+
+    print(f"Loading images from {training_dir}..")
+
+    ref_images = process_images_np(glob.glob(training_dir + "/*"))
 
     generated_images = generated_images.reshape(generated_images.shape[0], -1)
     ref_images = ref_images.reshape(ref_images.shape[0], -1)
 
-    coeff = np.zeros(len(generated_images), len(training_dir))
+    # Calculate the pairwise Euclidean distances.
 
-    for i, sample in enumerate(generated_images):
-        coeff[i] = np.sqrt(np.sum((ref_images - sample) ** 2, axis=1))
+    distances = np.zeros((len(generated_images), len(ref_images)))
 
-    coeff = -np.mean(coeff, axix=0)
+    distances = cdist(generated_images, ref_images, metric="euclidean")
+    coeff = -np.mean(distances, axis=0)
+
+    if args.by_class:
+        dataset = create_dataset(dataset_name=args.dataset, train=True)
+        coeff = sum_scores_by_class(coeff, dataset)
 
     return coeff
