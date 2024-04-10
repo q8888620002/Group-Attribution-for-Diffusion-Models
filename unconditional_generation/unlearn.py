@@ -598,7 +598,10 @@ def main(args):
         info_dict["precision"] = precision
         info_dict["recall"] = recall
         info_dict["is"] = is_value
+
         info_dict["trained_steps"] = training_steps
+        info_dict["remaining_idx"] = remaining_idx
+        info_dict["removed_idx"] = removed_idx
 
         args.device = ""
 

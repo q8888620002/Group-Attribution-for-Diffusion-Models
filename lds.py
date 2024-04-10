@@ -24,7 +24,7 @@ from src.attributions.methods.compute_trak_score import compute_dtrak_trak_score
 from src.attributions.methods.datashapley import (  # kernel_shap,; kernel_shap_ridge,
     data_shapley,
 )
-from src.datasets import create_dataset
+from src.datasets import create_dataset, remove_data_by_shapley
 from src.utils import print_args
 
 
@@ -136,6 +136,8 @@ def parse_args():
         default=100,
     )
     # Data shapley args.
+    # cifar100: Fid: v1 = 20.0, v0 = 348.45
+
     parser.add_argument(
         "--v1",
         type=float,
@@ -227,18 +229,26 @@ def collect_data(
     with open(db, "r") as handle:
         for line in handle:
             record = json.loads(line)
+
             keep = all(
                 [record[key] == condition_dict[key] for key in condition_dict.keys()]
             )
 
             if keep:
-                remaining_idx = record["remaining_idx"]
-                if record["method"] == "ga":
-                    remaining_idx = record["removal_idx"]
+                seed = int(record["removal_seed"])
+                method = record["method"]
 
-                # return class labels as indices if removed by subclasses.
+                # Check if remaining_idx is empty
+
+                if "remaining_idx" not in record.keys():
+                    remaining_idx, removed_idx = remove_data_by_shapley(
+                        dataset, seed, by_class
+                    )
+                else:
+                    remaining_idx = record["remaining_idx"]
 
                 if by_class:
+                    # return class labels as indices if removed by subclasses.
                     remaining_idx, removed_idx = removed_by_classes(
                         index_to_class, remaining_idx
                     )
@@ -258,16 +268,16 @@ def collect_data(
 
                 # avoid duplicated records
 
-                if int(record["removal_seed"]) not in removal_seeds:
-                    if record["method"] == "gd":
+                if seed not in removal_seeds:
+                    if method == "gd":
                         if record["trained_steps"] == 4000:
                             remaining_masks.append(remaining_mask)
                             model_behaviors.append(model_behavior)
-                            removal_seeds.append(int(record["removal_seed"]))
+                            removal_seeds.append(seed)
                     else:
                         remaining_masks.append(remaining_mask)
                         model_behaviors.append(model_behavior)
-                        removal_seeds.append(int(record["removal_seed"]))
+                        removal_seeds.append(seed)
 
     remaining_masks = np.stack(remaining_masks)
     model_behaviors = np.stack(model_behaviors)
@@ -283,7 +293,6 @@ def main(args):
         "exp_name": args.test_exp_name,
         "dataset": args.dataset,
         "removal_dist": args.removal_dist,
-        "datamodel_alpha": args.datamodel_alpha,
         "method": "retrain",  # The test set should pertain only to retrained models.
     }
     test_masks, test_targets, test_seeds = collect_data(
@@ -294,12 +303,12 @@ def main(args):
         args.n_samples,
         args.by_class,
     )
-    # Extract subsets for estimating data attribution scores.
+    # # Extract subsets for estimating data attribution scores.
+
     train_condition_dict = {
         "exp_name": args.train_exp_name,
         "dataset": args.dataset,
         "removal_dist": args.removal_dist,
-        "datamodel_alpha": args.datamodel_alpha,
         "method": "retrain"
         if args.method in ["trak", "clip_score", "pixel_dist"]
         else args.method,
@@ -367,8 +376,6 @@ def main(args):
             coeff = datamodel.coef_
 
         elif args.removal_dist == "shapley":
-
-            # cifar100: Fid: v1 = 20.0, v0 = 348.45
 
             coeff = data_shapley(
                 train_masks.shape[-1],
