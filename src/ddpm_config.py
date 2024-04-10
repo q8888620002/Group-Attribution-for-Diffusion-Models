@@ -454,3 +454,9 @@ class TextToImageModelBehaviorConfig:
             OUTDIR, "seed42", "artbench_post_impressionism", "retrain", "models", "full"
         ),
     }
+
+
+class DatasetStats:
+    """Basic statistics for different datasets."""
+
+    artbench_post_impressionism_stats = {"num_groups": 258}
