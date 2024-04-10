@@ -1,8 +1,11 @@
 """
-Influence unlearning (IU)[1,2] and calculate correpsonding global scores.
+Influence unlearning (IU) with wood fisher approximation from [1,2,3]
+
+and calculate correpsonding global scores.
 
 [1]: https://github.com/OPTML-Group/Unlearn-Sparse/tree/public
 [2]: https://github.com/OPTML-Group/Unlearn-Sparse/blob/public/unlearn/Wfisher.py
+[3]: https://arxiv.org/pdf/2304.04934.pdf
 """
 
 import argparse
@@ -306,22 +309,32 @@ def main(args):
 
     args.trained_steps = get_max_steps(args.load)
 
-    model, ema_model, remaining_idx, removed_idx = load_ckpt_model(args)
+    model, ema_model = load_ckpt_model(args)
 
     model.to(device)
     ema_model.to(device)
 
     pipeline, vqvae, vqvae_latent_dict = build_pipeline(args, model)
 
+    num_workers = 4 if torch.get_num_threads() >= 4 else torch.get_num_threads()
+
     remaining_dataloader = DataLoader(
         Subset(train_dataset, remaining_idx),
         batch_size=config["batch_size"],
         shuffle=True,
-        num_workers=1,
-        generator=torch.Generator().manual_seed(args.opt_seed),
+        num_workers=num_workers,
+        pin_memory=True,
     )
-    training_steps = len(remaining_dataloader)
-    removed_dataloader = remaining_dataloader
+
+    removed_dataloader = DataLoader(
+        Subset(train_dataset, removed_idx),
+        batch_size=config["batch_size"],
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    training_steps = len(removed_dataloader)
 
     pipeline_scheduler = pipeline.scheduler
 
@@ -403,26 +416,28 @@ def main(args):
         total_2, retain_grad = get_grad(
             args, remaining_dataloader, pipeline, vqvae_latent_dict
         )
+        # import ipdb;ipdb.set_trace()
+        # # Is the following codes weight normalizatoin mentioned in [3]?
 
         retain_grad *= total / ((total + total_2) * total_2)
         forget_grad /= total + total_2
 
-        perturb = woodfisher_diff(
+        delta_w = woodfisher_diff(
             args,
             remaining_dataloader,
             pipeline,
-            retain_grad - forget_grad,
+            forget_grad - retain_grad,
             vqvae_latent_dict,
         )
 
         # Apply parameter purturbation to Unet.
         print("Applying perturbation...")
-        model = apply_perturb(model, args.iu_ratio * perturb)
+        model = apply_perturb(model, args.iu_ratio * delta_w)
         ema_model.step(model.parameters())
 
     elif args.method == "ga":
 
-        training_steps = config["training_steps"][args.method]
+        training_steps = training_steps // 2
         param_update_steps = 0
 
         progress_bar = tqdm(

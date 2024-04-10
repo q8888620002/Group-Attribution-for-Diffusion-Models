@@ -196,8 +196,8 @@ def load_ckpt_model(args):
     else:
         raise ValueError(f"No trained checkpoints found at {args.load}")
 
-    return model, ema_model, remaining_idx, removed_idx
-
+    return model, ema_model
+    
 
 def build_pipeline(args, model):
     """Build the diffusion pipeline for the sepcific dataset and U-Net model."""

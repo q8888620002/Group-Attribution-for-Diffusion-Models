@@ -22,11 +22,12 @@ def apply_perturb(model, grads):
 
 
 def sam_grad(model, loss):
-    """Obtain grads wrt to params"""
+    """Obtain gradients w.r.t to model parameters"""
 
     params = []
     for param in model.parameters():
         params.append(param)
+
     sample_grad = grad(loss, params)
     sample_grad = [x.reshape(-1) for x in sample_grad]
 
@@ -37,8 +38,9 @@ def get_grad(args, data_loaders, pipeline, vqvae_latent_dict=None):
     """Calculate grdient for a given dataloader"""
 
     model = pipeline.unet
-    model.eval()
     device = pipeline.device
+
+    model.eval()
 
     if args.dataset == "celeba":
         vqvae = pipeline.vqvae
@@ -46,13 +48,13 @@ def get_grad(args, data_loaders, pipeline, vqvae_latent_dict=None):
     pipeline_scheduler = pipeline.scheduler
 
     loss_fn = torch.nn.MSELoss()
-    total = 0
+    total_count = 0
 
     params = []
     for param in model.parameters():
         params.append(param.view(-1))
 
-    forget_grad = torch.zeros_like(torch.cat(params)).to(device)
+    total_grad = torch.zeros_like(torch.cat(params)).to(device)
 
     for batch in tqdm(data_loaders):
 
@@ -65,7 +67,7 @@ def get_grad(args, data_loaders, pipeline, vqvae_latent_dict=None):
 
         model.zero_grad()
 
-        real_num = image.shape[0]
+        batch_size = image.shape[0]
 
         if args.dataset == "imagenette":
             image = vqvae.encode(image).latent_dist.sample()
@@ -104,11 +106,11 @@ def get_grad(args, data_loaders, pipeline, vqvae_latent_dict=None):
 
         eps_f = model(noisy_images_f, timesteps).sample
         loss = loss_fn(eps_f, noise)
-        f_grad = sam_grad(model, loss) * real_num
-        forget_grad += f_grad
-        total += real_num
-
-    return total, forget_grad
+        grad = sam_grad(model, loss) * batch_size
+        total_grad += grad
+        total_count += batch_size
+    
+    return total_count, total_grad
 
 
 def woodfisher_diff(args, data_loaders, pipeline, grads, vqvae_latent_dict=None):
@@ -116,8 +118,10 @@ def woodfisher_diff(args, data_loaders, pipeline, grads, vqvae_latent_dict=None)
 
     device = pipeline.device
     model = pipeline.unet
+
     model.eval()
 
+    N = len(data_loaders) 
     k_vec = torch.clone(grads)
     o_vec = None
 
@@ -186,7 +190,7 @@ def woodfisher_diff(args, data_loaders, pipeline, grads, vqvae_latent_dict=None)
             o_vec = torch.clone(sample_grad)
         else:
             tmp = torch.dot(o_vec, sample_grad)
-            k_vec -= (torch.dot(k_vec, sample_grad) / (len(data_loaders) + tmp)) * o_vec
-            o_vec -= (tmp / (len(data_loaders) + tmp)) * o_vec
+            k_vec -= (torch.dot(k_vec, sample_grad) / (N + tmp)) * o_vec
+            o_vec -= (tmp / (N + tmp)) * o_vec
 
     return k_vec
