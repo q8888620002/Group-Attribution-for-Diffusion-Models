@@ -44,7 +44,7 @@ python unconditional_generation/main.py \
 ```
 
 ```bash
-accelerate launch --config_file unconditional_generation/celeba_experiments/deepspeed_config_dp.yaml --gpu_ids 0,1 \
+accelerate launch --config_file unconditional_generation/celeba_experiments/deepspeed_config_dp.yaml --gpu_ids 6,7 \
 unconditional_generation/main.py \
 --dataset celeba \
 --method retrain \
@@ -124,9 +124,11 @@ python unconditional_generation/generate_samples.py \
 ```bash
 CUDA_VISIBLE_DEVICES=2 \
 python -m pytorch_fid \
-/projects/leelab3/chanwkim/data_attribution/datasets/celeba/celeba_hq_256_curated_resized \
-/projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/ema_generated_samples/full
+/projects/leelab3/chanwkim/data_attribution/datasets/celeba_hq_256_50_resized \
+/projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/20000/ema_generated_samples/full
 ```
+
+fid: 
 
 ```bash
 CUDA_VISIBLE_DEVICES=2 \

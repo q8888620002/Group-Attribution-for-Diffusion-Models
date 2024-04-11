@@ -69,7 +69,8 @@ class CelebA(Dataset):
         assert data_df["filename"].nunique() == len(
             data_df
         ), "filename should be unique"
-        self.data_df = data_df[data_df["split"] == ("train" if train else "test")]
+        # self.data_df = data_df[data_df["split"] == ("train" if train else "test")]
+        self.data_df = data_df
 
     def __len__(self):
         """Return the number of dataset"""
@@ -190,7 +191,7 @@ def create_dataset(
                 transforms.Normalize([0.5], [0.5]),  # Normalize to [-1,1].
             ]
         )
-        root_dir = os.path.join(dataset_dir, "celeba_hq_256_curated_resized")
+        root_dir = os.path.join(dataset_dir, "celeba_hq_256_50_resized")
         dataset = CelebA(root=root_dir, train=train, transform=preprocess)
     elif dataset_name == "imagenette":
         preprocess = transforms.Compose(
