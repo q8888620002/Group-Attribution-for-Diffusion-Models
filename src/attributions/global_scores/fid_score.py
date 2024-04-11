@@ -4,6 +4,7 @@ FID calculation based on pytorch-fid[1]
 [1]: https://github.com/mseitzer/pytorch-fid
 """
 import pickle as pkl
+import os
 
 import numpy as np
 import torch
@@ -15,7 +16,7 @@ from pytorch_fid.fid_score import (
 from pytorch_fid.inception import InceptionV3
 from torch.nn.functional import adaptive_avg_pool2d
 from tqdm import tqdm
-
+import src.constants as constants
 
 def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=None):
     """Calculate fid given a set of generated images."""
@@ -26,7 +27,7 @@ def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=Non
     inceptionNet.eval()  # Important: .eval() is needed to turn off dropout
 
     # Calculate mu and sigma for reference images
-
+    # Fix bugs when overwritting pkl when specifying  reference_dir 
     if reference_dir is not None:
         mu, sigma = compute_statistics_of_path(
             reference_dir, inceptionNet, batch_size, dims, device
@@ -35,12 +36,12 @@ def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=Non
         stats["mu"] = mu
         stats["sigma"] = sigma
 
-        with open(f"misc/{dataset}_stats.pkl", "wb") as file:
+        with open(os.path.join(constants.DATASET_DIR, dataset, "precomputed", f"stats.pkl"), "wb") as file:
             pkl.dump(stats, file)
 
     else:
         try:
-            with open(f"misc/{dataset}_stats.pkl", "rb") as file:
+            with open(os.path.join(constants.DATASET_DIR, dataset, "precomputed", f"stats.pkl"), "rb") as file:
                 cifar_train = pkl.load(file)
             mu, sigma = cifar_train["mu"], cifar_train["sigma"]
 
