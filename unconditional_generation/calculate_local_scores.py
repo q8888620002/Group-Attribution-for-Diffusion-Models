@@ -21,12 +21,10 @@ from src.ddpm_config import DDPMConfig
 from src.utils import get_max_steps, print_args
 
 
-def load_model_ckpt(model, ckpt_dir, use_ema, return_ckpt: bool = False):
+def load_model_ckpt(model, ckpt_dir, use_ema, steps= None, return_ckpt: bool = False):
     """Load model parameters from the latest checkpoint in a directory."""
-    steps = get_max_steps(ckpt_dir)
 
-    if steps != 200000:
-        raise NameError("The steps needs to be 200000.")
+    steps = get_max_steps(ckpt_dir) if steps is None else steps
 
     if steps is None:
         raise RuntimeError(f"No checkpoints found in {ckpt_dir}")
@@ -79,10 +77,22 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
+        "--removal_model_steps",
+        type=int,
+        help="steps for the removal model",
+        default=None,
+    )
+    parser.add_argument(
         "--full_model_dir",
         type=str,
         help="directory path of model checkpoints trained with the full training set",
         required=True,
+    )
+    parser.add_argument(
+        "--full_model_steps",
+        type=int,
+        help="steps for the full model",
+        default=None,
     )
     parser.add_argument(
         "--outdir", type=str, help="results parent directory", default=constants.OUTDIR
@@ -91,7 +101,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "celeba", "imagenette"],
+        choices=constants.DATASET,
         default="cifar",
     )
     parser.add_argument(
@@ -122,7 +132,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["retrain", "gd", "ga", "esd"],
+        choices=constants.METHOD,
     )
     parser.add_argument(
         "--pruning_ratio",
@@ -189,6 +199,10 @@ def main(args):
     # Load model architectures.
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
+    elif args.dataset == "cifar2":
+        config = {**DDPMConfig.cifar2_config}
+    elif args.dataset == "cifar100":
+        config = {**DDPMConfig.cifar100_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -199,7 +213,8 @@ def main(args):
         raise ValueError(
             (
                 f"dataset={args.dataset} is not one of "
-                "['cifar', 'mnist', 'celeba', 'imagenette']"
+                f"{constants.DATASET}"
+
             )
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
@@ -250,11 +265,11 @@ def main(args):
 
     # Load full and removal model checkpoints.
     print("Loading full model checkpoint...")
-    load_model_ckpt(full_model, args.full_model_dir, args.use_ema)
+    load_model_ckpt(full_model, args.full_model_dir, args.use_ema, args.full_model_steps,)
 
     print("Loading removal model checkpoint...")
     removal_ckpt = load_model_ckpt(
-        removal_model, removal_model_dir, args.use_ema, return_ckpt=True
+        removal_model, removal_model_dir, args.use_ema, args.removal_model_steps, return_ckpt=True
     )
     info_dict["remaining_idx"] = removal_ckpt["remaining_idx"].numpy().tolist()
     info_dict["removed_idx"] = removal_ckpt["removed_idx"].numpy().tolist()

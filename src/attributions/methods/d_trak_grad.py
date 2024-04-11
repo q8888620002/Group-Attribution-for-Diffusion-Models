@@ -21,21 +21,16 @@ from trak.projectors import CudaProjector, ProjectionType
 from trak.utils import is_not_buffer
 
 import src.constants as constants
-from src.ddpm_config import DDPMConfig
-from src.datasets import(
+from src.datasets import (
     create_dataset,
     remove_data_by_class,
     remove_data_by_datamodel,
     remove_data_by_shapley,
-    remove_data_by_uniform
+    remove_data_by_uniform,
 )
-from src.utils import (
-    get_max_steps,
-)
-from src.diffusion_utils import(
-    ImagenetteCaptioner,
-    LabelTokenizer
-)
+from src.ddpm_config import DDPMConfig
+from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer, generate_images
+from src.utils import get_max_steps
 
 
 def parse_args():
@@ -60,8 +55,8 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "celeba", "imagenette"],
-        default="mnist",
+        choices=constants.DATASET,
+        default=None,
     )
     parser.add_argument(
         "--device", type=str, help="device of training", default="cuda:0"
@@ -94,13 +89,6 @@ def parse_args():
         default=0,
     )
     parser.add_argument(
-        "--method",
-        type=str,
-        help="training or unlearning method",
-        choices=["retrain", "gd", "ga", "esd"],
-        required=True,
-    )
-    parser.add_argument(
         "--num_inference_steps",
         type=int,
         default=100,
@@ -126,21 +114,23 @@ def parse_args():
     parser.add_argument(
         "--model_behavior",
         type=str,
-        default=None,
         choices=[
+            "loss",
             "mean",
             "mean-squared-l2-norm",
             "l1-norm",
             "l2-norm",
             "linf-norm",
         ],
+        default=None,
+        required=True,
         help="Specification for D-TRAK model behavior.",
     )
 
     parser.add_argument(
         "--t_strategy",
         type=str,
-        default=None,
+        choices=["uniform", "cumulative"],
         help="strategy for sampling time steps",
     )
     parser.add_argument(
@@ -154,6 +144,12 @@ def parse_args():
         type=int,
         default=1024,
         help="Dimension for TRAK projector",
+    )
+    parser.add_argument(
+        "--calculate_val_grad",
+        help="whether to generate validation set and calculate phi",
+        action="store_true",
+        default=False,
     )
 
     return parser.parse_args()
@@ -210,6 +206,10 @@ def main(args):
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
+    elif args.dataset == "cifar2":
+        config = {**DDPMConfig.cifar2_config}
+    elif args.dataset == "cifar100":
+        config = {**DDPMConfig.cifar100_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -218,10 +218,7 @@ def main(args):
         config = {**DDPMConfig.imagenette_config}
     else:
         raise ValueError(
-            (
-                f"dataset={args.dataset} is not one of "
-                "['cifar', 'mnist', 'celeba', 'imagenette']"
-            )
+            (f"dataset={args.dataset} is not one of " f"{constants.DATASET}")
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
@@ -235,14 +232,11 @@ def main(args):
         removal_dir += f"_seed={args.removal_seed}"
 
     model_outdir = os.path.join(
-        args.outdir,
-        args.dataset,
-        args.method,
-        "models",
-        removal_dir,
+        args.outdir, args.dataset, "retrain", "models", removal_dir
     )
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
+
 
     if args.excluded_class is not None:
         remaining_idx, removed_idx = remove_data_by_class(
@@ -258,9 +252,14 @@ def main(args):
                 train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed
             )
         elif args.removal_dist == "shapley":
-            remaining_idx, removed_idx = remove_data_by_shapley(
-                train_dataset, seed=args.removal_seed
-            )
+            if args.dataset == "cifar100" or "celeba":
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed, by_class=True
+                )
+            else:
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed
+                )
         else:
             raise NotImplementedError
     else:
@@ -276,6 +275,8 @@ def main(args):
         num_workers=1,
     )
     existing_steps = get_max_steps(model_outdir)
+
+    ## load full model
 
     ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{existing_steps:0>8}.pt")
     ckpt = torch.load(ckpt_path, map_location="cpu")
@@ -320,10 +321,9 @@ def main(args):
     save_dir = os.path.join(
         args.outdir,
         args.dataset,
-        args.method,
         "d_track",
         removal_dir,
-        f"f={args.model_behavior}_t={args.t_strategy}",
+        f"train_f={args.model_behavior}_t={args.t_strategy}",
     )
 
     os.makedirs(os.path.dirname(save_dir), exist_ok=True)
@@ -591,7 +591,7 @@ def main(args):
         # If is_grads_dict == True, then turn emb into a dict.
         # emb_dict = {k: v for k, v in zip(keys, emb)}
 
-        emb = projector.project(emb, is_grads_dict=False, model_id=0)
+        emb = projector.project(emb, model_id=0)
         print(emb.size())
         print(emb.dtype)
 
@@ -610,6 +610,113 @@ def main(args):
             ] = (emb.detach().cpu().numpy())
         print(f"{step} / {len(remaining_dataloader)}, {t}")
         print(step * config["batch_size"], step * config["batch_size"] + bsz)
+
+    # Calculating phi for generated images
+
+    if calculate_val_grad:
+        args.batch_size = 128
+        args.n_samples = 1024
+
+        val_save_dir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "d_track",
+            removal_dir,
+            f"val_f={args.model_behavior}_t={args.t_strategy}",
+        )
+
+        os.makedirs(os.path.dirname(val_save_dir), exist_ok=True)
+
+        # Init a memory-mapped array stored on disk directly for D-TRAK results.
+
+        dstore_keys = np.memmap(
+            val_save_dir,
+            dtype=np.float32,
+            mode="w+",
+            shape=(len(remaining_idx), args.projector_dim),
+        )
+
+        generated_samples = generate_images(args, pipeline)
+        images_dataset = TensorDataset(generated_samples)
+
+        for step, (image, _) in enumerate(images_dataset):
+
+            seed_everything(args.opt_seed, workers=True)
+            image = image.to(device)
+            bsz = image.shape[0]
+
+            if args.t_strategy == "uniform":
+                selected_timesteps = range(0, 1000, 1000 // args.k_partition)
+            elif args.t_strategy == "cumulative":
+                selected_timesteps = range(0, args.k_partition)
+
+            for index_t, t in enumerate(selected_timesteps):
+                # Sample a random timestep for each image
+                timesteps = torch.tensor([t] * bsz, device=image.device)
+                timesteps = timesteps.long()
+                seed_everything(args.opt_seed * 1000 + t)  # !!!!
+
+                noise = torch.randn_like(image)
+                noisy_latents = pipeline_scheduler.add_noise(image, noise, timesteps)
+
+                # Get the target for loss depending on the prediction type
+                if pipeline_scheduler.config.prediction_type == "epsilon":
+                    target = noise
+                elif pipeline_scheduler.config.prediction_type == "v_prediction":
+                    target = pipeline_scheduler.get_velocity(image, noise, timesteps)
+                else:
+                    raise ValueError(
+                        f"Unknown prediction type {pipeline_scheduler.config.prediction_type}"
+                    )
+
+                ft_per_sample_grads = ft_compute_sample_grad(
+                    params,
+                    buffers,
+                    noisy_latents,
+                    timesteps,
+                    target,
+                )
+                # if len(keys) == 0:
+                #     keys = ft_per_sample_grads.keys()
+
+                ft_per_sample_grads = vectorize_and_ignore_buffers(
+                    list(ft_per_sample_grads.values())
+                )
+
+                # print(ft_per_sample_grads.size())
+                # print(ft_per_sample_grads.dtype)
+
+                if index_t == 0:
+                    emb = ft_per_sample_grads
+                else:
+                    emb += ft_per_sample_grads
+                # break
+
+            emb = emb / args.k_partition
+            print(emb.size())
+
+            # If is_grads_dict == True, then turn emb into a dict.
+            # emb_dict = {k: v for k, v in zip(keys, emb)}
+
+            emb = projector.project(emb, model_id=0)
+            print(emb.size())
+            print(emb.dtype)
+
+            while (
+                np.abs(
+                    dstore_keys[
+                        step * config["batch_size"] : step * config["batch_size"] + bsz,
+                        0:32,
+                    ]
+                ).sum()
+                == 0
+            ):
+                print("saving")
+                dstore_keys[
+                    step * config["batch_size"] : step * config["batch_size"] + bsz
+                ] = (emb.detach().cpu().numpy())
+            print(f"{step} / {len(remaining_dataloader)}, {t}")
+            print(step * config["batch_size"], step * config["batch_size"] + bsz)
 
 
 if __name__ == "__main__":
