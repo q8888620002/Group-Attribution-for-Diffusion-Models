@@ -417,11 +417,14 @@ def main(args):
             args, remaining_dataloader, pipeline, vqvae_latent_dict
         )
         # import ipdb;ipdb.set_trace()
-        # # Is the following codes weight normalizatoin mentioned in [3]?
 
+        # weight normalization to ensure 1^Tw =1
         retain_grad *= total / ((total + total_2) * total_2)
+
+        # 1/N in equation (1)
         forget_grad /= total + total_2
 
+        # woodfisher approximation for hessian matrix
         delta_w = woodfisher_diff(
             args,
             remaining_dataloader,

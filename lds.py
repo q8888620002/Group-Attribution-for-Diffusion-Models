@@ -359,7 +359,7 @@ def main(args):
             )
 
         elif args.method == "clip_score":
-            clip = CLIPScore("cuda")
+            clip = CLIPScore("cpu")
             coeff = clip.clip_score(
                 args, args.sample_size, args.sample_dir, args.training_dir
             )

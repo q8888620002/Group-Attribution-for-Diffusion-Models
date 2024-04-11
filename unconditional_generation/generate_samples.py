@@ -69,7 +69,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["retrain", "prune_fine_tune", "gd", "ga", "esd"],
+        choices=constants.METHOD,
         required=True,
     )
     parser.add_argument(
