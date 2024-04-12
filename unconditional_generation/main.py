@@ -7,21 +7,21 @@ import math
 import os
 import time
 
-import diffusers
 import numpy as np
 import torch
 import torch.nn as nn
 from accelerate import Accelerator
-from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
-from diffusers.optimization import get_scheduler
-from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
 from tqdm import tqdm
 
+import diffusers
 import src.constants as constants
 import wandb  # wandb for monitoring loss https://wandb.ai/
+from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
+from diffusers.optimization import get_scheduler
+from diffusers.training_utils import EMAModel
 from src.datasets import (
     create_dataset,
     remove_data_by_class,
@@ -215,6 +215,8 @@ def main(args):
         config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "cifar100":
         config = {**DDPMConfig.cifar100_config}
+    elif args.dataset == "cifar100_f":
+        config = {**DDPMConfig.cifar100_f_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":

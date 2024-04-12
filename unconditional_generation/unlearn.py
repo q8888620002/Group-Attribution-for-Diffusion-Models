@@ -289,7 +289,7 @@ def main(args):
             )
         elif args.removal_dist == "shapley":
             if args.dataset == "cifar100" or "celeba":
-                args.by_class =True
+                args.by_class = True
                 remaining_idx, removed_idx = remove_data_by_shapley(
                     train_dataset, seed=args.removal_seed, by_class=args.by_class
                 )

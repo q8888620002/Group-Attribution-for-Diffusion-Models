@@ -49,7 +49,7 @@ class CIFAR2(CIFAR10):
         self.class_to_idx = {"automobile": 0, "horse": 1}
 
 
-class CIFAR100(CIFAR100):
+class CIFAR100_original(CIFAR100):
     """
     Dataloader for CIFAR-100 dataset to include only animal classes.
 
@@ -106,6 +106,46 @@ class CIFAR100(CIFAR100):
             for i, target in enumerate(self.targets)
             if target in self.classes_to_keep
         ]
+
+
+class CIFAR100_filter(CIFAR100):
+    """
+    Dataloader for CIFAR-100 dataset to include only animal classes.
+
+    Return_
+        3x32x32 CIFAR-100 images, and its corresponding label
+    """
+
+    def __init__(
+        self, root, train=True, transform=None, target_transform=None, download=False
+    ):
+        super().__init__(
+            root,
+            train=train,
+            transform=transform,
+            target_transform=target_transform,
+            download=download,
+        )
+        self.filter_data()
+
+    def filter_data(self):
+        max_samples_per_class = (
+            np.arange(1, 101) * 2
+        )  # Generates an array [2, 4, 6, ..., 200]
+        class_sample_count = np.zeros(
+            100, dtype=int
+        )  # Tracker for number of samples per class
+        filtered_indices = []
+
+        # Loop over each sample and decide whether to keep it based on the class count
+        for i, target in enumerate(self.targets):
+            if class_sample_count[target] < max_samples_per_class[target]:
+                filtered_indices.append(i)
+                class_sample_count[target] += 1
+
+        # Use the filtered indices to select the relevant samples
+        self.data = self.data[filtered_indices]
+        self.targets = [self.targets[i] for i in filtered_indices]
 
 
 class CelebA(Dataset):
@@ -243,9 +283,24 @@ def create_dataset(
             ]
         )
         root_dir = os.path.join(dataset_dir, "cifar100")
-        dataset = CIFAR100(
+        dataset = CIFAR100_original(
             root=root_dir, train=train, download=True, transform=preprocess
         )
+    elif dataset_name == "cifar100_f":
+        preprocess = transforms.Compose(
+            [
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),  # Normalize to [0,1].
+                transforms.Normalize(
+                    (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
+                ),  # Normalize to [-1,1].
+            ]
+        )
+        root_dir = os.path.join(dataset_dir, "cifar100")
+        dataset = CIFAR100_filter(
+            root=root_dir, train=train, download=True, transform=preprocess
+        )
+
     elif dataset_name == "mnist":
         preprocess = transforms.Compose(
             [
