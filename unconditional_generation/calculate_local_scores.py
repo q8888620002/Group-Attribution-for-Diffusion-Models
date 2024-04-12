@@ -14,6 +14,7 @@ from skimage.metrics import (
     structural_similarity,
 )
 from tqdm import tqdm
+from torchvision.utils import save_image
 
 import src.constants as constants
 from src.ddpm_config import DDPMConfig
@@ -261,6 +262,14 @@ def main(args):
         )
         info_dict["removal_model_dir"] = removal_model_dir
 
+    sample_outdir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "local_scores",
+            "ema_generated_samples" if args.use_ema else "generated_samples",
+    )
+    os.makedirs(sample_outdir, exist_ok=True)
+
     # Load full and removal model checkpoints.
     print("Loading full model checkpoint...")
     load_model_ckpt(full_model, args.full_model_dir, args.use_ema, args.full_model_steps,)
@@ -317,7 +326,12 @@ def main(args):
         # behavior.
         loss_fn = torch.nn.MSELoss(reduction="mean")
         full_image = torch.from_numpy(full_image).permute([0, 3, 1, 2]).to(args.device)
-
+        save_image(
+            full_image,
+            os.path.join(
+                sample_outdir, f"generated_image_{random_seed}.png"
+            ),
+        )
         removal_pipeline = removal_pipeline.to(args.device)
         removal_pipeline.scheduler.set_timesteps(args.num_inference_steps)
         timesteps = removal_pipeline.scheduler.timesteps.to(args.device)
