@@ -11,8 +11,9 @@ export PYTHONPATH="$PYTHONPATH:$PWD"
 conda create -n data_attribution python=3.11.5
 conda activate data_attribution
 conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
-pip install -r requirements.txt
+pip install -r requirements.txt # If torch is already installed, remove torch and torchvision from requirements.txt
 ```
+
 
 ## Train
 
@@ -33,7 +34,7 @@ python main.py
 ## Full model training
 
 ```bash
-CUDA_VISIBLE_DEVICES=7 \
+CUDA_VISIBLE_DEVICES=0 \
 python unconditional_generation/main.py \
 --dataset celeba \
 --method retrain \

@@ -11,7 +11,7 @@
 #SBATCH --mail-user=chanwkim@uw.edu
 #SBATCH --output=/gscratch/scrubbed/chanwkim/diffusion-attr/logs/train/celeba/retrain/shapley/run-%x-%A-%a.out
 #SBATCH --requeue
-#SBATCH --array=1-68
+#SBATCH --array=1-100
 #SBATCH --open-mode=append
 
 PARAMS_FILE="/mmfs1/gscratch/aims/chanwkim/data_attribution/unconditional_generation/celeba_experiments/commands/train/celeba/retrain/shapley/command.txt"

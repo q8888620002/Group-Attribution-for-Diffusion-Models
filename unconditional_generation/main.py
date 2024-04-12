@@ -285,11 +285,7 @@ def main(args):
 
     # Save the removed and remaining indices for reproducibility.
     np.save( os.path.join(model_outdir, "remaining_idx.npy"), remaining_idx)
-    np.save( os.path.join(model_outdir, "removed_idx.npy"), removed_idx)        
-
-    # Save the removed and remaining indices for reproducibility.
-    np.save( os.path.join(model_outdir, "remaining_idx.npy"), remaining_idx)
-    np.save( os.path.join(model_outdir, "removed_idx.npy"), removed_idx)        
+    np.save( os.path.join(model_outdir, "removed_idx.npy"), removed_idx)              
 
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
