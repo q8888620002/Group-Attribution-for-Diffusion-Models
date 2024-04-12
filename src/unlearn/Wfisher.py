@@ -114,16 +114,19 @@ def get_grad(args, data_loaders, pipeline, vqvae_latent_dict=None):
             new_labels = {l.item() for l in torch.unique(label)}
             new_labels -= unique_labels
             unique_labels.update(new_labels)
-            total_count += len(new_labels)        
+            total_count += len(new_labels)
         else:
 
             total_count += batch_size
-    
+
     return total_count, total_grad
 
 
 def woodfisher_diff(args, N, data_loaders, pipeline, grads, vqvae_latent_dict=None):
-    """Calculate grdient for a given dataloader"""
+    """
+    Calculate the hessian inverse with woodfisher approximation
+    equation (2) in https://arxiv.org/pdf/2004.14340.pdf
+    """
 
     device = pipeline.device
     model = pipeline.unet
