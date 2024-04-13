@@ -119,14 +119,11 @@ def kernel_shap(dataset_size, x_train, y_train, v1, v0):
         w = np.linalg.solve(X.T @ WX, WX.T @ y)
     except np.linalg.LinAlgError:
         warnings.warn(
-            "Linear regression equation is singular,
-            " a least squares solutions is used instead.\n"
+            "Linear regression equation is singular, a least squares solutions is used instead.\n"
             "To avoid this situation and get a regular matrix do one of the following:\n"
             "1) turn up the number of samples,\n"
-            "2) turn up the L1 regularization with num_features(N)
-            " where N is less than the number of samples,\n"
-            "3) group features together to reduce the number of inputs that need
-            " to be explained."
+            "2) turn up the L1 regularization with num_features(N) where N is less than the number of samples,\n"
+            "3) group features together to reduce the number of inputs that need to be explained."
         )
         # XWX = np.linalg.pinv(X.T @ WX)
         # w = np.dot(XWX, np.dot(np.transpose(WX), y))

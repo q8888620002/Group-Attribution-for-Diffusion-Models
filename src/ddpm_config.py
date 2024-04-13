@@ -295,7 +295,7 @@ class DDPMConfig:
         "batch_size": 128,
         "training_steps": {
             "retrain": 20000,
-            "prune_fine_tune": 10000,
+            "prune_fine_tune": 20000,
             "ga": 40,
             "gd": 4000,
             "esd": 5000,
@@ -303,7 +303,7 @@ class DDPMConfig:
         },
         "ckpt_freq": {
             "retrain": 10000,
-            "prune_fine_tune": 10000,
+            "prune_fine_tune": 5000,
             "ga": 400,
             "gd": 500,
             "esd": 1000,

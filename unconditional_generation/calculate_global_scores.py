@@ -3,13 +3,11 @@ import argparse
 import json
 import os
 
-import diffusers
 from lightning.pytorch import seed_everything
 
 import src.constants as constants
 from src.attributions.global_scores import fid_score, inception_score, precision_recall
 from src.datasets import ImageDataset, TensorDataset
-from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import build_pipeline, generate_images, load_ckpt_model
 from src.utils import print_args
 
@@ -150,24 +148,6 @@ def main(args):
     seed_everything(args.seed)
     info_dict = vars(args)
 
-    if args.dataset == "cifar":
-        config = {**DDPMConfig.cifar_config}
-    elif args.dataset == "cifar2":
-        config = {**DDPMConfig.cifar2_config}
-    elif args.dataset == "cifar100":
-        config = {**DDPMConfig.cifar100_config}
-    elif args.dataset == "celeba":
-        config = {**DDPMConfig.celeba_config}
-    elif args.dataset == "mnist":
-        config = {**DDPMConfig.mnist_config}
-    elif args.dataset == "imagenette":
-        config = {**DDPMConfig.imagenette_config}
-    else:
-        raise ValueError(
-            (f"dataset={args.dataset} is not one of " f"{constants.DATASET}")
-        )
-    model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
-
     # Check if there's need to generate samples.
     dims = 2048
 
@@ -190,12 +170,13 @@ def main(args):
         )
         sample_dir = None
 
-        model_strc = model_cls(**config["unet_config"])
-
-        model, remaining_idx, removed_idx = load_ckpt_model(
-            args, model_cls, model_strc, model_loaddir
+        model, ema_model, remaining_idx, removed_idx = load_ckpt_model(
+            args, model_loaddir
         )
-        pipeline = build_pipeline(args, model)
+        if args.use_ema:
+            ema_model.copy_to(model.parameters())
+
+        pipeline, vqvae, vqvae_latent_dict = build_pipeline(args, model)
 
         generated_samples = generate_images(args, pipeline)
 

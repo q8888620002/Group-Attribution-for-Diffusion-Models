@@ -311,7 +311,7 @@ def main(args):
 
     args.trained_steps = get_max_steps(args.load)
 
-    model, ema_model = load_ckpt_model(args)
+    model, ema_model, _ , _ = load_ckpt_model(args, args.load)
 
     model.to(device)
     ema_model.to(device)

@@ -4,12 +4,18 @@ import math
 import os
 import sys
 
-import diffusers
 import numpy as np
 import torch
 import torch.nn as nn
 import torch_pruning as tp
 from accelerate import Accelerator
+from lightning.pytorch import seed_everything
+from torch.utils.data import DataLoader
+from torchvision.utils import save_image
+from tqdm import tqdm
+
+import diffusers
+import src.constants as constants
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
@@ -21,12 +27,6 @@ from diffusers import (
 )
 from diffusers.models.attention import Attention
 from diffusers.models.resnet import Downsample2D, Upsample2D
-from lightning.pytorch import seed_everything
-from torch.utils.data import DataLoader
-from torchvision.utils import save_image
-from tqdm import tqdm
-
-import src.constants as constants
 from src.datasets import create_dataset
 from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer
@@ -45,7 +45,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar2", "cifar", "celeba"],
+        choices=constants.DATASET,
         default=None,
     )
     parser.add_argument(
@@ -210,6 +210,12 @@ def main(args):
             "sample": torch.randn(1, 3, 32, 32).to(device),
             "timestep": torch.ones((1,)).long().to(device),
         }
+    elif args.dataset in ["cifar100", "cifar100_f"]:
+        config = {**DDPMConfig.cifar100_f_config}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 32, 32).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
         example_inputs = {
@@ -226,10 +232,7 @@ def main(args):
         config = {**DDPMConfig.imagenette_config}
     else:
         raise ValueError(
-            (
-                f"dataset={args.dataset} is not one of "
-                "['cifar','cifar2', 'mnist', 'celeba', 'imagenette']"
-            )
+            (f"dataset={args.dataset} is not one of " f"{constants.DATASET}")
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
