@@ -213,9 +213,13 @@ class ImageDataset(Dataset):
 class TensorDataset(Dataset):
     """Wraps tensor data for easy dataset operations."""
 
-    def __init__(self, data):
+    def __init__(self, data, transform=None):
         """Initializes dataset with data tensor."""
         self.data = data
+        self.transform = transform
+
+        if self.transform is not None:
+            self.data = self.transform(self.data)
 
     def __len__(self):
         """Returns dataset size."""

@@ -15,7 +15,8 @@ import numpy as np
 import seaborn as sns
 from scipy.stats import bootstrap, spearmanr
 from sklearn.linear_model import RidgeCV
-from sklearn.model_selection import KFold
+
+# from sklearn.model_selection import KFold
 from tqdm import tqdm
 
 import src.constants as constants
@@ -207,7 +208,7 @@ def parse_args():
 def removed_by_classes(index_to_class, remaining_idx):
     """Function that maps data index to subgroup index"""
     remaining_classes = set(index_to_class[idx] for idx in remaining_idx)
-    all_classes = set(range(20))  # Assuming 20 classes
+    all_classes = set(index_to_class.values())
     removed_classes = all_classes - remaining_classes
 
     return np.array(list(remaining_classes)), np.array(list(removed_classes))
@@ -253,6 +254,7 @@ def collect_data(
                         index_to_class, remaining_idx
                     )
                     remaining_mask = np.zeros(len(remaining_idx) + len(removed_idx))
+
                 else:
                     remaining_mask = np.zeros(train_size)
 
@@ -295,6 +297,8 @@ def main(args):
         "removal_dist": args.removal_dist,
         "method": "retrain",  # The test set should pertain only to retrained models.
     }
+
+    print(f"Loading testing data from {args.test_db}")
     test_masks, test_targets, test_seeds = collect_data(
         args.test_db,
         test_condition_dict,
@@ -303,8 +307,9 @@ def main(args):
         args.n_samples,
         args.by_class,
     )
-    # # Extract subsets for estimating data attribution scores.
 
+    # Extract subsets for estimating data attribution scores.
+    print(f"Loading training data from {args.train_db}")
     train_condition_dict = {
         "exp_name": args.train_exp_name,
         "dataset": args.dataset,
@@ -313,10 +318,6 @@ def main(args):
         if args.method in ["trak", "clip_score", "pixel_dist"]
         else args.method,
     }
-    # Set random states
-
-    random.seed(42)
-    np.random.seed(42)
 
     train_masks, train_targets, train_seeds = collect_data(
         args.train_db,
@@ -329,8 +330,13 @@ def main(args):
 
     common_seeds = list(set(train_seeds) & set(test_seeds))
     common_seeds.sort()
+    # num_folds = 5
 
-    test_seeds_filtered = random.sample(common_seeds, 5 * args.num_test_subset)
+    random.seed(42)
+    np.random.seed(42)
+
+    # test_seeds_filtered = random.sample(common_seeds, num_folds* args.num_test_subset)
+    test_seeds_filtered = random.sample(common_seeds, args.num_test_subset)
 
     # Select training instances.
     overlap_bool = np.isin(train_seeds, test_seeds_filtered)
@@ -357,7 +363,7 @@ def main(args):
             coeff = pixel_distance(
                 args, args.sample_size, args.sample_dir, args.training_dir
             )
-
+            coeff = np.ones(coeff.shape)
         elif args.method == "clip_score":
             clip = CLIPScore("cpu")
             coeff = clip.clip_score(
@@ -389,59 +395,37 @@ def main(args):
 
         # Calculate LDS with K-Folds
 
-        num_folds = 5
-        k_fold_lds = []
+        # k_fold_lds = []
 
-        kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
+        # kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
 
-        for fold_idx, (_, test_index) in enumerate(kf.split(test_seeds_filtered)):
-            test_seeds_fold = [test_seeds_filtered[i] for i in test_index]
+        # for fold_idx, (_, test_index) in enumerate(kf.split(test_seeds_filtered)):
+        #     test_seeds_fold = [test_seeds_filtered[i] for i in test_index]
 
-            test_indices_bool = np.isin(test_seeds, test_seeds_fold)
-            test_indices = np.where(test_indices_bool)[0]
+        #     test_indices_bool = np.isin(test_seeds, test_seeds_fold)
+        #     test_indices = np.where(test_indices_bool)[0]
 
-            test_masks_fold = test_masks[test_indices]
-            test_targets_fold = test_targets[test_indices]
+        #     test_masks_fold = test_masks[test_indices]
+        #     test_targets_fold = test_targets[test_indices]
 
-            print(
-                f"Estimating scores with {len(train_masks)} subsets"
-                f" in {fold_idx+1}-fold"
-            )
-            np.set_printoptions(suppress=True)
-            print((test_masks_fold @ data_attr_list[i]).reshape(-1))
-            print(test_targets_fold[:, i])
-            k_fold_lds.append(
-                spearmanr(
-                    test_masks_fold @ data_attr_list[i], test_targets_fold[:, i]
-                ).statistic
-                * 100
-            )
+        #     print(
+        #         f"Estimating scores with {len(train_masks)} subsets"
+        #         f" in {fold_idx+1}-fold"
+        #     )
+        #     np.set_printoptions(suppress=True)
+        #     print((test_masks_fold @ data_attr_list[i]).reshape(-1))
+        #     print(test_targets_fold[:, i])
+        #     k_fold_lds.append(
+        #         spearmanr(
+        #             test_masks_fold @ data_attr_list[i], test_targets_fold[:, i]
+        #         ).statistic
+        #         * 100
+        #     )
 
-        print(f"Mean: {np.mean(k_fold_lds):.3f}")
-        print(f"Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}")
+        # print(f"Mean: {np.mean(k_fold_lds):.3f}")
+        # print(f"Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}")
 
         # plots for sanity check
-        fig, axs = plt.subplots(1, 1, figsize=(20, 10))
-        bin_edges = np.histogram_bin_edges(coeff, bins="auto")
-        sns.histplot(coeff, bins=bin_edges, alpha=0.5)
-
-        plt.xlabel("Shapley Value")
-        plt.ylabel("Frequency")
-        plt.title(
-            f"{args.dataset} with {args.max_train_size} training set\n"
-            f"Mean: {np.mean(k_fold_lds):.3f};"
-            f"Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}\n"
-            f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
-        )
-
-        result_path = f"results/lds/{args.dataset}/{args.method}/"
-
-        os.makedirs(result_path, exist_ok=True)
-        plt.savefig(
-            os.path.join(
-                result_path, f"{args.model_behavior_key}_{args.max_train_size}.png"
-            )
-        )
 
     # Calculate test LDS with bootstrapping.
     if args.bootstrapped:
@@ -478,6 +462,28 @@ def main(args):
         print(f"Mean: {boot_mean:.2f}")
         print(f"Standard error: {boot_se:.2f}")
         print(f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})")
+
+        fig, axs = plt.subplots(1, 1, figsize=(20, 10))
+        bin_edges = np.histogram_bin_edges(coeff, bins="auto")
+        sns.histplot(coeff, bins=bin_edges, alpha=0.5)
+
+        plt.xlabel("Shapley Value")
+        plt.ylabel("Frequency")
+        plt.title(
+            f"{args.dataset} with {args.max_train_size} training set\n"
+            f"Mean: {boot_mean:.3f};"
+            f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
+            f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
+        )
+
+        result_path = f"results/lds/{args.dataset}/{args.method}/"
+
+        os.makedirs(result_path, exist_ok=True)
+        plt.savefig(
+            os.path.join(
+                result_path, f"{args.model_behavior_key}_{args.max_train_size}.png"
+            )
+        )
 
 
 if __name__ == "__main__":

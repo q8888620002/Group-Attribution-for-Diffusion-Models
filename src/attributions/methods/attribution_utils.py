@@ -70,7 +70,7 @@ class CLIPScore:
 
         if args.by_class:
             dataset = create_dataset(dataset_name=args.dataset, train=True)
-            coeff = sum_scores_by_class(coeff, dataset)
+            coeff = mean_scores_by_class(coeff, dataset)
 
         return coeff
 
@@ -112,22 +112,32 @@ def create_removal_path(args, seed_index):
     raise ValueError(f"No record found for sample_dir: {removal_dir}")
 
 
-def sum_scores_by_class(scores, dataset):
+def mean_scores_by_class(scores, dataset):
     """
-    Sum scores by classes and return group-based scores
+    Compute mean scores by classes and return group-based means.
 
-    :param scores: sample based coefficients
-    :param dataset: dataset
-    :return: Numpy array with summed scores, indexed by label.
+    :param scores: sample-based coefficients
+    :param dataset: dataset, each entry should be a tuple or list with the label as the last element
+    :return: Numpy array with mean scores, indexed by label.
     """
-    # Initialize a dictionary to accumulate scores for each label
-    score_sum_by_label = {}
+    # Initialize dictionaries to accumulate scores and counts for each label
+    scores_and_counts = {}
+
+    # Gather sums and counts per label
     for score, (_, label) in zip(scores, dataset):
-        score_sum_by_label[label] = score_sum_by_label.get(label, 0) + score
+        if label in scores_and_counts:
+            scores_and_counts[label][0] += score
+            scores_and_counts[label][1] += 1
+        else:
+            scores_and_counts[label] = [score, 1]  # [sum, count]
 
-    result_array = np.zeros(max(score_sum_by_label.keys()) + 1)
-    for label, sum_score in score_sum_by_label.items():
-        result_array[label] = sum_score
+    # Prepare the result array
+    num_labels = max(scores_and_counts.keys()) + 1
+    result_array = np.zeros(num_labels)
+
+    # Compute the mean for each label
+    for label, (total_score, count) in scores_and_counts.items():
+        result_array[label] = total_score / count
 
     return result_array
 
@@ -174,16 +184,15 @@ def pixel_distance(args, sample_size, generated_dir, training_dir):
 
     generated_images = generated_images.reshape(generated_images.shape[0], -1)
     ref_images = ref_images.reshape(ref_images.shape[0], -1)
+    # Normalize the image vectors to unit vectors
+    generated_images = generated_images / np.linalg.norm(generated_images, axis=1, keepdims=True)
+    ref_images = ref_images / np.linalg.norm(ref_images, axis=1, keepdims=True)
 
-    # Calculate the pairwise Euclidean distances.
-
-    distances = np.zeros((len(generated_images), len(ref_images)))
-
-    distances = cdist(generated_images, ref_images, metric="euclidean")
-    coeff = -np.mean(distances, axis=0)
+    similarities = np.dot(generated_images, ref_images.T)
+    coeff = np.mean(similarities, axis=0)
 
     if args.by_class:
         dataset = create_dataset(dataset_name=args.dataset, train=True)
-        coeff = sum_scores_by_class(coeff, dataset)
-
+        coeff = mean_scores_by_class(coeff, dataset)
+    
     return coeff
