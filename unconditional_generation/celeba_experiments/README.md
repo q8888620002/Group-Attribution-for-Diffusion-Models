@@ -77,8 +77,8 @@ With `unconditional_generation/celeba_experiments/train.job` updated, run
 ```bash
 cd unconditional_generation/celeba_experiments
 sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
-sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k" --cpus-per-task=4 --mem=16G train.job
-sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train.job
+# sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
 ```
 
 ```bash
