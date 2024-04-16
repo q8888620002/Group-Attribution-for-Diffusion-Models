@@ -190,7 +190,7 @@ class CelebA(Dataset):
 class ImageDataset(Dataset):
     """Loads and transforms images from a directory."""
 
-    def __init__(self, img_dir, transform=transforms.PILToTensor()):
+    def __init__(self, img_dir, transform=transforms.PILToTensor(), max_size=None):
         """Initializes dataset with image directory and transform."""
         self.img_dir = img_dir
         self.img_list = [
@@ -198,6 +198,8 @@ class ImageDataset(Dataset):
             for img in os.listdir(img_dir)
             if img.split(".")[-1] in {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
         ]
+        if max_size is not None:
+            self.img_list[:max_size]
         self.transform = transform
 
     def __getitem__(self, idx):

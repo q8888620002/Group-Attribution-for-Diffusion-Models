@@ -1,6 +1,7 @@
 """Unpack CIFAR-10 data into png image files."""
 import os
 import pickle
+import random
 
 from PIL import Image
 import torchvision.transforms as transforms
@@ -41,22 +42,25 @@ def process_batch(batch_data, output_path, batch_file, labels=None):
             img.save(os.path.join(output_folder, f"{batch_file}_image_{i}.png"))
 
 
-def save_images_with_labels(dataset, target_labels=None):
+def save_images_with_labels(dataset, save_path, target_labels=None):
 
     # Loop through the dataset
+    os.makedirs(save_path, exist_ok=True)
+
     for i in range(len(dataset)):
         image, label = dataset[i]
         
-        # Check if the current image's label is in our list of target labels
-        # if label in target_labels:
-            # Save the image
-        
-        os.makedirs('/gscratch/aims/datasets/cifar100_f/train', exist_ok=True)
-        image.save(os.path.join('/gscratch/aims/datasets/cifar100_f/train', f'img_{i}_label_{label}.jpg'))
+        if target_labels is not None:
+            if label in target_labels:            
+                image.save(os.path.join(save_path, f'img_{i}_label_{label}.jpg'))
+        else:
+            image.save(os.path.join(save_path, f'img_{i}_label_{label}.jpg'))
 
-trainset = CIFAR100_filter(root='/gscratch/aims/datasets/cifar100', train=True, download=True)
+trainset = CIFAR100(root='/gscratch/aims/datasets/cifar100', train=True, download=True)
 
-save_images_with_labels(trainset)
+random.seed(42)
+target_labels = random.sample(range(100), 25)
+save_images_with_labels(trainset, '/gscratch/aims/datasets/cifar100_f/filtered_2', target_labels)
 
 
 # classes_to_keep = [

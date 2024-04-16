@@ -9,7 +9,7 @@ import argparse
 import json
 import os
 import random
-
+import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
@@ -327,7 +327,6 @@ def main(args):
         args.n_samples,
         args.by_class,
     )
-
     common_seeds = list(set(train_seeds) & set(test_seeds))
     common_seeds.sort()
     # num_folds = 5
@@ -363,11 +362,12 @@ def main(args):
             coeff = pixel_distance(
                 args, args.sample_size, args.sample_dir, args.training_dir
             )
-            coeff = np.ones(coeff.shape)
+            # coeff = np.ones(coeff.shape)
         elif args.method == "clip_score":
-            clip = CLIPScore("cpu")
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            clip = CLIPScore(device)
             coeff = clip.clip_score(
-                args, args.sample_size, args.sample_dir, args.training_dir
+                args.dataset, args.sample_size, args.sample_dir, args.training_dir
             )
         elif args.removal_dist == "datamodel":
 
@@ -390,7 +390,7 @@ def main(args):
                 args.v1,
                 args.v0,
             )
-
+            # coeff = np.ones(coeff.shape)
         data_attr_list.append(coeff)
 
         # Calculate LDS with K-Folds
@@ -428,62 +428,61 @@ def main(args):
         # plots for sanity check
 
     # Calculate test LDS with bootstrapping.
-    if args.bootstrapped:
 
-        test_indices_bool = np.isin(test_seeds, test_seeds_filtered)
-        test_indices = np.where(test_indices_bool)[0]
+    test_indices_bool = np.isin(test_seeds, test_seeds_filtered)
+    test_indices = np.where(test_indices_bool)[0]
 
-        test_masks = test_masks[test_indices]
-        test_targets = test_targets[test_indices]
+    test_masks = test_masks[test_indices]
+    test_targets = test_targets[test_indices]
 
-        def my_lds(idx):
-            boot_masks = test_masks[idx, :]
-            lds_list = []
-            for i in range(num_targets):
-                boot_targets = test_targets[idx, i]
-                lds_list.append(
-                    spearmanr(boot_masks @ data_attr_list[i], boot_targets).statistic
-                    * 100
-                )
-            return np.mean(lds_list)
-
-        print(f"Estimating scores with {len(train_targets)} subsets with bootstrap.")
-        boot_result = bootstrap(
-            data=(list(range(len(test_targets))),),
-            statistic=my_lds,
-            n_resamples=args.num_bootstrap_iters,
-            random_state=42,
-        )
-        boot_mean = np.mean(boot_result.bootstrap_distribution.mean())
-        boot_se = boot_result.standard_error
-        boot_ci_low = boot_result.confidence_interval.low
-        boot_ci_high = boot_result.confidence_interval.high
-
-        print(f"Mean: {boot_mean:.2f}")
-        print(f"Standard error: {boot_se:.2f}")
-        print(f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})")
-
-        fig, axs = plt.subplots(1, 1, figsize=(20, 10))
-        bin_edges = np.histogram_bin_edges(coeff, bins="auto")
-        sns.histplot(coeff, bins=bin_edges, alpha=0.5)
-
-        plt.xlabel("Shapley Value")
-        plt.ylabel("Frequency")
-        plt.title(
-            f"{args.dataset} with {args.max_train_size} training set\n"
-            f"Mean: {boot_mean:.3f};"
-            f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
-            f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
-        )
-
-        result_path = f"results/lds/{args.dataset}/{args.method}/"
-
-        os.makedirs(result_path, exist_ok=True)
-        plt.savefig(
-            os.path.join(
-                result_path, f"{args.model_behavior_key}_{args.max_train_size}.png"
+    def my_lds(idx):
+        boot_masks = test_masks[idx, :]
+        lds_list = []
+        for i in range(num_targets):
+            boot_targets = test_targets[idx, i]
+            lds_list.append(
+                spearmanr(boot_masks @ data_attr_list[i], boot_targets).statistic
+                * 100
             )
+        return np.mean(lds_list)
+
+    print(f"Estimating scores with {len(train_targets)} subsets with bootstrap.")
+    boot_result = bootstrap(
+        data=(list(range(len(test_targets))),),
+        statistic=my_lds,
+        n_resamples=args.num_bootstrap_iters,
+        random_state=42,
+    )
+    boot_mean = np.mean(boot_result.bootstrap_distribution.mean())
+    boot_se = boot_result.standard_error
+    boot_ci_low = boot_result.confidence_interval.low
+    boot_ci_high = boot_result.confidence_interval.high
+
+    print(f"Mean: {boot_mean:.2f}")
+    print(f"Standard error: {boot_se:.2f}")
+    print(f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})")
+
+    fig, axs = plt.subplots(1, 1, figsize=(20, 10))
+    bin_edges = np.histogram_bin_edges(coeff, bins="auto")
+    sns.histplot(coeff, bins=bin_edges, alpha=0.5)
+
+    plt.xlabel("Shapley Value")
+    plt.ylabel("Frequency")
+    plt.title(
+        f"{args.dataset} with {args.max_train_size} training set\n"
+        f"Mean: {boot_mean:.3f};"
+        f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
+        f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
+    )
+
+    result_path = f"results/lds/{args.dataset}/{args.method}/"
+
+    os.makedirs(result_path, exist_ok=True)
+    plt.savefig(
+        os.path.join(
+            result_path, f"{args.model_behavior_key}_{args.max_train_size}.png"
         )
+    )
 
 
 if __name__ == "__main__":
