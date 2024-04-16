@@ -57,12 +57,12 @@ class CLIPScore:
 
         with torch.no_grad():
             print(f"Calculating CLIP embeddings for {sample_dir}...")
-            for sample_batch in tqdm(sample_loader):
+            for sample_batch, _  in tqdm(sample_loader):
                 features = self.clip_model.encode_image(sample_batch.to(self.device))
                 all_sample_features.append(features.cpu().numpy())
 
             print(f"Calculating CLIP embeddings for {training_dir}...")
-            for training_batch in tqdm(train_loader):
+            for training_batch, _ in tqdm(train_loader):
                 features = self.clip_model.encode_image(training_batch.to(self.device))
                 all_training_features.append(features.cpu().numpy())
 

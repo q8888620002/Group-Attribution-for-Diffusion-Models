@@ -205,7 +205,7 @@ class ImageDataset(Dataset):
     def __getitem__(self, idx):
         """Returns transformed image at index `idx`."""
         with Image.open(os.path.join(self.img_dir, self.img_list[idx])) as im:
-            return self.transform(im)
+            return self.transform(im), -1
 
     def __len__(self):
         """Returns total number of images."""

@@ -23,6 +23,7 @@ from diffusers import (
     VQModel,
 )
 from src.datasets import (
+    ImageDataset,
     TensorDataset,
     create_dataset,
     remove_data_by_class,
@@ -155,6 +156,11 @@ def parse_args():
         help="Dimension for TRAK projector",
     )
     parser.add_argument(
+        "--sample_dir",
+        type=str,
+        help="filepath of sample (generated) images ",
+    )
+    parser.add_argument(
         "--calculate_val_grad",
         help="whether to generate validation set and calculate phi",
         action="store_true",
@@ -284,12 +290,51 @@ def main(args):
 
     config["batch_size"] = 8
 
-    remaining_dataloader = DataLoader(
-        Subset(train_dataset, remaining_idx),
-        batch_size=config["batch_size"],
-        shuffle=True,
-        num_workers=1,
-    )
+    if args.sample_dir is None:
+
+        remaining_dataloader = DataLoader(
+            Subset(train_dataset, remaining_idx),
+            batch_size=config["batch_size"],
+            shuffle=True,
+            num_workers=1,
+        )
+
+        save_dir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "d_track",
+            removal_dir,
+            f"train_f={args.model_behavior}_t={args.t_strategy}",
+        )
+
+    else:
+
+        preprocess = transforms.Compose(
+            [
+                transforms.ToTensor(),  # Normalize to [0,1].
+                transforms.Normalize(
+                    (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
+                ),  # Normalize to [-1,1].
+            ]
+        )
+        sample_dataset = ImageDataset(args.sample_dir, preprocess)
+        
+        remaining_dataloader = DataLoader(
+            sample_dataset,
+            batch_size=config["batch_size"],
+            shuffle=True,
+            num_workers=1,
+        )
+
+        save_dir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "d_track",
+            "reference",
+            f"reference_f={args.model_behavior}_t={args.t_strategy}",
+        )
+
+    os.makedirs(os.path.dirname(save_dir), exist_ok=True)
     existing_steps = get_max_steps(model_outdir)
 
     # load full model
@@ -334,15 +379,6 @@ def main(args):
 
     pipeline_scheduler = pipeline.scheduler
 
-    save_dir = os.path.join(
-        args.outdir,
-        args.dataset,
-        "d_track",
-        removal_dir,
-        f"train_f={args.model_behavior}_t={args.t_strategy}",
-    )
-
-    os.makedirs(os.path.dirname(save_dir), exist_ok=True)
 
     # Init a memory-mapped array stored on disk directly for D-TRAK results.
 

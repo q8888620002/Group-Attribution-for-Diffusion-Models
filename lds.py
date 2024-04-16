@@ -189,7 +189,7 @@ def parse_args():
     parser.add_argument(
         "--sample_size",
         type=int,
-        default=128,
+        default=None,
         help="Number of samples for local model behavior",
     )
     parser.add_argument(
