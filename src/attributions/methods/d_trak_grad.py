@@ -318,7 +318,7 @@ def main(args):
             ]
         )
         sample_dataset = ImageDataset(args.sample_dir, preprocess)
-        
+
         remaining_dataloader = DataLoader(
             sample_dataset,
             batch_size=config["batch_size"],
@@ -378,7 +378,6 @@ def main(args):
         ).to(device)
 
     pipeline_scheduler = pipeline.scheduler
-
 
     # Init a memory-mapped array stored on disk directly for D-TRAK results.
 
