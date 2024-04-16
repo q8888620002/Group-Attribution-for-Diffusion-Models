@@ -48,8 +48,8 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar", "cifar2", "celeba", "imagenette"],
-        default="mnist",
+        choices=constants.DATASET,
+        required=True,
     )
     parser.add_argument(
         "--log_freq",
@@ -92,7 +92,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["retrain", "prune_fine_tune", "gd", "ga", "esd"],
+        choices=constants.METHOD,
         required=True,
     )
     parser.add_argument(
@@ -213,6 +213,8 @@ def main(args):
         config = {**DDPMConfig.cifar_config}
     elif args.dataset == "cifar2":
         config = {**DDPMConfig.cifar2_config}
+    elif args.dataset == "cifar100":
+        config = {**DDPMConfig.cifar100_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -220,12 +222,7 @@ def main(args):
     elif args.dataset == "imagenette":
         config = {**DDPMConfig.imagenette_config}
     else:
-        raise ValueError(
-            (
-                f"dataset={args.dataset} is not one of "
-                "['cifar', 'mnist', 'celeba', 'imagenette']"
-            )
-        )
+        raise ValueError((f"dataset={args.dataset} is not one of {constants.DATASET}"))
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
     removal_dir = "full"
@@ -268,9 +265,14 @@ def main(args):
                 train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed
             )
         elif args.removal_dist == "shapley":
-            remaining_idx, removed_idx = remove_data_by_shapley(
-                train_dataset, seed=args.removal_seed
-            )
+            if args.dataset == "cifar100" or "celeba":
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed, by_class=True
+                )
+            else:
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed
+                )
         else:
             raise NotImplementedError
     else:
@@ -400,25 +402,28 @@ def main(args):
         accelerator.print("Model randomly initialized")
     ema_model.to(device)
 
-    remaining_dataloader = DataLoader(
-        Subset(train_dataset, remaining_idx),
-        batch_size=config["batch_size"],
-        shuffle=True,
-        num_workers=4,
-    )
-    if args.method == "esd":
-        # Only esd requires the removed data loader.
-        # Note that each epoch will iterate though the data loader with the smaller
-        # number of steps.
-        removed_dataloader = DataLoader(
-            Subset(train_dataset, removed_idx),
-            batch_size=config["batch_size"],
-            shuffle=True,
-            num_workers=4,
+    num_workers = 4 if torch.get_num_threads() >= 4 else torch.get_num_threads()
+
+    if len(remaining_idx) < config["batch_size"]:
+        shuffle = False
+
+        remaining_dataloader = DataLoader(
+            Subset(train_dataset, remaining_idx),
+            batch_size=len(remaining_idx),
+            shuffle=shuffle,
+            num_workers=num_workers,
+            pin_memory=True,
         )
     else:
-        # Hack to ensure that all the remaining data are used in each epoch.
-        removed_dataloader = remaining_dataloader
+        shuffle = True
+
+        remaining_dataloader = DataLoader(
+            Subset(train_dataset, remaining_idx),
+            batch_size=config["batch_size"],
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True,
+        )
 
     if args.dataset == "imagenette":
         # The pipeline is of class LDMTextToImagePipeline.
@@ -562,13 +567,6 @@ def main(args):
 
     loss_fn = nn.MSELoss(reduction="mean")
 
-    # Load frozen model.
-    if args.method == "esd":
-        pipeline_frozen = DDPMPipeline.from_pretrained(
-            os.path.join(args.outdir, f"pretrained_models/{args.dataset}")
-        )
-        frozen_unet = pipeline_frozen.unet.to(device)
-
     if args.wandb:
         wandb.init(
             project="Data Shapley for Diffusion",
@@ -585,14 +583,12 @@ def main(args):
 
     (
         remaining_dataloader,
-        removed_dataloader,
         model,
         optimizer,
         pipeline_scheduler,
         lr_scheduler,
     ) = accelerator.prepare(
         remaining_dataloader,
-        removed_dataloader,
         model,
         optimizer,
         pipeline_scheduler,
@@ -607,17 +603,14 @@ def main(args):
     )
     steps_start_time = time.time()
     while param_update_steps < training_steps:
-        for j, (
-            batch_r,
-            batch_f,
-        ) in enumerate(zip(remaining_dataloader, removed_dataloader)):
+        for j, batch_r in enumerate(remaining_dataloader):
+
             model.train()
 
             image_r, label_r = batch_r[0], batch_r[1]
-            image_f, label_f = batch_f[0], batch_f[1]
 
             if args.precompute_stage == "reuse":
-                imageid_r, imageid_f = batch_r[2], batch_f[2]
+                imageid_r = batch_r[2]
 
             image_r = image_r.to(device)
 
@@ -667,33 +660,6 @@ def main(args):
 
                 if args.method == "ga":
                     loss *= -1.0
-
-                elif args.method == "esd":
-                    image_f = image_f.to(device)
-                    if args.dataset == "imagenette":
-                        image_f = vqvae.encode(image_f).latent_dist.sample()
-                        image_f = image_f * vqvae.config.scaling_factor
-                        input_ids_f = label_tokenizer(label_f).to(device)
-                        encoder_hidden_states_f = text_encoder(input_ids_f)[0]
-                    elif args.dataset == "celeba":
-                        image_f = vqvae.encode(image_f, False)[0]
-                        image_f = image_f * vqvae.config.scaling_factor
-
-                    with torch.no_grad():
-                        noisy_images_f = pipeline_scheduler.add_noise(
-                            image_f, noise, timesteps
-                        )
-                        if args.dataset == "imagenette":
-                            eps_r_frozen = frozen_unet(
-                                noisy_images_r, timesteps, encoder_hidden_states_r
-                            ).sample
-                            eps_f_frozen = frozen_unet(
-                                noisy_images_f, timesteps, encoder_hidden_states_f
-                            ).sample
-                        else:
-                            eps_r_frozen = frozen_unet(noisy_images_r, timesteps).sample
-                            eps_f_frozen = frozen_unet(noisy_images_f, timesteps).sample
-                    loss += loss_fn(eps_r, (eps_r_frozen - 1e-4 * eps_f_frozen))
 
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:

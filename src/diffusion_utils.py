@@ -5,14 +5,23 @@ from typing import List
 
 import numpy as np
 import torch
-from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline, LDMPipeline
-from diffusers.training_utils import EMAModel
+from torch.utils.data import DataLoader
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from tqdm import tqdm
 from transformers import PreTrainedTokenizer
 
+import diffusers
+from diffusers import (
+    DDIMPipeline,
+    DDIMScheduler,
+    DDPMPipeline,
+    DiffusionPipeline,
+    LDMPipeline,
+)
+from diffusers.training_utils import EMAModel
 from src.datasets import create_dataset
+from src.ddpm_config import DDPMConfig
 from src.utils import get_max_steps
 
 
@@ -98,28 +107,46 @@ class LabelTokenizer:
         return inputs.input_ids
 
 
-def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
+def load_ckpt_model(args):
     """
         Load model parameters from the latest checkpoint in a directory.
     Args:
     ----
         args: arguments from training pipeline
-        model_cls: class name for diffusion model, e.g. UNet2DModel.
-        model_strc: network architecture e.g. u-net or pruned u-net.
-        model_loaddir: path to model.
     Return:
     ------
         pre-trained model, indices of remaining and removed subset.
     """
 
+    if args.dataset == "cifar":
+        config = {**DDPMConfig.cifar_config}
+    elif args.dataset == "cifar2":
+        config = {**DDPMConfig.cifar2_config}
+    elif args.dataset == "cifar100":
+        config = {**DDPMConfig.cifar100_config}
+    elif args.dataset == "celeba":
+        config = {**DDPMConfig.celeba_config}
+    elif args.dataset == "mnist":
+        config = {**DDPMConfig.mnist_config}
+    elif args.dataset == "imagenette":
+        config = {**DDPMConfig.imagenette_config}
+    else:
+        raise ValueError(
+            (
+                f"dataset={args.dataset} is not one of "
+                "['cifar', 'mnist', 'celeba', 'imagenette']"
+            )
+        )
+    model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
+
     trained_steps = (
         args.trained_steps
         if args.trained_steps is not None
-        else get_max_steps(model_loaddir)
+        else get_max_steps(args.load)
     )
 
     if trained_steps is not None:
-        ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
+        ckpt_path = os.path.join(args.load, f"ckpt_steps_{trained_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
 
         if args.method not in ["retrain"]:
@@ -139,7 +166,7 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
             pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
             model = pruned_model_ckpt["unet"]
         else:
-            model = model_strc
+            model = model_cls(**config["unet_config"])
 
         # There may not be saved indices for pretrained model.
         try:
@@ -164,36 +191,123 @@ def load_ckpt_model(args, model_cls, model_strc, model_loaddir):
             ema_model.copy_to(model.parameters())
             model_str = "EMA"
 
-        print(f"Trained model loaded from {model_loaddir}")
+        print(f"Trained model loaded from {args.load}")
         print(f"\t{model_str} loaded from {ckpt_path}")
     else:
-        raise ValueError(f"No trained checkpoints found at {model_loaddir}")
+        raise ValueError(f"No trained checkpoints found at {args.load}")
 
-    return model, remaining_idx, removed_idx
-
+    return model, ema_model
+    
 
 def build_pipeline(args, model):
     """Build the diffusion pipeline for the sepcific dataset and U-Net model."""
     # Get the diffusion model pipeline for inference.
+
+    device = args.device
+
     if args.dataset == "imagenette":
         # The pipeline is of class LDMTextToImagePipeline.
         train_dataset = create_dataset(dataset_name=args.dataset, train=True)
-        captioner = ImagenetteCaptioner(train_dataset)
-
         pipeline = DiffusionPipeline.from_pretrained(
             "CompVis/ldm-text2im-large-256"
-        ).to(args.device)
-        pipeline.unet = model.to(args.device)
-    elif args.dataset == "celeba":
-        pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256").to(
-            args.device
-        )
-        pipeline.vqvae.config.scaling_factor = 1
-        pipeline.unet = model.to(args.device)
-    else:
-        pipeline = DDIMPipeline(unet=model, scheduler=DDIMScheduler()).to(args.device)
+        ).to(device)
+        pipeline.unet = model.to(device)
 
-    return pipeline
+        vqvae = pipeline.vqvae
+        text_encoder = pipeline.bert
+        tokenizer = pipeline.tokenizer
+        captioner = ImagenetteCaptioner(train_dataset)
+        label_tokenizer = LabelTokenizer(captioner=captioner, tokenizer=tokenizer)
+
+        vqvae.requires_grad_(False)
+        text_encoder.requires_grad_(False)
+
+        vqvae = vqvae.to(device)
+        text_encoder = text_encoder.to(device)
+    elif args.dataset == "celeba":
+        # The pipeline is of class LDMPipeline.
+        pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256").to(
+            device
+        )
+        pipeline.unet = model.to(device)
+
+        vqvae = pipeline.vqvae
+        pipeline.vqvae.config.scaling_factor = 1
+        vqvae.requires_grad_(False)
+
+        if args.precompute_stage is None:
+            # Move the VQ-VAE model to the device without any operations.
+            vqvae = vqvae.to(device)
+
+        elif args.precompute_stage == "save":
+            assert (
+                args.removal_dist is None
+            ), "Precomputation should be done for full data"
+            # Precompute and save the VQ-VAE latents
+            vqvae = vqvae.to(device)
+            vqvae.train()  # The vqvae output is STATIC even in train mode.
+
+            vqvae_latent_dict = {}
+            with torch.no_grad():
+                for image_temp, label_temp, imageid_temp in tqdm(
+                    DataLoader(
+                        dataset=train_dataset,
+                        batch_size=32,
+                        num_workers=4,
+                        shuffle=False,
+                    )
+                ):
+                    vqvae_latent = vqvae.encode(image_temp.to(device), False)[0]
+                    assert len(vqvae_latent) == len(
+                        image_temp
+                    ), "Output and input batch sizes should match"
+
+                    # Store the encoded outputs in the dictionary
+                    for i in range(len(vqvae_latent)):
+                        vqvae_latent_dict[imageid_temp[i]] = vqvae_latent[i]
+
+            # Save the dictionary of latents to a file
+            vqvae_latent_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "precomputed_emb",
+            )
+            os.makedirs(vqvae_latent_dir, exist_ok=True)
+            torch.save(
+                vqvae_latent_dict,
+                os.path.join(vqvae_latent_dir, "vqvae_output.pt"),
+            )
+
+            print(
+                "VQVAE output saved. Set precompute_state=reuse to unload VQVAE model."
+            )
+            raise SystemExit(0)
+        elif args.precompute_stage == "reuse":
+            # Load the precomputed output, avoiding GPU memory usage by the VQ-VAE model
+            pipeline.vqvae = None
+            vqvae_latent_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "precomputed_emb",
+            )
+            vqvae_latent_dict = torch.load(
+                os.path.join(
+                    vqvae_latent_dir,
+                    "vqvae_output.pt",
+                ),
+                map_location="cpu",
+            )
+
+        captioner = None
+
+
+    else:
+        pipeline = DDPMPipeline(unet=model, scheduler=DDIMScheduler()).to(args.device)
+        vqvae = None
+        captioner = None
+        vqvae_latent_dict = None
+
+    return pipeline, vqvae, vqvae_latent_dict
 
 
 def generate_images(args, pipeline):
@@ -212,9 +326,7 @@ def generate_images(args, pipeline):
         with torch.no_grad():
             counter = 0
             for batch_size in tqdm(batch_size_list):
-                noise_generator = torch.Generator().manual_seed(
-                    counter
-                )
+                noise_generator = torch.Generator().manual_seed(counter)
                 images = pipeline(
                     batch_size=batch_size,
                     num_inference_steps=args.num_inference_steps,
