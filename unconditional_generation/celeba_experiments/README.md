@@ -14,7 +14,6 @@ conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvi
 pip install -r requirements.txt # If torch is already installed, remove torch and torchvision from requirements.txt
 ```
 
-
 ## Train
 
 ```bash
@@ -34,7 +33,7 @@ python main.py
 ## Full model training
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 \
+CUDA_VISIBLE_DEVICES=7 \
 python unconditional_generation/main.py \
 --dataset celeba \
 --method retrain \
@@ -65,7 +64,7 @@ python unconditional_generation/celeba_experiments/setup_train_commands.py \
 --dataset celeba \
 --method="retrain" \
 --removal_dist="shapley" \
---num_removal_subsets=100 \
+--num_removal_subsets=300 \
 --num_subsets_per_job=1
 ```
 
@@ -95,12 +94,20 @@ unconditional_generation/main.py \
 --precompute_stage reuse
 ```
 
-pruner method, steps,
-any change to the command.
-example code
-training
-
 # Generate samples
+
+1. Generate the retraining command file by running
+
+```bash
+python unconditional_generation/celeba_experiments/setup_generate_commands.py \
+--dataset celeba \
+--model_dir="retrain" \
+--removal_dist="shapley" \
+--num_removal_subsets=300 \
+--num_subsets_per_job=1
+```
+
+
 
 ```bash
 pane_index=$(tmux display-message -p "#{pane_index}" | sed 's/%//');
@@ -176,4 +183,37 @@ unconditional_generation/main.py \
 --use_8bit_optimizer \
 --gradient_accumulation_steps 1 \
 --precompute_stage reuse
+```
+
+### Generate celebrity images for evaluation
+
+```bash
+CUDA_VISIBLE_DEVICES=2 \
+python tools/generate_celeba_images.py
+# ll /projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/generated_samples
+# 17*3*2*40=4080
+```
+
+``` bash
+python unconditional_generation/calculate_diversity_score.py \
+--celeba_images_dir /projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/generated_samples \
+--generated_images_dir /projects/leelab3/chanwkim/data_attribution/datasets/celeba_hq_256_50_resized \
+--num_cluster 20
+# entropy: 2.327470665705897
+```
+
+``` bash
+python unconditional_generation/calculate_diversity_score.py \
+--celeba_images_dir /projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/generated_samples \
+--generated_images_dir /projects/leelab3/chanwkim/data_attribution/datasets/celeba_hq_256 \
+--num_cluster 20
+# entropy: 3.165551995844454
+```
+
+``` bash
+python unconditional_generation/calculate_diversity_score.py \
+--celeba_images_dir /projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/generated_samples \
+--generated_images_dir /projects/leelab3/chanwkim/data_attribution/datasets/celeba_hq_256_50_resized_temp \
+--num_cluster 20
+# entropy: 2.15769499526684
 ```
