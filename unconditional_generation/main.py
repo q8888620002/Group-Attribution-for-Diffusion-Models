@@ -263,9 +263,14 @@ def main(args):
                 train_dataset, seed=args.removal_seed
             )
         elif args.removal_dist == "datamodel":
-            remaining_idx, removed_idx = remove_data_by_datamodel(
-                train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed
-            )
+            if args.dataset in ["cifar100", "cifar100_f", "celeba"]:
+                remaining_idx, removed_idx = remove_data_by_datamodel(
+                    train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed,by_class=True
+                )
+            else:
+                remaining_idx, removed_idx = remove_data_by_datamodel(
+                    train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed
+                )
         elif args.removal_dist == "shapley":
             if args.dataset in ["cifar100", "cifar100_f", "celeba"]:
                 remaining_idx, removed_idx = remove_data_by_shapley(

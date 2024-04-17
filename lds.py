@@ -9,10 +9,11 @@ import argparse
 import json
 import os
 import random
-import torch
+
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+import torch
 from scipy.stats import bootstrap, spearmanr
 from sklearn.linear_model import RidgeCV
 
@@ -329,12 +330,10 @@ def main(args):
     )
     common_seeds = list(set(train_seeds) & set(test_seeds))
     common_seeds.sort()
-    # num_folds = 5
 
     random.seed(42)
     np.random.seed(42)
 
-    # test_seeds_filtered = random.sample(common_seeds, num_folds* args.num_test_subset)
     test_seeds_filtered = random.sample(common_seeds, args.num_test_subset)
 
     # Select training instances.
@@ -393,40 +392,6 @@ def main(args):
             # coeff = np.ones(coeff.shape)
         data_attr_list.append(coeff)
 
-        # Calculate LDS with K-Folds
-
-        # k_fold_lds = []
-
-        # kf = KFold(n_splits=num_folds, shuffle=True, random_state=42)
-
-        # for fold_idx, (_, test_index) in enumerate(kf.split(test_seeds_filtered)):
-        #     test_seeds_fold = [test_seeds_filtered[i] for i in test_index]
-
-        #     test_indices_bool = np.isin(test_seeds, test_seeds_fold)
-        #     test_indices = np.where(test_indices_bool)[0]
-
-        #     test_masks_fold = test_masks[test_indices]
-        #     test_targets_fold = test_targets[test_indices]
-
-        #     print(
-        #         f"Estimating scores with {len(train_masks)} subsets"
-        #         f" in {fold_idx+1}-fold"
-        #     )
-        #     np.set_printoptions(suppress=True)
-        #     print((test_masks_fold @ data_attr_list[i]).reshape(-1))
-        #     print(test_targets_fold[:, i])
-        #     k_fold_lds.append(
-        #         spearmanr(
-        #             test_masks_fold @ data_attr_list[i], test_targets_fold[:, i]
-        #         ).statistic
-        #         * 100
-        #     )
-
-        # print(f"Mean: {np.mean(k_fold_lds):.3f}")
-        # print(f"Standard error: {1.96*np.std(k_fold_lds)/np.sqrt(num_folds):.3f}")
-
-        # plots for sanity check
-
     # Calculate test LDS with bootstrapping.
 
     test_indices_bool = np.isin(test_seeds, test_seeds_filtered)
@@ -441,8 +406,7 @@ def main(args):
         for i in range(num_targets):
             boot_targets = test_targets[idx, i]
             lds_list.append(
-                spearmanr(boot_masks @ data_attr_list[i], boot_targets).statistic
-                * 100
+                spearmanr(boot_masks @ data_attr_list[i], boot_targets).statistic * 100
             )
         return np.mean(lds_list)
 

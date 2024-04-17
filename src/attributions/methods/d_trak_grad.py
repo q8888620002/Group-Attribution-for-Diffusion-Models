@@ -158,10 +158,11 @@ def parse_args():
     parser.add_argument(
         "--sample_dir",
         type=str,
+        default=None,
         help="filepath of sample (generated) images ",
     )
     parser.add_argument(
-        "--calculate_val_grad",
+        "--calculate_gen_grad",
         help="whether to generate validation set and calculate phi",
         action="store_true",
         default=False,
@@ -664,7 +665,7 @@ def main(args):
 
     # Calculating phi for generated images
 
-    if args.calculate_val_grad:
+    if args.calculate_gen_grad:
         args.batch_size = 128
         args.n_samples = 128
 
@@ -673,7 +674,7 @@ def main(args):
             args.dataset,
             "d_track",
             removal_dir,
-            f"val_f={args.model_behavior}_t={args.t_strategy}",
+            f"gen_f={args.model_behavior}_t={args.t_strategy}",
         )
 
         os.makedirs(os.path.dirname(val_save_dir), exist_ok=True)
