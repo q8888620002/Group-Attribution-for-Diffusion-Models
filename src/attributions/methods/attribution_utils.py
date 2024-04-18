@@ -155,24 +155,30 @@ def mean_scores_by_class(scores, dataset):
 
 def process_images_np(file_list, max_size=None):
     """Function to load and process images into numpy"""
+
+    valid_extensions = {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
     images = []
-
+    filtered_files = [file for file in file_list if file.split(".")[-1].lower() in valid_extensions]
+    
     if max_size is not None:
-        file_list = file_list[:max_size]
+        filtered_files = filtered_files[:max_size]
 
-    for filename in tqdm(file_list):
-        image = Image.open(filename).convert("RGB")
-        image = np.array(image).astype(np.float32)
+    for filename in tqdm(filtered_files):
+        try:
+            image = Image.open(filename).convert("RGB")
+            image = np.array(image).astype(np.float32)
 
-        # Convert PIL Image to NumPy array and scale from 0 to 1
-        image_np = np.array(image, dtype=np.float32) / 255.0
+            # Convert PIL Image to NumPy array and scale from 0 to 1
+            image_np = np.array(image, dtype=np.float32) / 255.0
 
-        # Normalize: shift and scale the image to have pixel values in range [-1, 1]
-        image_np = (image_np - 0.5) / 0.5
+            # Normalize: shift and scale the image to have pixel values in range [-1, 1]
+            image_np = (image_np - 0.5) / 0.5
 
-        images.append(image_np)
+            images.append(image_np)
+        except Exception as e:
+            print(f"Failed to process {filename}: {e}")
 
-    return np.stack(images)
+    return np.stack(images) if images else np.array([])
 
 
 def pixel_distance(args, sample_size, generated_dir, training_dir):

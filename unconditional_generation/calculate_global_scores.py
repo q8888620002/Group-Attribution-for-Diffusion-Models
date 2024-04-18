@@ -45,8 +45,8 @@ def parse_args():
     )
     parser.add_argument(
         "--excluded_class",
-        type=int,
-        help="dataset class to exclude for class-wise data removal",
+        help='Classes to be excluded, e.g. "1, 2, 3, etc" ', 
+        type=str,
         default=None,
     )
     parser.add_argument(
@@ -168,7 +168,6 @@ def main(args):
             "models",
             removal_dir,
         )
-        sample_dir = None
 
         model, ema_model, remaining_idx, removed_idx = load_ckpt_model(
             args, model_loaddir
@@ -330,7 +329,7 @@ def main(args):
             info_dict["avg_precision"] = avg_precision_value
             info_dict["avg_recall"] = avg_recall_value
 
-    info_dict["sample_dir"] = sample_dir
+    info_dict["sample_dir"] = args.sample_dir
     info_dict["remaining_idx"] = remaining_idx
     info_dict["removed_idx"] = removed_idx
 

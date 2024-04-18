@@ -59,8 +59,8 @@ def parse_args():
     )
     parser.add_argument(
         "--excluded_class",
-        type=int,
-        help="dataset class to exclude for class-wise data removal",
+        help='Classes to be excluded, e.g. "1, 2, 3, etc" ', 
+        type=str,
         default=None,
     )
     parser.add_argument(
@@ -254,8 +254,9 @@ def main(args):
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
     if args.excluded_class is not None:
+        excluded_class = [int(k) for k in args.excluded_class.split(',')]
         remaining_idx, removed_idx = remove_data_by_class(
-            train_dataset, excluded_class=args.excluded_class
+            train_dataset, excluded_class=excluded_class
         )
     elif args.removal_dist is not None:
         if args.removal_dist == "uniform":
