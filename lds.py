@@ -288,6 +288,7 @@ def collect_data(
 
     return remaining_masks, model_behaviors, removal_seeds
 
+
 def main(args):
     """Main function."""
     # Extract subsets for LDS test evaluation.
@@ -347,16 +348,18 @@ def main(args):
         test_indices = np.arange(len(test_masks))
 
     if args.num_test_subset is not None:
-        test_indices = test_indices[:args.num_test_subset]
+        test_indices = test_indices[: args.num_test_subset]
         test_masks = test_masks[test_indices]
         test_targets = test_targets[test_indices]
-    
+
     # Select training instances & filtering overlapped subset
 
     overlap_bool = np.isin(train_seeds, test_seeds_filtered)
     train_indices = np.where(~overlap_bool)[0]
 
-    matches = np.all(train_masks[train_indices, None, :] == test_masks[None, :, :], axis=2)
+    matches = np.all(
+        train_masks[train_indices, None, :] == test_masks[None, :, :], axis=2
+    )
     matching_train_indices = np.any(matches, axis=1)
     train_indices = np.where(~matching_train_indices)[0]
 
