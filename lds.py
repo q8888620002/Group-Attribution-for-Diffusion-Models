@@ -361,7 +361,6 @@ def main(args):
             coeff = pixel_distance(
                 args, args.sample_size, args.sample_dir, args.training_dir
             )
-            # coeff = np.ones(coeff.shape)
         elif args.method == "clip_score":
             device = "cuda" if torch.cuda.is_available() else "cpu"
             clip = CLIPScore(device)
@@ -389,10 +388,12 @@ def main(args):
                 args.v1,
                 args.v0,
             )
-            # coeff = np.ones(coeff.shape)
+            
         data_attr_list.append(coeff)
 
     # Calculate test LDS with bootstrapping.
+    print(coeff)
+    print(np.argsort(coeff.reshape(-1))[:5])
 
     test_indices_bool = np.isin(test_seeds, test_seeds_filtered)
     test_indices = np.where(test_indices_bool)[0]
