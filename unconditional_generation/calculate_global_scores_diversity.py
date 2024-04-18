@@ -3,13 +3,10 @@ import argparse
 import json
 import os
 
-import diffusers
 from lightning.pytorch import seed_everything
 
 import src.constants as constants
-from src.attributions.global_scores import fid_score, inception_score, precision_recall
 from src.datasets import ImageDataset, TensorDataset
-from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import build_pipeline, generate_images, load_ckpt_model
 from src.utils import print_args
 
@@ -47,8 +44,8 @@ def parse_args():
     )
     parser.add_argument(
         "--excluded_class",
-        type=int,
-        help="dataset class to exclude for class-wise data removal",
+        help='Classes to be excluded, e.g. "1, 2, 3, etc" ', 
+        type=str,
         default=None,
     )
     parser.add_argument(
@@ -141,6 +138,16 @@ def parse_args():
     parser.add_argument(
         "--thr", type=float, default=0.05, help="threshold for diff-pruning"
     )
+    parser.add_argument(
+        "--precompute_stage",
+        type=str,
+        default=None,
+        choices=[None, "save", "reuse"],
+        help=(
+            "Whether to precompute the VQVAE output."
+            "Choose between None, save, and reuse."
+        ),
+    )    
     args = parser.parse_args()
     return args
 
@@ -150,25 +157,8 @@ def main(args):
     seed_everything(args.seed)
     info_dict = vars(args)
 
-    if args.dataset == "cifar":
-        config = {**DDPMConfig.cifar_config}
-    elif args.dataset == "cifar2":
-        config = {**DDPMConfig.cifar2_config}
-    elif args.dataset == "cifar100":
-        config = {**DDPMConfig.cifar100_config}
-    elif args.dataset == "celeba":
-        config = {**DDPMConfig.celeba_config}
-    elif args.dataset == "mnist":
-        config = {**DDPMConfig.mnist_config}
-    elif args.dataset == "imagenette":
-        config = {**DDPMConfig.imagenette_config}
-    else:
-        raise ValueError(
-            (f"dataset={args.dataset} is not one of " f"{constants.DATASET}")
-        )
-    model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
-
     # Check if there's need to generate samples.
+    dims = 2048
 
     if not args.sample_dir:
         removal_dir = "full"
@@ -187,19 +177,41 @@ def main(args):
             "models",
             removal_dir,
         )
-        sample_dir = None
 
-        model_strc = model_cls(**config["unet_config"])
-
-        model, remaining_idx, removed_idx = load_ckpt_model(
-            args, model_cls, model_strc, model_loaddir
+        model, ema_model, remaining_idx, removed_idx = load_ckpt_model(
+            args, model_loaddir
         )
-        pipeline = build_pipeline(args, model)
+        if args.use_ema:
+            ema_model.copy_to(model.parameters())
 
+        pipeline, vqvae, vqvae_latent_dict = build_pipeline(args, model)
+        
         generated_samples = generate_images(args, pipeline)
-        sdsds
-
+        ss
         images_dataset = TensorDataset(generated_samples)
+
+        is_value = inception_score.eval_is(
+            images_dataset, args.batch_size, resize=True, normalize=True
+        )
+
+        precision, recall = precision_recall.eval_pr(
+            args.dataset,
+            images_dataset,
+            args.batch_size,
+            row_batch_size=10000,
+            col_batch_size=10000,
+            nhood_size=3,
+            device=args.device,
+            reference_dir=args.reference_dir,
+        )
+
+        fid_value_str = fid_score.calculate_fid(
+            args.dataset,
+            images_dataset,
+            args.batch_size,
+            args.device,
+            args.reference_dir,
+        )
 
         print(
             f"FID score: {fid_value_str}; Precision:{precision};"
@@ -213,7 +225,7 @@ def main(args):
     else:
         raise NotImplementedError()
 
-    info_dict["sample_dir"] = sample_dir
+    info_dict["sample_dir"] = args.sample_dir
     info_dict["remaining_idx"] = remaining_idx
     info_dict["removed_idx"] = removed_idx
 
