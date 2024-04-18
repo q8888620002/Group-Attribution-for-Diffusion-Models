@@ -14,9 +14,9 @@ conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvi
 pip install -r requirements.txt # If torch is already installed, remove torch and torchvision from requirements.txt
 ```
 
-## Train
+<!-- ## Train -->
 
-```bash
+<!-- ```bash
 python main.py
 --dataset [cifar,cifar2, celeba ] \
 --method [unlearning/retrain/prune_fine_tune/gd/ga] \
@@ -28,9 +28,15 @@ python main.py
 --keep_all_ckpts \
 --mixed_precision [no, bf16, fp16] \ 
 --gradient_accumulation_steps [1] \
-```
+``` -->
+
+## Prepare training data
+
+Code for preparing the training data is available in the `unconditional_generation/celeba_experiments/dataset_download.ipynb` jupyter notebook.
 
 ## Full model training
+
+1. Precompute the VQVAE model outputs by running
 
 ```bash
 CUDA_VISIBLE_DEVICES=7 \
@@ -43,6 +49,8 @@ python unconditional_generation/main.py \
 --precompute_stage save
 ```
 
+2. Train the model by running
+
 ```bash
 accelerate launch --config_file unconditional_generation/celeba_experiments/deepspeed_config_dp.yaml --gpu_ids 6,7 \
 unconditional_generation/main.py \
@@ -53,6 +61,39 @@ unconditional_generation/main.py \
 --use_8bit_optimizer \
 --gradient_accumulation_steps 1 \
 --precompute_stage reuse
+```
+
+
+## Generate samples to see if the training was successful
+
+1. Generate samples
+```bash
+pane_index=$(tmux display-message -p "#{pane_index}" | sed 's/%//');
+CUDA_VISIBLE_DEVICES=$((pane_index+4)) \
+python unconditional_generation/generate_samples.py \
+--dataset celeba \
+--n_samples 3200 \
+--method retrain \
+--num_inference_steps 100 \
+--trained_steps 20000 \
+--batch_size 16 \
+--use_ema \
+--seed $pane_index
+```
+
+90k -> 21
+70k -> 17
+50k -> 13
+20k -> 13
+10k -> 20
+
+2. Evaluate the generates images qualitatively. Or you can also calcualte the FID score by running
+
+```bash
+CUDA_VISIBLE_DEVICES=2 \
+python -m pytorch_fid \
+/projects/leelab3/chanwkim/data_attribution/datasets/celeba_hq_256_50_resized \
+/projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/20000/ema_generated_samples/full
 ```
 
 ## Retraining
@@ -94,70 +135,35 @@ unconditional_generation/main.py \
 --precompute_stage reuse
 ```
 
-# Generate samples
+## Calculate global model behavior (diversity score) for the retraining models
+
+```bash
+python unconditional_generation/calculate_global_scores_diversity.py \
+
+```
+
 
 1. Generate the retraining command file by running
 
 ```bash
 python unconditional_generation/celeba_experiments/setup_generate_commands.py \
 --dataset celeba \
---model_dir="retrain" \
---removal_dist="shapley" \
---num_removal_subsets=300 \
---num_subsets_per_job=1
-```
-
-
-
-```bash
-pane_index=$(tmux display-message -p "#{pane_index}" | sed 's/%//');
-CUDA_VISIBLE_DEVICES=$((pane_index+4)) \
-python unconditional_generation/generate_samples.py \
---dataset celeba \
---n_samples 3200 \
 --method retrain \
---num_inference_steps 100 \
---trained_steps 20000 \
---batch_size 16 \
---use_ema \
---seed $pane_index
+--removal_dist shapley \
+--seed_range=300 \
+--num_images=1000 \
+--model_per_job 1
 ```
 
-90k -> 21
-70k -> 17
-50k -> 13
-20k -> 13
-10k -> 20
-
+2. (Optional) Submit the SLURM job for running the command.
+With `unconditional_generation/celeba_experiments/generate.job` updated, run
 ```bash
-CUDA_VISIBLE_DEVICES=2 \
-python -m pytorch_fid \
-/projects/leelab3/chanwkim/data_attribution/datasets/celeba_hq_256_50_resized \
-/projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/20000/ema_generated_samples/full
+cd unconditional_generation/celeba_experiments
+sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G generate.job
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G generate.job
+# sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
 ```
 
-fid: 
-
-```bash
-CUDA_VISIBLE_DEVICES=2 \
-python -m pytorch_fid \
-/projects/leelab3/chanwkim/data_attribution/datasets/celeba/celeba_hq_256_curated_resized \
-/projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/50000/ema_generated_samples/full
-```
-
-```bash
-CUDA_VISIBLE_DEVICES=6 \
-python -m pytorch_fid \
-/projects/leelab3/chanwkim/data_attribution/datasets/celeba_hq_256_curated_resized \
-/projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/20000/ema_generated_samples/full
-```
-
-```bash
-CUDA_VISIBLE_DEVICES=5 \
-python -m pytorch_fid \
-/projects/leelab3/chanwkim/data_attribution/datasets/celeba/celeba_hq_256 \
-/projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/20000/ema_generated_samples/full
-```
 
 ## Prune and retrain
 
