@@ -288,14 +288,13 @@ def collect_data(
 
     return remaining_masks, model_behaviors, removal_seeds
 
-
 def main(args):
     """Main function."""
     # Extract subsets for LDS test evaluation.
     test_condition_dict = {
         "exp_name": args.test_exp_name,
         "dataset": args.dataset,
-        "removal_dist": args.removal_dist,
+        # "removal_dist": args.removal_dist,
         "method": "retrain",  # The test set should pertain only to retrained models.
     }
 
@@ -328,25 +327,46 @@ def main(args):
         args.n_samples,
         args.by_class,
     )
-    common_seeds = list(set(train_seeds) & set(test_seeds))
-    common_seeds.sort()
 
     random.seed(42)
     np.random.seed(42)
 
-    test_seeds_filtered = random.sample(common_seeds, args.num_test_subset)
+    # Creating testing sets
 
-    # Select training instances.
+    if args.train_db == args.test_db:
+        common_seeds = list(set(train_seeds) & set(test_seeds))
+        test_seeds_filtered = random.sample(common_seeds, args.num_test_subset)
+
+        test_indices_bool = np.isin(test_seeds, test_seeds_filtered)
+        test_indices = np.where(test_indices_bool)[0]
+        test_masks = test_masks[test_indices]
+        test_targets = test_targets[test_indices]
+
+    else:
+        test_seeds_filtered = []
+        test_indices = np.arange(len(test_masks))
+
+    if args.num_test_subset is not None:
+        test_indices = test_indices[:args.num_test_subset]
+        test_masks = test_masks[test_indices]
+        test_targets = test_targets[test_indices]
+    
+    # Select training instances & filtering overlapped subset
+
     overlap_bool = np.isin(train_seeds, test_seeds_filtered)
     train_indices = np.where(~overlap_bool)[0]
 
+    matches = np.all(train_masks[train_indices, None, :] == test_masks[None, :, :], axis=2)
+    matching_train_indices = np.any(matches, axis=1)
+    train_indices = np.where(~matching_train_indices)[0]
+
+    np.random.shuffle(train_indices)
+
     if args.max_train_size is not None and len(train_indices) > args.max_train_size:
-        np.random.shuffle(train_indices)
         train_indices = train_indices[: args.max_train_size]
 
     train_masks = train_masks[train_indices]
     train_targets = train_targets[train_indices]
-
     data_attr_list = []
 
     num_targets = train_targets.shape[-1]
@@ -388,18 +408,12 @@ def main(args):
                 args.v1,
                 args.v0,
             )
-            
+
         data_attr_list.append(coeff)
 
     # Calculate test LDS with bootstrapping.
     print(coeff)
-    print(np.argsort(coeff.reshape(-1))[:5])
-
-    test_indices_bool = np.isin(test_seeds, test_seeds_filtered)
-    test_indices = np.where(test_indices_bool)[0]
-
-    test_masks = test_masks[test_indices]
-    test_targets = test_targets[test_indices]
+    print(np.argsort(coeff.reshape(-1))[:10])
 
     def my_lds(idx):
         boot_masks = test_masks[idx, :]
