@@ -139,6 +139,8 @@ unconditional_generation/main.py \
 
 ```bash
 python unconditional_generation/calculate_global_scores_diversity.py \
+--removal_dist shapley \
+--removal_seed 0 \
 
 ```
 
