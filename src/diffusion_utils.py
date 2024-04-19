@@ -1,4 +1,5 @@
 """Utilities for duffusion pipeline"""
+
 import math
 import os
 from typing import List
@@ -240,6 +241,8 @@ def build_pipeline(args, model):
         if args.precompute_stage is None:
             # Move the VQ-VAE model to the device without any operations.
             vqvae = vqvae.to(device)
+            vqvae = None
+            vqvae_latent_dict = None
 
         elif args.precompute_stage == "save":
             assert (

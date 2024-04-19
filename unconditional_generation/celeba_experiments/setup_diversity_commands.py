@@ -3,6 +3,7 @@
 import argparse
 import os
 
+from src import constants
 from src.constants import LOGDIR, OUTDIR
 from src.ddpm_config import TextToImageGenerationConfig
 from src.experiment_utils import format_config_arg, update_job_file
@@ -20,41 +21,36 @@ def parse_args():
         default="celeba",
     )
     parser.add_argument(
-        "--model_dir",
+        "--removal_dist",
         type=str,
+        help="distribution for removing data",
         default=None,
-        help="directory containing weights to load",
     )
     parser.add_argument(
-        "--num_images",
+        "--num_seeds",
         type=int,
-        default=50000,
-        help="total number of images to generate",
+        default=8,
+        help="Number of seeds to generate scripts for.",
     )
     parser.add_argument(
-        "--num_images_per_job",
-        type=int,
-        default=500,
-        help="number of images to generate for each SLURM job",
+        "--datamodel_alpha",
+        type=float,
+        help="proportion of full dataset to keep in the datamodel distribution",
+        default=0.5,
     )
+    parser.add_argument(
+        "--method",
+        type=str,
+        help="training or unlearning method",
+        choices=constants.METHOD,
+    )
+    parser.add_argument("--exp_name", type=str, help="experiment name")
     args = parser.parse_args()
     return args
 
 
 def main(args):
     """Main function."""
-    assert args.num_images % args.num_images_per_job == 0
-    num_jobs = int(args.num_images / args.num_images_per_job)
-
-    if args.model_dir is not None:
-        outdir = args.model_dir.replace("/models/", "/generated_images/")
-        exp_name = os.path.join(
-            args.dataset, args.model_dir.split(args.dataset + "/")[-1]
-        )
-    else:
-        raise NotImplementedError("Only trained models are supported for now.")
-        outdir = os.path.join(OUTDIR, args.dataset, "pretrained", "generated_images")
-        exp_name = os.path.join(args.dataset, "pretrained")
 
     # Set up coutput directories and files.
     command_outdir = os.path.join(
@@ -62,30 +58,42 @@ def main(args):
         "unconditional_generation",
         "celeba_experiments",
         "commands",
-        "generate",
-        exp_name,
+        "diversity",
+        args.exp_name,
     )
     os.makedirs(command_outdir, exist_ok=True)
     command_file = os.path.join(command_outdir, "command.txt")
 
-    logdir = os.path.join(LOGDIR, "generate", exp_name)
+    logdir = os.path.join(LOGDIR, "diversity", args.exp_name)
     os.makedirs(logdir, exist_ok=True)
 
     with open(command_file, "w") as handle:
-        for seed in range(num_jobs):
-            command = "python text_to_image/generate_samples.py"
-            for key, val in config.items():
-                command += " " + format_config_arg(key, val)
-            command += f" --seed={seed}"
+        for seed in range(args.num_seeds):
+            command = (
+                "python unconditional_generation/calculate_global_scores_diversity.py"
+            )
+
+            command += f" --dataset {args.dataset}"
+            command += f" --removal_dist {args.removal_dist}"
+            command += f" --removal_seed {seed}"
+            command += " --trained_steps 20001"
+            command += " --use_ema"
+            command += f" --method {args.method}"
+            command += " --num_inference_steps 100"
+            command += f" --exp_name {args.exp_name}"
+            command += " --seed 42"
+            command += f" --db {os.path.join(constants.OUTDIR, args.dataset, args.exp_name)+'.jsonl'}"
+            command += " --n_samples 1000"
             handle.write(command + "\n")
     print(f"Commands saved to {command_file}")
 
     # Update the SLURM job submission file.
     job_file = os.path.join(
-        os.getcwd(), "unconditional_generation", "celeba_experiments", "generate.job"
+        os.getcwd(), "unconditional_generation", "celeba_experiments", "diversity.job"
     )
+    num_jobs = args.num_seeds
     array = f"1-{num_jobs}" if num_jobs > 1 else "1"
-    job_name = "generate-" + exp_name.replace("/", "-")
+    job_name = "diversity-" + args.exp_name.replace("/", "-")
     if job_name.endswith("-"):
         job_name = job_name[:-1]
     output = os.path.join(logdir, "run-%A-%a.out")

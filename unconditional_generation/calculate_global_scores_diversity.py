@@ -1,4 +1,5 @@
 """Calculate model behavior scores for diffusion models."""
+
 import argparse
 import json
 import os
@@ -6,6 +7,11 @@ import os
 from lightning.pytorch import seed_everything
 
 import src.constants as constants
+from src.attributions.global_scores.diversity_score import (
+    calculate_diversity_score,
+    plot_cluster_images,
+    plot_cluster_proportions,
+)
 from src.datasets import ImageDataset, TensorDataset
 from src.diffusion_utils import build_pipeline, generate_images, load_ckpt_model
 from src.utils import print_args
@@ -44,7 +50,7 @@ def parse_args():
     )
     parser.add_argument(
         "--excluded_class",
-        help='Classes to be excluded, e.g. "1, 2, 3, etc" ', 
+        help='Classes to be excluded, e.g. "1, 2, 3, etc" ',
         type=str,
         default=None,
     )
@@ -147,7 +153,8 @@ def parse_args():
             "Whether to precompute the VQVAE output."
             "Choose between None, save, and reuse."
         ),
-    )    
+    )
+
     args = parser.parse_args()
     return args
 
@@ -158,72 +165,58 @@ def main(args):
     info_dict = vars(args)
 
     # Check if there's need to generate samples.
-    dims = 2048
 
-    if not args.sample_dir:
-        removal_dir = "full"
-        if args.excluded_class is not None:
-            removal_dir = f"excluded_{args.excluded_class}"
-        if args.removal_dist is not None:
-            removal_dir = f"{args.removal_dist}/{args.removal_dist}"
-            if args.removal_dist == "datamodel":
-                removal_dir += f"_alpha={args.datamodel_alpha}"
-            removal_dir += f"_seed={args.removal_seed}"
+    removal_dir = "full"
+    if args.excluded_class is not None:
+        removal_dir = f"excluded_{args.excluded_class}"
+    if args.removal_dist is not None:
+        removal_dir = f"{args.removal_dist}/{args.removal_dist}"
+        if args.removal_dist == "datamodel":
+            removal_dir += f"_alpha={args.datamodel_alpha}"
+        removal_dir += f"_seed={args.removal_seed}"
 
-        model_loaddir = os.path.join(
-            args.outdir,
-            args.dataset,
-            args.method,
-            "models",
-            removal_dir,
-        )
+    model_loaddir = os.path.join(
+        args.outdir,
+        args.dataset,
+        args.method,
+        "models",
+        removal_dir,
+    )
 
-        model, ema_model, remaining_idx, removed_idx = load_ckpt_model(
-            args, model_loaddir
-        )
-        if args.use_ema:
-            ema_model.copy_to(model.parameters())
+    model, ema_model, remaining_idx, removed_idx = load_ckpt_model(args, model_loaddir)
+    if args.use_ema:
+        ema_model.copy_to(model.parameters())
 
-        pipeline, vqvae, vqvae_latent_dict = build_pipeline(args, model)
-        
-        generated_samples = generate_images(args, pipeline)
-        ss
-        images_dataset = TensorDataset(generated_samples)
+    pipeline, vqvae, vqvae_latent_dict = build_pipeline(args, model)
 
-        is_value = inception_score.eval_is(
-            images_dataset, args.batch_size, resize=True, normalize=True
-        )
+    generated_samples = generate_images(args, pipeline)
+    (
+        entropy,
+        cluster_proportions,
+        ref_cluster_images,
+        new_cluster_images,
+    ) = calculate_diversity_score(
+        ref_image_dir_or_tensor=os.path.join(
+            constants.OUTDIR, args.dataset, "generated_samples"
+        ),
+        generated_images_dir_or_tensor=generated_samples,
+        num_cluster=20,
+    )
 
-        precision, recall = precision_recall.eval_pr(
-            args.dataset,
-            images_dataset,
-            args.batch_size,
-            row_batch_size=10000,
-            col_batch_size=10000,
-            nhood_size=3,
-            device=args.device,
-            reference_dir=args.reference_dir,
-        )
+    sample_fig = plot_cluster_images(
+        ref_cluster_images=ref_cluster_images,
+        new_cluster_images=new_cluster_images,
+        num_cluster=20,
+    )
+    # fig.savefig("test.jpg")
 
-        fid_value_str = fid_score.calculate_fid(
-            args.dataset,
-            images_dataset,
-            args.batch_size,
-            args.device,
-            args.reference_dir,
-        )
+    hist_fig = plot_cluster_proportions(
+        cluster_proportions=cluster_proportions, num_cluster=20
+    )
+    # fig.savefig("test2.jpg")
 
-        print(
-            f"FID score: {fid_value_str}; Precision:{precision};"
-            f"Recall:{recall}; inception score: {is_value}"
-        )
-        info_dict["fid_value"] = fid_value_str
-        info_dict["precision"] = precision
-        info_dict["recall"] = recall
-        info_dict["is"] = is_value
-
-    else:
-        raise NotImplementedError()
+    print(f"entropy {entropy}")
+    info_dict["entropy"] = entropy
 
     info_dict["sample_dir"] = args.sample_dir
     info_dict["remaining_idx"] = remaining_idx
@@ -232,6 +225,33 @@ def main(args):
     with open(args.db, "a+") as f:
         f.write(json.dumps(info_dict) + "\n")
     print(f"Results saved to the database at {args.db}")
+
+    sample_fig.savefig(
+        args.db.replace(
+            ".jsonl",
+            "."
+            + os.path.join(
+                args.dataset,
+                args.method,
+                "models",
+                removal_dir,
+            ).replace("/", "_"),
+        )
+        + "_sample.jpg"
+    )
+    hist_fig.savefig(
+        args.db.replace(
+            ".jsonl",
+            "."
+            + os.path.join(
+                args.dataset,
+                args.method,
+                "models",
+                removal_dir,
+            ).replace("/", "_"),
+        )
+        + "_hist.jpg"
+    )
 
 
 if __name__ == "__main__":

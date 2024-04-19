@@ -1,0 +1,20 @@
+#!/bin/bash
+
+#SBATCH --job-name=diversity-diversity_retraining
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --time=23:59:59
+#SBATCH --export=all
+#SBATCH --mail-type=BEGIN,TIME_LIMIT_90
+#SBATCH --mail-user=chanwkim@uw.edu
+#SBATCH --output=/projects/leelab3/chanwkim/data_attribution/diffusion-attr/logs/diversity/diversity_retraining/run-%A-%a.out
+#SBATCH --requeue
+#SBATCH --array=1-300
+#SBATCH --open-mode=append
+
+PARAMS_FILE="/homes/gws/chanwkim/data_attribution/unconditional_generation/celeba_experiments/commands/diversity/diversity_retraining/command.txt"
+PARAMS="$(tail -n +${SLURM_ARRAY_TASK_ID} ${PARAMS_FILE} | head -n 1)"
+
+/gscratch/aims/chanwkim/apptainer/launch-container-ro.sh ./run.sh $PARAMS

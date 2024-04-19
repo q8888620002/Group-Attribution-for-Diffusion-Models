@@ -170,35 +170,15 @@ python unconditional_generation/calculate_diversity_score.py \
 # entropy: 2.15769499526684
 ```
 
-2. Calculate the diversity score for the retraining models
-```bash
-python unconditional_generation/calculate_global_scores_diversity.py \
---dataset celeba \
---removal_dist shapley \
---removal_seed 0 \
---trained_steps 20001 \
---use_ema \
---method retrain \
---num_inference_steps 100 \
---exp_name diversity_retraining \
---seed 42 \
---db /gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_measurements.jsonl \
-# --precompute_stage reuse \
---n_samples 10
-
-
-```
-
-1. Generate the retraining command file by running
+2. Generate the command file for diversity score calculation by running
 
 ```bash
-python unconditional_generation/celeba_experiments/setup_generate_commands.py \
+python unconditional_generation/celeba_experiments/setup_diversity_commands.py \
 --dataset celeba \
---method retrain \
---removal_dist shapley \
---seed_range=300 \
---num_images=1000 \
---model_per_job 1
+--method="retrain" \
+--removal_dist="shapley" \
+--num_seeds=300 \
+--exp_name "diversity_retraining"
 ```
 
 2. (Optional) Submit the SLURM job for running the command.
@@ -211,7 +191,8 @@ sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-
 # sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
 ```
 
-## Prune and retrain
+
+<!-- ## Prune and retrain
 
 ```bash
 accelerate launch --gpu_ids 1 \
@@ -235,4 +216,4 @@ unconditional_generation/main.py \
 --use_8bit_optimizer \
 --gradient_accumulation_steps 1 \
 --precompute_stage reuse
-```
+``` -->

@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import tqdm
+from lightning import seed_everything
 from PIL import Image
 from scipy.cluster.hierarchy import fcluster, ward
 from scipy.spatial.distance import squareform
@@ -15,20 +16,39 @@ from transformers import BlipForQuestionAnswering, BlipImageProcessor
 
 class ImageDataset(torch.utils.data.Dataset):
 
-    def __init__(self, image_dir, processor):
-        self.image_files = [
-            file
-            for file in glob.glob(image_dir + "/*")
-            if file.endswith(".jpg") or file.endswith(".png") or file.endswith(".jpeg")
-        ]
+    def __init__(self, image_dir_or_tensor, processor):
+        if isinstance(image_dir_or_tensor, torch.Tensor):
+            self.image_files_or_tensor = image_dir_or_tensor
+        elif isinstance(image_dir_or_tensor, str):
+            self.image_files_or_tensor = [
+                file
+                for file in glob.glob(image_dir_or_tensor + "/*")
+                if file.endswith(".jpg")
+                or file.endswith(".png")
+                or file.endswith(".jpeg")
+            ]
+        else:
+            raise ValueError("Image directory or tensor should be provided")
         self.processor = processor
 
     def __len__(self):
-        return len(self.image_files)
+        return len(self.image_files_or_tensor)
 
     def __getitem__(self, idx):
-        file_path = self.image_files[idx]
-        image = Image.open(file_path).convert("RGB")
+        if isinstance(self.image_files_or_tensor, torch.Tensor):
+            # to comply with generate_images function output
+            image = Image.fromarray(
+                (255 * self.image_files_or_tensor[idx].permute(1, 2, 0).numpy()).astype(
+                    np.uint8
+                )
+            )
+        elif isinstance(self.image_files_or_tensor, list):
+            file_path = self.image_files_or_tensor[idx]
+            image = Image.open(file_path)
+
+        else:
+            raise ValueError("Image directory or tensor should be provided")
+        image = image.convert("RGB")
         tensor = self.processor(images=image, return_tensors="pt")
         assert len(tensor["pixel_values"]) == 1, "Batch size should be 1"
         tensor["pixel_values"] = tensor["pixel_values"][0]
@@ -36,7 +56,10 @@ class ImageDataset(torch.utils.data.Dataset):
         return tensor
 
 
-def calculate_diversity_score(ref_image_dir, generated_images_dir, num_cluster):
+def calculate_diversity_score(
+    ref_image_dir_or_tensor, generated_images_dir_or_tensor, num_cluster
+):
+    seed_everything(42)
     processor = BlipImageProcessor.from_pretrained("Salesforce/blip-vqa-base")
     # model = BlipVisionModel.from_pretrained("Salesforce/blip-vqa-base").to("cuda")
     # model.eval()
@@ -54,7 +77,7 @@ def calculate_diversity_score(ref_image_dir, generated_images_dir, num_cluster):
     # inputs = processor(images=generated_images, return_tensors="pt").to("cuda")
     # emb2 = (model(**inputs).pooler_output).detach().cpu().numpy()
 
-    dataset1 = ImageDataset(ref_image_dir, processor)
+    dataset1 = ImageDataset(ref_image_dir_or_tensor, processor)
     dataloader1 = torch.utils.data.DataLoader(
         dataset1, batch_size=32, shuffle=False, drop_last=False, num_workers=4
     )
@@ -64,17 +87,6 @@ def calculate_diversity_score(ref_image_dir, generated_images_dir, num_cluster):
             inputs["pixel_values"] = inputs["pixel_values"].to("cuda")
             emb1.append((model(**inputs).pooler_output).detach().cpu().numpy())
     emb1 = np.vstack(emb1)
-
-    dataset2 = ImageDataset(generated_images_dir, processor)
-    dataloader2 = torch.utils.data.DataLoader(
-        dataset2, batch_size=32, shuffle=False, drop_last=False, num_workers=4
-    )
-    emb2 = []
-    with torch.no_grad():
-        for inputs in tqdm.tqdm(dataloader2):
-            inputs["pixel_values"] = inputs["pixel_values"].to("cuda")
-            emb2.append((model(**inputs).pooler_output).detach().cpu().numpy())
-    emb2 = np.vstack(emb2)
 
     sim_mtx = np.dot(emb1, emb1.T)
     distance_matrix = np.max(sim_mtx) - sim_mtx
@@ -86,6 +98,17 @@ def calculate_diversity_score(ref_image_dir, generated_images_dir, num_cluster):
     condensed_distance_matrix = squareform(distance_matrix)
     linkage_matrix = ward(condensed_distance_matrix)
     ref_cluster_labels = fcluster(linkage_matrix, num_cluster, criterion="maxclust")
+
+    dataset2 = ImageDataset(generated_images_dir_or_tensor, processor)
+    dataloader2 = torch.utils.data.DataLoader(
+        dataset2, batch_size=32, shuffle=False, drop_last=False, num_workers=4
+    )
+    emb2 = []
+    with torch.no_grad():
+        for inputs in tqdm.tqdm(dataloader2):
+            inputs["pixel_values"] = inputs["pixel_values"].to("cuda")
+            emb2.append((model(**inputs).pooler_output).detach().cpu().numpy())
+    emb2 = np.vstack(emb2)
 
     sim_to_emb1 = np.dot(emb2, emb1.T)
     dist_to_emb1 = np.max(sim_mtx) - sim_to_emb1
@@ -118,11 +141,11 @@ def calculate_diversity_score(ref_image_dir, generated_images_dir, num_cluster):
     # Map each reference image to its cluster
     ref_cluster_images = {i: [] for i in range(1, num_cluster + 1)}
     for i, cluster_id in enumerate(ref_cluster_labels):
-        ref_cluster_images[cluster_id].append(dataset1.image_files[i])
+        ref_cluster_images[cluster_id].append(dataset1.image_files_or_tensor[i])
 
     new_cluster_images = {i: [] for i in range(1, num_cluster + 1)}
     for i, cluster_id in enumerate(new_image_labels):
-        new_cluster_images[cluster_id].append(dataset2.image_files[i])
+        new_cluster_images[cluster_id].append(dataset2.image_files_or_tensor[i])
 
     return (
         entropy,
@@ -162,11 +185,11 @@ def plot_cluster_images(ref_cluster_images, new_cluster_images, num_cluster):
         20,
         figsize=(2.5 * (num_sample_ref + num_sample_new), num_cluster * 2.5),
     )  # 20 columns for ref and new images
-    for cluster_id, paths in new_cluster_images.items():
+    for cluster_id, paths_or_tensors in new_cluster_images.items():
         selected_new_images = (
-            random.sample(paths, num_sample_new)
-            if len(paths) > num_sample_new
-            else paths
+            random.sample(paths_or_tensors, num_sample_new)
+            if len(paths_or_tensors) > num_sample_new
+            else paths_or_tensors
         )
         selected_ref_images = (
             random.sample(ref_cluster_images[cluster_id], num_sample_ref)
@@ -175,15 +198,32 @@ def plot_cluster_images(ref_cluster_images, new_cluster_images, num_cluster):
         )
 
         # Display reference images
-        for col, img_path in enumerate(selected_ref_images):
-            img = Image.open(img_path)
+        for col, img_path_or_tensor in enumerate(selected_ref_images):
+
+            if isinstance(img_path_or_tensor, torch.Tensor):
+                # print(img_path_or_tensor.shape)
+                img = Image.fromarray(
+                    (255 * img_path_or_tensor.permute(1, 2, 0).numpy()).astype(np.uint8)
+                )
+            elif isinstance(img_path_or_tensor, str):
+                img = Image.open(img_path_or_tensor)
+            else:
+                raise ValueError("Image directory or tensor should be provided")
             axs[cluster_id - 1, col].imshow(img)
             axs[cluster_id - 1, col].axis("off")
         axs[cluster_id - 1, 0].set_title(f"Cluster {cluster_id} (Ref)")
 
         # Display new images
-        for col, img_path in enumerate(selected_new_images):
-            img = Image.open(img_path)
+        for col, img_path_or_tensor in enumerate(selected_new_images):
+            if isinstance(img_path_or_tensor, torch.Tensor):
+                # print(img_path_or_tensor.shape)
+                img = Image.fromarray(
+                    (255 * img_path_or_tensor.permute(1, 2, 0).numpy()).astype(np.uint8)
+                )
+            elif isinstance(img_path_or_tensor, str):
+                img = Image.open(img_path_or_tensor)
+            else:
+                raise ValueError("Image directory or tensor should be provided")
             axs[cluster_id - 1, col + 10].imshow(img)  # Start from column 11
             axs[cluster_id - 1, col + 10].axis("off")
         axs[cluster_id - 1, 10].set_title(f"Cluster {cluster_id} (New)")
