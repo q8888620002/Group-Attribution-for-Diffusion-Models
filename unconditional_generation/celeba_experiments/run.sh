@@ -10,7 +10,7 @@ fi
 # let's source our ~/.bashrc for 'conda', then activate our environment.
 . ~/.bashrc
 conda activate data_attribution
-
+export HF_DATASETS_CACHE="/gscratch/scrubbed/chanwkim/.cache/huggingface_cache"
 cd /gscratch/aims/chanwkim/data_attribution
 export PYTHONPATH="$PYTHONPATH:$PWD"
 

@@ -146,6 +146,11 @@ python tools/generate_celeba_images.py
 # 17*3*2*40=4080
 ```
 
+```bash
+/projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/
+tar -zcvf generated_samples.tar.gz generated_samples
+```
+
 ``` bash
 python unconditional_generation/calculate_diversity_score.py \
 --celeba_images_dir /projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/generated_samples \
@@ -178,16 +183,16 @@ python unconditional_generation/celeba_experiments/setup_diversity_commands.py \
 --method="retrain" \
 --removal_dist="shapley" \
 --num_seeds=300 \
---exp_name "diversity_retraining"
+--exp_name "diversity_measure"
 ```
 
 2. (Optional) Submit the SLURM job for running the command.
-With `unconditional_generation/celeba_experiments/generate.job` updated, run
+With `unconditional_generation/celeba_experiments/diversity.job` updated, run
 
 ```bash
 cd unconditional_generation/celeba_experiments
-sbatch -p gpu-rtx6k --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G generate.job
-sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G generate.job
+sbatch -p gpu-rtx6k --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G diversity.job
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G diversity.job
 # sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
 ```
 

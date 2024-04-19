@@ -89,7 +89,7 @@ def parse_args():
         "--batch_size",
         type=int,
         help="batch size for computation",
-        default=512,
+        default=64,
     )
     parser.add_argument(
         "--device", type=str, help="device used for computation", default="cuda:0"

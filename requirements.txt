@@ -19,3 +19,4 @@ regex
 wandb
 pynvml
 scikit-image
+matplotlib
