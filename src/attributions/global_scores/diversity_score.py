@@ -1,6 +1,7 @@
 """Converting images to BLIP embedding"""
 
 import glob
+import os
 import random
 
 import matplotlib.pyplot as plt
@@ -27,6 +28,7 @@ class ImageDataset(torch.utils.data.Dataset):
                 or file.endswith(".png")
                 or file.endswith(".jpeg")
             ]
+            self.image_files_or_tensor=sorted(self.image_files_or_tensor, key=lambda x: os.path.basename(x).split(".")[0])
         else:
             raise ValueError("Image directory or tensor should be provided")
         self.processor = processor
@@ -54,30 +56,37 @@ class ImageDataset(torch.utils.data.Dataset):
         tensor["pixel_values"] = tensor["pixel_values"][0]
 
         return tensor
-
+    
+# convert image file list to tensor
+def image_files_to_tensor(image_files):
+    tensor_list=[]
+    for image in image_files:
+        image = Image.open(image)
+        image = image.convert("RGB")
+        torch_image = torch.tensor(np.array(image)).permute(2, 0, 1).float() / 255.0
+        tensor_list.append(torch_image)
+    return torch.stack(tensor_list)
 
 def calculate_diversity_score(
-    ref_image_dir_or_tensor, generated_images_dir_or_tensor, num_cluster
+    ref_image_dir_or_tensor, generated_images_dir_or_tensor, num_cluster, use_cache=True,
 ):
-    seed_everything(42)
+    
     processor = BlipImageProcessor.from_pretrained("Salesforce/blip-vqa-base")
-    # model = BlipVisionModel.from_pretrained("Salesforce/blip-vqa-base").to("cuda")
-    # model.eval()
-
-    # processor = BlipProcessor.from_pretrained("Salesforce/blip-vqa-base")
     model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base")
     model = model.vision_model.to("cuda")
-
-    # celeb_images = load_images(args.ref_image_dir)
-    # generated_images = load_images(args.ref_image_dir)
-
-    # inputs = processor(images=celeb_images, return_tensors="pt").to("cuda")
-    # emb1 = (model(**inputs).pooler_output).detach().cpu().numpy()
-
-    # inputs = processor(images=generated_images, return_tensors="pt").to("cuda")
-    # emb2 = (model(**inputs).pooler_output).detach().cpu().numpy()
-
+    model.eval()
+    
     dataset1 = ImageDataset(ref_image_dir_or_tensor, processor)
+    
+    if use_cache:
+        assert isinstance(ref_image_dir_or_tensor, str), "Cache can only be used with image directory"
+        if os.path.exists(os.path.join(ref_image_dir_or_tensor,"cache.pt")):
+            cache=torch.load(os.path.join(ref_image_dir_or_tensor,"cache.pt"))
+            dataset1.image_files_or_tensor=cache["image_files_or_tensor"]
+        else:
+            dataset1.image_files_or_tensor=image_files_to_tensor(dataset1.image_files_or_tensor)
+            torch.save({"image_files_or_tensor":dataset1.image_files_or_tensor},os.path.join(ref_image_dir_or_tensor,"cache.pt"))
+
     dataloader1 = torch.utils.data.DataLoader(
         dataset1, batch_size=32, shuffle=False, drop_last=False, num_workers=4
     )
@@ -92,7 +101,8 @@ def calculate_diversity_score(
     distance_matrix = np.max(sim_mtx) - sim_mtx
 
     np.fill_diagonal(distance_matrix, 0)
-
+    
+    seed_everything(42)
     # Ward's linkage clustering
     # Convert to a condensed distance matrix for ward's linkage (if needed)
     condensed_distance_matrix = squareform(distance_matrix)
@@ -127,11 +137,11 @@ def calculate_diversity_score(
 
     # Calculate proportions of each cluster
     new_image_labels = np.array(new_image_labels)
-    cluster_proportions = np.zeros(num_cluster)
+    cluster_count=np.zeros(num_cluster)
     for i in range(1, num_cluster + 1):
-        cluster_proportions[i - 1] = np.sum(new_image_labels == i) / len(
-            new_image_labels
-        )
+        cluster_count[i - 1] = np.sum(new_image_labels == i)
+    
+    cluster_proportions = cluster_count / len(new_image_labels)
 
     # Entropy calculation.
     entropy = -np.sum(
@@ -149,7 +159,8 @@ def calculate_diversity_score(
 
     return (
         entropy,
-        cluster_proportions,
+        cluster_count.tolist(),
+        cluster_proportions.tolist(),
         ref_cluster_images,
         new_cluster_images,
     )
@@ -187,12 +198,12 @@ def plot_cluster_images(ref_cluster_images, new_cluster_images, num_cluster):
     )  # 20 columns for ref and new images
     for cluster_id, paths_or_tensors in new_cluster_images.items():
         selected_new_images = (
-            random.sample(paths_or_tensors, num_sample_new)
+            random.Random(42).sample(paths_or_tensors, num_sample_new)
             if len(paths_or_tensors) > num_sample_new
             else paths_or_tensors
         )
         selected_ref_images = (
-            random.sample(ref_cluster_images[cluster_id], num_sample_ref)
+            random.Random(42).sample(ref_cluster_images[cluster_id], num_sample_ref)
             if len(ref_cluster_images[cluster_id]) > num_sample_ref
             else ref_cluster_images[cluster_id]
         )

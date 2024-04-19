@@ -192,6 +192,7 @@ def main(args):
     generated_samples = generate_images(args, pipeline)
     (
         entropy,
+        cluster_count,
         cluster_proportions,
         ref_cluster_images,
         new_cluster_images,
@@ -219,6 +220,8 @@ def main(args):
     info_dict["entropy"] = entropy
 
     info_dict["sample_dir"] = args.sample_dir
+    info_dict["cluster_count"] = cluster_count
+    info_dict["cluster_proportions"]=cluster_proportions
     info_dict["remaining_idx"] = remaining_idx
     info_dict["removed_idx"] = removed_idx
 
@@ -226,32 +229,22 @@ def main(args):
         f.write(json.dumps(info_dict) + "\n")
     print(f"Results saved to the database at {args.db}")
 
-    sample_fig.savefig(
-        args.db.replace(
-            ".jsonl",
-            "."
-            + os.path.join(
+    os.makedirs(args.db.replace(".jsonl",""), exist_ok=True)
+    # print(args.db.replace(".jsonl","."))
+    
+    sample_fig.savefig(os.path.join(args.db.replace(".jsonl",""), os.path.join(
                 args.dataset,
                 args.method,
                 "models",
                 removal_dir,
-            ).replace("/", "_"),
-        )
-        + "_sample.jpg"
-    )
-    hist_fig.savefig(
-        args.db.replace(
-            ".jsonl",
-            "."
-            + os.path.join(
+            ).replace("/", "_")+"_sample.jpg"))
+    
+    hist_fig.savefig(os.path.join(args.db.replace(".jsonl",""), os.path.join(
                 args.dataset,
                 args.method,
                 "models",
                 removal_dir,
-            ).replace("/", "_"),
-        )
-        + "_hist.jpg"
-    )
+            ).replace("/", "_")+"_hist.jpg"))    
 
 
 if __name__ == "__main__":
