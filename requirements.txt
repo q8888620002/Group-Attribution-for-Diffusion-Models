@@ -21,3 +21,4 @@ pynvml
 clip @ git+https://github.com/openai/CLIP.git
 open-clip-torch
 scikit-image
+scikit-learn
