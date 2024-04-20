@@ -311,13 +311,16 @@ def main(args):
 
     # Extract subsets for estimating data attribution scores.
     print(f"Loading training data from {args.train_db}")
+
     train_condition_dict = {
-        "exp_name": args.train_exp_name,
         "dataset": args.dataset,
         "removal_dist": args.removal_dist,
         "method": "retrain"
         if args.method in ["trak", "clip_score", "pixel_dist"]
         else args.method,
+        "exp_name": "retrain_vs_retrain"
+        if args.method in ["trak", "clip_score", "pixel_dist"]
+        else args.train_exp_name,
     }
 
     train_masks, train_targets, train_seeds = collect_data(
@@ -332,9 +335,11 @@ def main(args):
     random.seed(42)
     np.random.seed(42)
 
-    # Creating testing sets
+    # Filtering testing sets
 
     if args.train_db == args.test_db:
+        # If testing subsests within the same distribution.
+
         common_seeds = list(set(train_seeds) & set(test_seeds))
         test_seeds_filtered = random.sample(common_seeds, args.num_test_subset)
 
@@ -373,43 +378,62 @@ def main(args):
     data_attr_list = []
 
     num_targets = train_targets.shape[-1]
+    coeff = None
 
     for i in tqdm(range(num_targets)):
 
         if args.method == "trak":
-            coeff = compute_dtrak_trak_scores(
-                args, retraining=False, training_seeds=train_seeds[train_indices]
-            )
+            if coeff is None:
+                assert (
+                    args.trak_behavior is None
+                ), "Model behavior should be defined for TRAK."
+
+                coeff = compute_dtrak_trak_scores(
+                    args, retraining=False, training_seeds=train_seeds[train_indices]
+                )
         elif args.method == "pixel_dist":
-            coeff = pixel_distance(
-                args, args.sample_size, args.sample_dir, args.training_dir
-            )
+            if coeff is None:
+                coeff = pixel_distance(
+                    args, args.sample_size, args.sample_dir, args.training_dir
+                )
         elif args.method == "clip_score":
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            clip = CLIPScore(device)
-            coeff = clip.clip_score(
-                args.dataset, args.sample_size, args.sample_dir, args.training_dir
-            )
-        elif args.removal_dist == "datamodel":
+            if coeff is None:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                clip = CLIPScore(device)
+                coeff = clip.clip_score(
+                    args.dataset, args.sample_size, args.sample_dir, args.training_dir
+                )
+        elif args.method in ["gd", "ga", "retrain"]:
 
-            datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
-                train_masks, train_targets[:, i]
-            )
-            datamodel_str = "Ridge"
-            print("Datamodel parameters")
-            print(f"\tmodel={datamodel_str}")
-            print(f"\talpha={datamodel.alpha_:.8f}")
+            if args.removal_dist == "datamodel":
 
-            coeff = datamodel.coef_
+                datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
+                    train_masks, train_targets[:, i]
+                )
+                datamodel_str = "Ridge"
+                print("Datamodel parameters")
+                print(f"\tmodel={datamodel_str}")
+                print(f"\talpha={datamodel.alpha_:.8f}")
 
-        elif args.removal_dist == "shapley":
+                coeff = datamodel.coef_
 
-            coeff = data_shapley(
-                train_masks.shape[-1],
-                train_masks,
-                train_targets[:, i],
-                args.v1,
-                args.v0,
+            elif args.removal_dist == "shapley":
+
+                coeff = data_shapley(
+                    train_masks.shape[-1],
+                    train_masks,
+                    train_targets[:, i],
+                    args.v1,
+                    args.v0,
+                )
+            else:
+                raise ValueError(
+                    (f"Removal distribution: {args.removal_dist} does not exist.")
+                )
+
+        else:
+            raise ValueError(
+                (f"Method: {args.dataset} is not one of {constants.METHOD}")
             )
 
         data_attr_list.append(coeff)
@@ -444,7 +468,7 @@ def main(args):
     print(f"Standard error: {boot_se:.2f}")
     print(f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})")
 
-    fig, axs = plt.subplots(1, 1, figsize=(20, 10))
+    plt.figure(figsize=(20, 10))
     bin_edges = np.histogram_bin_edges(coeff, bins="auto")
     sns.histplot(coeff, bins=bin_edges, alpha=0.5)
 
