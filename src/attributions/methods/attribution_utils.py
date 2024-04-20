@@ -57,7 +57,7 @@ class CLIPScore:
 
         with torch.no_grad():
             print(f"Calculating CLIP embeddings for {sample_dir}...")
-            for sample_batch, _  in tqdm(sample_loader):
+            for sample_batch, _ in tqdm(sample_loader):
                 features = self.clip_model.encode_image(sample_batch.to(self.device))
                 all_sample_features.append(features.cpu().numpy())
 
@@ -158,8 +158,10 @@ def process_images_np(file_list, max_size=None):
 
     valid_extensions = {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
     images = []
-    filtered_files = [file for file in file_list if file.split(".")[-1].lower() in valid_extensions]
-    
+    filtered_files = [
+        file for file in file_list if file.split(".")[-1].lower() in valid_extensions
+    ]
+
     if max_size is not None:
         filtered_files = filtered_files[:max_size]
 

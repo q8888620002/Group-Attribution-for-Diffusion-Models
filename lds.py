@@ -70,7 +70,7 @@ def parse_args():
         "--max_train_size",
         type=int,
         help="maximum number of subsets for training removal-based data attributions",
-        default=None,
+        required=True,
     )
     parser.add_argument(
         "--num_test_subset",
@@ -370,125 +370,134 @@ def main(args):
 
     np.random.shuffle(train_indices)
 
-    if args.max_train_size is not None and len(train_indices) > args.max_train_size:
-        train_indices = train_indices[: args.max_train_size]
-
-    train_masks = train_masks[train_indices]
-    train_targets = train_targets[train_indices]
-    data_attr_list = []
-
     num_targets = train_targets.shape[-1]
-    coeff = None
 
-    for i in tqdm(range(num_targets)):
+    for n in tqdm(range(train_masks.shape[-1], args.max_train_size, 10)):
 
-        if args.method == "trak":
-            if coeff is None:
+        train_masks_fold = train_masks[train_indices[:n]]
+        train_targets_fold = train_targets[train_indices[:n]]
+
+        data_attr_list = []
+
+        for i in tqdm(range(num_targets)):
+
+            if args.method == "trak":
                 assert (
                     args.trak_behavior is None
                 ), "Model behavior should be defined for TRAK."
 
                 coeff = compute_dtrak_trak_scores(
-                    args, retraining=False, training_seeds=train_seeds[train_indices]
+                    args,
+                    retraining=False,
+                    training_seeds=train_seeds[train_indices],
                 )
-        elif args.method == "pixel_dist":
-            if coeff is None:
+            elif args.method == "pixel_dist":
                 coeff = pixel_distance(
                     args, args.sample_size, args.sample_dir, args.training_dir
                 )
-        elif args.method == "clip_score":
-            if coeff is None:
+            elif args.method == "clip_score":
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 clip = CLIPScore(device)
                 coeff = clip.clip_score(
-                    args.dataset, args.sample_size, args.sample_dir, args.training_dir
+                    args.dataset,
+                    args.sample_size,
+                    args.sample_dir,
+                    args.training_dir,
                 )
-        elif args.method in ["gd", "ga", "retrain"]:
+            elif args.method in ["gd", "ga", "retrain"]:
 
-            if args.removal_dist == "datamodel":
+                if args.removal_dist == "datamodel":
 
-                datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
-                    train_masks, train_targets[:, i]
-                )
-                datamodel_str = "Ridge"
-                print("Datamodel parameters")
-                print(f"\tmodel={datamodel_str}")
-                print(f"\talpha={datamodel.alpha_:.8f}")
+                    datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
+                        train_masks_fold, train_targets_fold[:, i]
+                    )
+                    datamodel_str = "Ridge"
+                    print("Datamodel parameters")
+                    print(f"\tmodel={datamodel_str}")
+                    print(f"\talpha={datamodel.alpha_:.8f}")
 
-                coeff = datamodel.coef_
+                    coeff = datamodel.coef_
 
-            elif args.removal_dist == "shapley":
+                elif args.removal_dist == "shapley":
 
-                coeff = data_shapley(
-                    train_masks.shape[-1],
-                    train_masks,
-                    train_targets[:, i],
-                    args.v1,
-                    args.v0,
-                )
+                    coeff = data_shapley(
+                        train_masks_fold.shape[-1],
+                        train_masks_fold,
+                        train_targets_fold[:, i],
+                        args.v1,
+                        args.v0,
+                    )
+                else:
+                    raise ValueError(
+                        (f"Removal distribution: {args.removal_dist} does not exist.")
+                    )
+
             else:
                 raise ValueError(
-                    (f"Removal distribution: {args.removal_dist} does not exist.")
+                    (f"Method: {args.dataset} is not one of {constants.METHOD}")
                 )
 
-        else:
-            raise ValueError(
-                (f"Method: {args.dataset} is not one of {constants.METHOD}")
-            )
+            data_attr_list.append(coeff)
 
-        data_attr_list.append(coeff)
+        # Calculate test LDS with bootstrapping.
+        print(coeff)
+        print(np.argsort(coeff.reshape(-1))[:10])
 
-    # Calculate test LDS with bootstrapping.
-    print(coeff)
-    print(np.argsort(coeff.reshape(-1))[:10])
+        def my_lds(idx):
+            boot_masks = test_masks[idx, :]
+            lds_list = []
+            for i in range(num_targets):
+                boot_targets = test_targets[idx, i]
+                lds_list.append(
+                    spearmanr(boot_masks @ data_attr_list[i], boot_targets).statistic
+                    * 100
+                )
+            return np.mean(lds_list)
 
-    def my_lds(idx):
-        boot_masks = test_masks[idx, :]
-        lds_list = []
-        for i in range(num_targets):
-            boot_targets = test_targets[idx, i]
-            lds_list.append(
-                spearmanr(boot_masks @ data_attr_list[i], boot_targets).statistic * 100
-            )
-        return np.mean(lds_list)
-
-    print(f"Estimating scores with {len(train_targets)} subsets with bootstrap.")
-    boot_result = bootstrap(
-        data=(list(range(len(test_targets))),),
-        statistic=my_lds,
-        n_resamples=args.num_bootstrap_iters,
-        random_state=42,
-    )
-    boot_mean = np.mean(boot_result.bootstrap_distribution.mean())
-    boot_se = boot_result.standard_error
-    boot_ci_low = boot_result.confidence_interval.low
-    boot_ci_high = boot_result.confidence_interval.high
-
-    print(f"Mean: {boot_mean:.2f}")
-    print(f"Standard error: {boot_se:.2f}")
-    print(f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})")
-
-    plt.figure(figsize=(20, 10))
-    bin_edges = np.histogram_bin_edges(coeff, bins="auto")
-    sns.histplot(coeff, bins=bin_edges, alpha=0.5)
-
-    plt.xlabel("Shapley Value")
-    plt.ylabel("Frequency")
-    plt.title(
-        f"{args.dataset} with {args.max_train_size} training set\n"
-        f"Mean: {boot_mean:.3f};"
-        f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
-        f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
-    )
-
-    result_path = f"results/lds/{args.dataset}/{args.method}/"
-
-    os.makedirs(result_path, exist_ok=True)
-    plt.savefig(
-        os.path.join(
-            result_path, f"{args.model_behavior_key}_{args.max_train_size}.png"
+        print(
+            f"Estimating scores with {len(train_targets_fold)} subsets with bootstrap."
         )
-    )
+        boot_result = bootstrap(
+            data=(list(range(len(test_targets))),),
+            statistic=my_lds,
+            n_resamples=args.num_bootstrap_iters,
+            random_state=42,
+        )
+        boot_mean = np.mean(boot_result.bootstrap_distribution.mean())
+        boot_se = boot_result.standard_error
+        boot_ci_low = boot_result.confidence_interval.low
+        boot_ci_high = boot_result.confidence_interval.high
+
+        print(f"Mean: {boot_mean:.2f}")
+        print(f"Standard error: {boot_se:.2f}")
+        print(f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})")
+
+        plt.figure(figsize=(20, 10))
+        bin_edges = np.histogram_bin_edges(coeff, bins="auto")
+        sns.histplot(coeff, bins=bin_edges, alpha=0.5)
+
+        plt.xlabel("Shapley Value")
+        plt.ylabel("Frequency")
+        plt.title(
+            f"{args.dataset} with {args.max_train_size} training set\n"
+            f"Mean: {boot_mean:.3f};"
+            f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
+            f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
+        )
+
+        result_path = f"results/lds/{args.dataset}/{args.method}/"
+
+        os.makedirs(result_path, exist_ok=True)
+        plt.savefig(
+            os.path.join(
+                result_path, f"{args.model_behavior_key}_{args.max_train_size}.png"
+            )
+        )
+
+        if args.method in ["clip_score", "trak", "pixel_dist"] and coeff is not None:
+            # Stop when baseline calculation is completed.
+
+            break
 
 
 if __name__ == "__main__":

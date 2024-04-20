@@ -125,9 +125,9 @@ def parse_args():
         "--model_behavior",
         type=str,
         choices=[
-            "loss", # TRAK
+            "loss",  # TRAK
             "mean",
-            "mean-squared-l2-norm", # D-TRAK
+            "mean-squared-l2-norm",  # D-TRAK
             "l1-norm",
             "l2-norm",
             "linf-norm",
