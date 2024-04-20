@@ -125,9 +125,9 @@ def parse_args():
         "--model_behavior",
         type=str,
         choices=[
-            "loss",
+            "loss", # TRAK
             "mean",
-            "mean-squared-l2-norm",
+            "mean-squared-l2-norm", # D-TRAK
             "l1-norm",
             "l2-norm",
             "linf-norm",
@@ -319,6 +319,7 @@ def main(args):
             ]
         )
         sample_dataset = ImageDataset(args.sample_dir, preprocess)
+        remaining_idx = np.arange(len(sample_dataset))
 
         remaining_dataloader = DataLoader(
             sample_dataset,
@@ -381,7 +382,7 @@ def main(args):
     pipeline_scheduler = pipeline.scheduler
 
     # Init a memory-mapped array stored on disk directly for D-TRAK results.
-
+    print(len(remaining_idx))
     dstore_keys = np.memmap(
         save_dir,
         dtype=np.float32,
