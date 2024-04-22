@@ -20,6 +20,7 @@ import argparse
 import logging
 import math
 import os
+import sys
 import random
 import shutil
 from pathlib import Path
@@ -558,6 +559,16 @@ def main():
         args.model_outdir = os.path.join(args.output_dir, "models", removal_dir)
         args.sample_outdir = os.path.join(args.output_dir, "samples", removal_dir)
 
+        # If trained weights already exist, skip the script.
+        lora_weight_path = os.path.join(
+            args.model_outdir, "pytorch_lora_weights.safetensors"
+        )
+        if os.path.exists(lora_weight_path):
+            print(
+                f"Found trained LoRA weights at {lora_weight_path}. Process cancelled."
+            )
+            sys.exit(0)  # Exit without raising an error.
+
     prompt_list_dict = {"artbench": list(PromptConfig.artbench_config.values())}
 
     if args.validation_prompt is not None:
@@ -676,7 +687,7 @@ def main():
 
     # Set correct lora layers
     if args.lora_dir is None:
-        unet.to(accelerator.device, type=weight_dtype)
+        unet.to(accelerator.device, dtype=weight_dtype)
         unet_lora_parameters = []
         for attn_processor_name, attn_processor in unet.attn_processors.items():
             # Parse the attention module.
