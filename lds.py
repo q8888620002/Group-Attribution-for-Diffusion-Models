@@ -372,7 +372,12 @@ def main(args):
 
     num_targets = train_targets.shape[-1]
 
-    for n in tqdm(range(train_masks.shape[-1], args.max_train_size, 10)):
+    start = train_masks.shape[-1]
+    step = 10
+
+    subset_sizes = sequence = [start] + list(range(step, args.max_train_size + 1, step))
+
+    for n in tqdm(subset_sizes):
 
         train_masks_fold = train_masks[train_indices[:n]]
         train_targets_fold = train_targets[train_indices[:n]]
@@ -440,8 +445,8 @@ def main(args):
             data_attr_list.append(coeff)
 
         # Calculate test LDS with bootstrapping.
-        print(coeff)
-        print(np.argsort(coeff.reshape(-1))[:10])
+        # print(coeff)
+        # print(np.argsort(coeff.reshape(-1))[:10])
 
         def my_lds(idx):
             boot_masks = test_masks[idx, :]
@@ -479,7 +484,7 @@ def main(args):
         plt.xlabel("Shapley Value")
         plt.ylabel("Frequency")
         plt.title(
-            f"{args.dataset} with {args.max_train_size} training set\n"
+            f"{args.dataset} with {len(train_targets_fold)} training set\n"
             f"Mean: {boot_mean:.3f};"
             f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
             f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
@@ -490,7 +495,7 @@ def main(args):
         os.makedirs(result_path, exist_ok=True)
         plt.savefig(
             os.path.join(
-                result_path, f"{args.model_behavior_key}_{args.max_train_size}.png"
+                result_path, f"{args.model_behavior_key}_{len(train_targets_fold)}.png"
             )
         )
 
