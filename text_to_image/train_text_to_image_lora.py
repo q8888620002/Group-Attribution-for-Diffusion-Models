@@ -549,7 +549,7 @@ def main():
     args.model_outdir, args.sample_outdir = None, None
 
     if args.method == "pruned_ft":
-        args.method = f"pruned_ft_ratio={args.pruning_ratio}"
+        args.method = f"pruned_ft_ratio={args.pruning_ratio}_lr={args.learning_rate}"
         args.lora_dir = os.path.join(
             args.output_dir,
             args.dataset,

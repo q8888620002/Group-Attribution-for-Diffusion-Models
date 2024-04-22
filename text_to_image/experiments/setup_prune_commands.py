@@ -68,21 +68,24 @@ def main(args):
     with open(command_file, "w") as handle:
         for i in range(1, 10):
             pruning_ratio = i / 10
-            command = "python text_to_image/prune_lora.py"
-            command += " --lora_dir={}".format(trained_lora_dir)
-            command += " --pruning_ratio={}".format(pruning_ratio)
-            command += " ; "
-            command += "accelerate launch"
-            command += " --gpu_ids=0"
-            command += " --mixed_precision={}".format("fp16")
-            command += " text_to_image/train_text_to_image_lora.py"
-            for key, val in training_config.items():
-                command += " " + format_config_arg(key, val)
-            command += " --checkpoint_attn_procs"
-            command += " --pruning_ratio={}".format(pruning_ratio)
+            for learning_rate in [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3]:
+                command = "python text_to_image/prune_lora.py"
+                command += " --lora_dir={}".format(trained_lora_dir)
+                command += " --pruning_ratio={}".format(pruning_ratio)
+                command += " ; "
+                command += "accelerate launch"
+                command += " --gpu_ids=0"
+                command += " --mixed_precision={}".format("fp16")
+                command += " text_to_image/train_text_to_image_lora.py"
+                for key, val in training_config.items():
+                    if key not in ["learning_rate"]:
+                        command += " " + format_config_arg(key, val)
+                command += " --learning_rate={}".format(learning_rate)
+                command += " --checkpoint_attn_procs"
+                command += " --pruning_ratio={}".format(pruning_ratio)
 
-            handle.write(command + "\n")
-            num_jobs += 1
+                handle.write(command + "\n")
+                num_jobs += 1
     print(f"Commands saved to {command_file}")
 
     # Update the SLURM job submission file.
