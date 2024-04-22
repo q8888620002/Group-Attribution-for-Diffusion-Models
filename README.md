@@ -66,10 +66,13 @@ export PYTHONPATH="$PYTHONPATH:$PWD"
 │   ├── train_text_to_image_lora.py
 │   ├── prune_lora.py
 │   ├── generate_samples.py
-│   ├── calculate_local_scores.py
+│   ├── compute_model_behaviors.py
+|   ├── baselines.py
+|   ├── shapley_lds.py
+|   ├── baseline_lds.py
 │   ├── artbench/
-│   │   ├── calculate_global_scores.py
-│   │   └── results.ipynb
+|   |   ├── create_metadata.py
+│   │   └── *.ipynb  # Notebooks for analyzing results.
 │   └── experiments/  # Files for managing SLURM experiments.
 │
 ├── some_common_script_0.py  # Script(s) that are useful for all diffusion models.
