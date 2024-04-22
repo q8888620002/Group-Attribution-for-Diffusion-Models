@@ -36,7 +36,13 @@ def parse_args():
         "--removal_dist",
         type=str,
         help="distribution for removing data",
-        choices=["shapley"],
+        choices=["shapley", "datamodel"],
+        default=None,
+    )
+    parser.add_argument(
+        "--datamodel_alpha",
+        type=float,
+        help="alpha value for the datamodel removal distribution",
         default=None,
     )
     parser.add_argument(
@@ -64,6 +70,9 @@ def parse_args():
 
 def main(args):
     """Main function."""
+    if args.removal_dist == "datamodel":
+        assert args.datamodel_alpha is not None
+
     if args.dataset == "artbench_post_impressionism":
         training_config = LoraTrainingConfig.artbench_post_impressionism_config
         train_data_dir = os.path.join(
@@ -75,16 +84,21 @@ def main(args):
         training_config["method"] = args.method
         training_config["removal_dist"] = args.removal_dist
         training_config["removal_unit"] = args.removal_unit
+        if args.removal_dist == "datamodel":
+            training_config["datamodel_alpha"] = args.datamodel_alpha
     else:
         raise ValueError("--dataset should be one of ['artbench_post_impressionism']")
 
     # Set up coutput directories and files.
+    removal_dist_name = "full"
+    if args.removal_dist is not None:
+        removal_dist_name = f"{args.removal_unit}_{args.removal_dist}"
+        if args.removal_dist == "datamodel":
+            removal_dist_name += f"_alpha={args.datamodel_alpha}"
     exp_name = os.path.join(
         args.dataset,
         args.method,
-        "full"
-        if args.removal_dist is None
-        else f"{args.removal_unit}_{args.removal_dist}",
+        removal_dist_name,
         f"seed{args.seed}",
     )
     command_outdir = os.path.join(

@@ -57,7 +57,7 @@ from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
 import time
-from src.datasets import remove_data_by_shapley, remove_data_by_uniform
+from src.datasets import remove_data_by_shapley, remove_data_by_uniform, remove_data_by_datamodel
 from src.ddpm_config import PromptConfig
 from src.utils import fix_get_processor
 
@@ -491,7 +491,13 @@ def parse_args():
         "--removal_dist",
         type=str,
         help="distribution for removing data",
-        choices=["uniform", "shapley"],
+        choices=["uniform", "shapley", "datamodel"],
+        default=None,
+    )
+    parser.add_argument(
+        "--datamodel_alpha",
+        type=float,
+        help="alpha value for the datamodel removal distribution",
         default=None,
     )
     parser.add_argument(
@@ -527,8 +533,12 @@ def main():
         if args.removal_unit is None:
             raise ValueError("--removal_unit is not specified")
         
-        removal_dir = f"{args.removal_unit}_{args.removal_dist}"
-        removal_dir += f"/{args.removal_dist}_seed={args.removal_seed}"
+        removal_dir_dist = args.removal_dist
+        if args.removal_dist == "datamodel":
+            removal_dir_dist += f"_alpha={args.datamodel_alpha}"
+        
+        removal_dir = f"{args.removal_unit}_{removal_dir_dist}"
+        removal_dir += f"/{removal_dir_dist}_seed={args.removal_seed}"
 
     assert args.dataset_name is None
     args.dataset = (
@@ -869,9 +879,15 @@ def main():
                 remaining_idx, removed_idx = remove_data_by_uniform(
                     removal_unit_df, args.removal_seed
                 )
+            elif args.removal_dist == "datamodel":
+                remaining_idx, removed_idx = remove_data_by_datamodel(
+                    dataset=removal_unit_df,
+                    seed=args.removal_seed,
+                    alpha=args.datamodel_alpha,
+                )
             else:
                 raise ValueError(
-                    f"--removal_dist={args.removal_idst} has to be ['shapley', 'uniform']"
+                    f"--removal_dist={args.removal_dist} has to be ['shapley', 'uniform']"
                 )
             removal_idx_df = pd.concat(
                 [
