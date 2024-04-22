@@ -7,6 +7,7 @@ import pandas as pd
 from scipy.stats import bootstrap, spearmanr
 from tqdm import tqdm
 
+from src.attributions.methods.datashapley import data_shapley
 from src.ddpm_config import DatasetStats
 from src.utils import print_args
 
@@ -115,29 +116,6 @@ def collect_data(
         return model_behavior_array
 
 
-def datashap(x_fit, y_fit, v0, v1):
-    """Compute data Shapley values with constrained regression."""
-    num_attrs = x_fit.shape[-1]
-    a_hat = np.zeros((num_attrs, num_attrs))
-    b_hat = np.zeros((num_attrs, 1))
-
-    fit_size = x_fit.shape[0]
-    for j in range(fit_size):
-        a_hat += np.outer(x_fit[j], x_fit[j])
-        b_hat += (x_fit[j] * (y_fit[j] - v0))[:, None]
-
-    a_hat /= fit_size
-    b_hat /= fit_size
-
-    a_hat_inv = np.linalg.inv(a_hat)
-    one = np.ones((num_attrs, 1))
-
-    c = one.T @ a_hat_inv @ b_hat - v1 + v0
-    d = one.T @ a_hat_inv @ one
-    attrs = a_hat_inv @ (b_hat - one @ (c / d))
-    return attrs.flatten()
-
-
 def main(args):
     """Main function."""
     if args.dataset == "artbench_post_impressionism":
@@ -217,7 +195,9 @@ def main(args):
             v0 = y_null[k]
             v1 = y_full[k]
             y_fit = y_fit_all[:, k]
-            attrs = datashap(x_fit=x_fit, y_fit=y_fit, v0=v0, v1=v1)
+            attrs = data_shapley(
+                dataset_size=x_fit.shape[-1], x_train=x_fit, y_train=y_fit, v0=v0, v1=v1
+            )
             attrs_all.append(attrs)
         attrs_all = np.stack(attrs_all, axis=1)
 
