@@ -6,10 +6,11 @@ import clip
 import numpy as np
 import torch
 from PIL import Image
-from scipy.spatial.distance import cdist
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.datasets import (
+    ImageDataset,
     create_dataset,
     remove_data_by_datamodel,
     remove_data_by_shapley,
@@ -23,27 +24,14 @@ class CLIPScore:
         self.device = device
         self.clip_model, self.clip_transform = clip.load("ViT-B/32", device=device)
 
-    def process_images_clip(self, file_list, max_size=None):
-        """Function to load and process images with clip transform"""
-
-        images = []
-        if max_size is not None:
-            file_list = file_list[:max_size]
-
-        for filename in tqdm(file_list):
-            image = Image.open(filename)
-            image = self.clip_transform(image).unsqueeze(0).to(self.device)
-            images.append(image)
-        return torch.cat(images, dim=0)
-
-    def clip_score(self, args, sample_size, sample_dir, training_dir):
+    def clip_score(self, dataset_name, sample_size, sample_dir, training_dir):
         """
         Function that calculate CLIP score between generated and training data
 
         Args:
         ----
-            args: argument for calculating lds.
-            sample_size: number of samples
+            dataset_name: name of the dataset.
+            sample_size: number of samples to calculate local model behavior
             sample_dir: directory of the first set of images.
             training_dir: directory of the second set of images.
 
@@ -52,25 +40,49 @@ class CLIPScore:
             Mean pairwise CLIP score as data attribution.
         """
 
-        # Get the model's visual features (without text features)
+        all_sample_features = []
+        all_training_features = []
+        num_workers = 4 if torch.get_num_threads() >= 4 else torch.get_num_threads()
 
-        sample_image = self.process_images_clip(
-            glob.glob(sample_dir + "/*"), sample_size
+        sample_dataset = ImageDataset(sample_dir, self.clip_transform, sample_size)
+        sample_loader = DataLoader(
+            sample_dataset, batch_size=64, num_workers=num_workers, pin_memory=True
         )
-        training_image = self.process_images_clip(glob.glob(training_dir + "/*"))
+        train_dataset = ImageDataset(training_dir, transform=self.clip_transform)
+        train_loader = DataLoader(
+            train_dataset, batch_size=64, num_workers=num_workers, pin_memory=True
+        )
+
+        # Assuming clip_transform is your image transformation pipeline
 
         with torch.no_grad():
-            features1 = self.clip_model.encode_image(sample_image)
-            features2 = self.clip_model.encode_image(training_image)
+            print(f"Calculating CLIP embeddings for {sample_dir}...")
+            for sample_batch, _  in tqdm(sample_loader):
+                features = self.clip_model.encode_image(sample_batch.to(self.device))
+                all_sample_features.append(features.cpu().numpy())
 
-        features1 = features1 / features1.norm(dim=-1, keepdim=True)
-        features2 = features2 / features2.norm(dim=-1, keepdim=True)
-        similarity = (features1 @ features2.T).cpu().numpy()
-        coeff = np.mean(similarity, axis=0).astype(np.float32)
+            print(f"Calculating CLIP embeddings for {training_dir}...")
+            for training_batch, _ in tqdm(train_loader):
+                features = self.clip_model.encode_image(training_batch.to(self.device))
+                all_training_features.append(features.cpu().numpy())
 
-        if args.by_class:
-            dataset = create_dataset(dataset_name=args.dataset, train=True)
-            coeff = sum_scores_by_class(coeff, dataset)
+        # Concatenate all batch features
+        all_sample_features = np.concatenate(all_sample_features, axis=0)
+        all_training_features = np.concatenate(all_training_features, axis=0)
+
+        all_sample_features = all_sample_features / np.linalg.norm(
+            all_sample_features, axis=1, keepdims=True
+        )
+        all_training_features = all_training_features / np.linalg.norm(
+            all_training_features, axis=1, keepdims=True
+        )
+
+        similarity = all_sample_features @ all_training_features.T
+        coeff = np.mean(similarity, axis=0)
+
+        if dataset_name in ["cifar100", "cifar100_f"]:
+            dataset = create_dataset(dataset_name=dataset_name, train=True)
+            coeff = mean_scores_by_class(coeff, dataset)
 
         return coeff
 
@@ -109,25 +121,34 @@ def create_removal_path(args, seed_index):
 
     return removal_dir, remaining_idx
 
-    raise ValueError(f"No record found for sample_dir: {removal_dir}")
 
-
-def sum_scores_by_class(scores, dataset):
+def mean_scores_by_class(scores, dataset):
     """
-    Sum scores by classes and return group-based scores
+    Compute mean scores by classes and return group-based means.
 
-    :param scores: sample based coefficients
-    :param dataset: dataset
-    :return: Numpy array with summed scores, indexed by label.
+    :param scores: sample-based coefficients
+    :param dataset:
+        dataset, each entry should be a tuple or list with the label as the last element
+    :return: Numpy array with mean scores, indexed by label.
     """
-    # Initialize a dictionary to accumulate scores for each label
-    score_sum_by_label = {}
+    # Initialize dictionaries to accumulate scores and counts for each label
+    scores_and_counts = {}
+
+    # Gather sums and counts per label
     for score, (_, label) in zip(scores, dataset):
-        score_sum_by_label[label] = score_sum_by_label.get(label, 0) + score
+        if label in scores_and_counts:
+            scores_and_counts[label][0] += score
+            scores_and_counts[label][1] += 1
+        else:
+            scores_and_counts[label] = [score, 1]  # [sum, count]
 
-    result_array = np.zeros(max(score_sum_by_label.keys()) + 1)
-    for label, sum_score in score_sum_by_label.items():
-        result_array[label] = sum_score
+    # Prepare the result array
+    num_labels = max(scores_and_counts.keys()) + 1
+    result_array = np.zeros(num_labels)
+
+    # Compute the mean for each label
+    for label, (total_score, count) in scores_and_counts.items():
+        result_array[label] = total_score / count
 
     return result_array
 
@@ -142,7 +163,15 @@ def process_images_np(file_list, max_size=None):
     for filename in tqdm(file_list):
         image = Image.open(filename).convert("RGB")
         image = np.array(image).astype(np.float32)
-        images.append(image)
+
+        # Convert PIL Image to NumPy array and scale from 0 to 1
+        image_np = np.array(image, dtype=np.float32) / 255.0
+
+        # Normalize: shift and scale the image to have pixel values in range [-1, 1]
+        image_np = (image_np - 0.5) / 0.5
+
+        images.append(image_np)
+
     return np.stack(images)
 
 
@@ -174,16 +203,17 @@ def pixel_distance(args, sample_size, generated_dir, training_dir):
 
     generated_images = generated_images.reshape(generated_images.shape[0], -1)
     ref_images = ref_images.reshape(ref_images.shape[0], -1)
+    # Normalize the image vectors to unit vectors
+    generated_images = generated_images / np.linalg.norm(
+        generated_images, axis=1, keepdims=True
+    )
+    ref_images = ref_images / np.linalg.norm(ref_images, axis=1, keepdims=True)
 
-    # Calculate the pairwise Euclidean distances.
-
-    distances = np.zeros((len(generated_images), len(ref_images)))
-
-    distances = cdist(generated_images, ref_images, metric="euclidean")
-    coeff = -np.mean(distances, axis=0)
+    similarities = np.dot(generated_images, ref_images.T)
+    coeff = np.mean(similarities, axis=0)
 
     if args.by_class:
         dataset = create_dataset(dataset_name=args.dataset, train=True)
-        coeff = sum_scores_by_class(coeff, dataset)
+        coeff = mean_scores_by_class(coeff, dataset)
 
     return coeff

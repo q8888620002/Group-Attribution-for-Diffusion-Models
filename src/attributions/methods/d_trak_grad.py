@@ -2,10 +2,18 @@
 import argparse
 import os
 
-import diffusers
 import numpy as np
 import torch
 import torch.nn.functional as F
+from lightning.pytorch import seed_everything
+from torch.func import functional_call, grad, vmap
+from torch.utils.data import DataLoader, Subset
+from torchvision import transforms
+from trak.projectors import CudaProjector, ProjectionType
+from trak.utils import is_not_buffer
+
+import diffusers
+import src.constants as constants
 from diffusers import (
     DDIMScheduler,
     DDPMPipeline,
@@ -14,14 +22,9 @@ from diffusers import (
     LDMPipeline,
     VQModel,
 )
-from lightning.pytorch import seed_everything
-from torch.func import functional_call, grad, vmap
-from torch.utils.data import DataLoader, Subset
-from trak.projectors import CudaProjector, ProjectionType
-from trak.utils import is_not_buffer
-
-import src.constants as constants
 from src.datasets import (
+    ImageDataset,
+    TensorDataset,
     create_dataset,
     remove_data_by_class,
     remove_data_by_datamodel,
@@ -69,6 +72,13 @@ def parse_args():
         type=int,
         help="dataset class to exclude for class-wise data removal",
         default=None,
+    )
+    parser.add_argument(
+        "--method",
+        type=str,
+        help="training or unlearning method",
+        choices=constants.METHOD,
+        required=True,
     )
     parser.add_argument(
         "--removal_dist",
@@ -146,7 +156,13 @@ def parse_args():
         help="Dimension for TRAK projector",
     )
     parser.add_argument(
-        "--calculate_val_grad",
+        "--sample_dir",
+        type=str,
+        default=None,
+        help="filepath of sample (generated) images ",
+    )
+    parser.add_argument(
+        "--calculate_gen_grad",
         help="whether to generate validation set and calculate phi",
         action="store_true",
         default=False,
@@ -166,15 +182,17 @@ def vectorize_and_ignore_buffers(g, params_dict=None):
 
     Args:
     -------
-        g (tuple of torch.Tensor): Gradients for each weight matrix, each with shape [batch_size, ...].
-        params_dict (dict, optional): Dictionary to identify non-buffer gradients in 'g'.
+        g (tuple of torch.Tensor):
+            Gradients for each weight matrix, each with shape [batch_size, ...].
+        params_dict (dict, optional):
+            Dictionary to identify non-buffer gradients in 'g'.
 
     Returns
     -------
     torch.Tensor:
-        Tensor with shape [batch_size, num_params], where each row represents flattened and
-        concatenated gradients for a single batch instance. 'num_params' is the total count of
-        flattened parameters across all weight matrices.
+        Tensor with shape [batch_size, num_params], where each row represents
+        flattened and concatenated gradients for a single batch instance.
+        'num_params' is the total count of flattened parameters across all weight matrices.
 
     Note:
     - If 'params_dict' is provided, only non-buffer gradients are processed.
@@ -210,6 +228,8 @@ def main(args):
         config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "cifar100":
         config = {**DDPMConfig.cifar100_config}
+    elif args.dataset == "cifar100_f":
+        config = {**DDPMConfig.cifar100_f_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -232,11 +252,14 @@ def main(args):
         removal_dir += f"_seed={args.removal_seed}"
 
     model_outdir = os.path.join(
-        args.outdir, args.dataset, "retrain", "models", removal_dir
+        args.outdir,
+        args.dataset,
+        args.method,
+        "models",
+        removal_dir,
     )
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
-
 
     if args.excluded_class is not None:
         remaining_idx, removed_idx = remove_data_by_class(
@@ -268,15 +291,54 @@ def main(args):
 
     config["batch_size"] = 8
 
-    remaining_dataloader = DataLoader(
-        Subset(train_dataset, remaining_idx),
-        batch_size=config["batch_size"],
-        shuffle=True,
-        num_workers=1,
-    )
+    if args.sample_dir is None:
+
+        remaining_dataloader = DataLoader(
+            Subset(train_dataset, remaining_idx),
+            batch_size=config["batch_size"],
+            shuffle=True,
+            num_workers=1,
+        )
+
+        save_dir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "d_track",
+            removal_dir,
+            f"train_f={args.model_behavior}_t={args.t_strategy}",
+        )
+
+    else:
+
+        preprocess = transforms.Compose(
+            [
+                transforms.ToTensor(),  # Normalize to [0,1].
+                transforms.Normalize(
+                    (0.5, 0.5, 0.5), (0.5, 0.5, 0.5)
+                ),  # Normalize to [-1,1].
+            ]
+        )
+        sample_dataset = ImageDataset(args.sample_dir, preprocess)
+
+        remaining_dataloader = DataLoader(
+            sample_dataset,
+            batch_size=config["batch_size"],
+            shuffle=True,
+            num_workers=1,
+        )
+
+        save_dir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "d_track",
+            "reference",
+            f"reference_f={args.model_behavior}_t={args.t_strategy}",
+        )
+
+    os.makedirs(os.path.dirname(save_dir), exist_ok=True)
     existing_steps = get_max_steps(model_outdir)
 
-    ## load full model
+    # load full model
 
     ckpt_path = os.path.join(model_outdir, f"ckpt_steps_{existing_steps:0>8}.pt")
     ckpt = torch.load(ckpt_path, map_location="cpu")
@@ -317,16 +379,6 @@ def main(args):
         ).to(device)
 
     pipeline_scheduler = pipeline.scheduler
-
-    save_dir = os.path.join(
-        args.outdir,
-        args.dataset,
-        "d_track",
-        removal_dir,
-        f"train_f={args.model_behavior}_t={args.t_strategy}",
-    )
-
-    os.makedirs(os.path.dirname(save_dir), exist_ok=True)
 
     # Init a memory-mapped array stored on disk directly for D-TRAK results.
 
@@ -613,16 +665,16 @@ def main(args):
 
     # Calculating phi for generated images
 
-    if calculate_val_grad:
+    if args.calculate_gen_grad:
         args.batch_size = 128
-        args.n_samples = 1024
+        args.n_samples = 128
 
         val_save_dir = os.path.join(
             args.outdir,
             args.dataset,
             "d_track",
             removal_dir,
-            f"val_f={args.model_behavior}_t={args.t_strategy}",
+            f"gen_f={args.model_behavior}_t={args.t_strategy}",
         )
 
         os.makedirs(os.path.dirname(val_save_dir), exist_ok=True)
@@ -637,9 +689,19 @@ def main(args):
         )
 
         generated_samples = generate_images(args, pipeline)
+
+        generated_samples = generated_samples.float() / 255.0
+        normalize = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        generated_samples = [normalize(tensor) for tensor in generated_samples]
+
         images_dataset = TensorDataset(generated_samples)
 
-        for step, (image, _) in enumerate(images_dataset):
+        val_dataloader = DataLoader(
+            images_dataset,
+            batch_size=config["batch_size"],
+            num_workers=1,
+        )
+        for step, image in enumerate(val_dataloader):
 
             seed_everything(args.opt_seed, workers=True)
             image = image.to(device)
