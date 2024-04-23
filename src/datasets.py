@@ -482,6 +482,7 @@ def remove_data_by_shapley(
         ]
         removed_idx = np.array(removed_idx)
         remaining_idx = np.setdiff1d(np.arange(len(dataset)), removed_idx)
+
         return remaining_idx, removed_idx
     else:
         dataset_size = len(dataset)
@@ -503,6 +504,7 @@ def remove_data_by_shapley(
         rng.shuffle(all_idx)  # Shuffle in place.
         remaining_idx = all_idx[:remaining_size]
         removed_idx = all_idx[remaining_size:]
+
         return remaining_idx, removed_idx
 
 

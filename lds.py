@@ -48,6 +48,19 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
+        "--full_db",
+        type=str,
+        help="filepath of database for recording training model behaviors",
+        required=True,
+    )
+    parser.add_argument(
+        "--null_db",
+        type=str,
+        help="filepath of database for recording training model behaviors",
+        required=True,
+    )
+
+    parser.add_argument(
         "--dataset",
         type=str,
         help="dataset for evaluation",
@@ -240,12 +253,12 @@ def collect_data(
                 seed = int(record["removal_seed"])
                 method = record["method"]
 
-                # Check if remaining_idx is empty
-
-                if "remaining_idx" not in record.keys():
-                    remaining_idx, removed_idx = remove_data_by_shapley(
-                        dataset, seed, by_class
-                    )
+                # Check if remaining_idx is empty or incorrect indices.
+                if (
+                    "remaining_idx" not in record
+                    or len(record["remaining_idx"]) > train_size
+                ):
+                    remaining_idx, removed_idx = remove_data_by_shapley(dataset, seed)
                 else:
                     remaining_idx = record["remaining_idx"]
 
@@ -254,11 +267,11 @@ def collect_data(
                     remaining_idx, removed_idx = removed_by_classes(
                         index_to_class, remaining_idx
                     )
-                    remaining_mask = np.zeros(len(remaining_idx) + len(removed_idx))
-
+                    mask_size = len(remaining_idx) + len(removed_idx)
                 else:
-                    remaining_mask = np.zeros(train_size)
+                    mask_size = train_size
 
+                remaining_mask = np.zeros(mask_size)
                 remaining_mask[remaining_idx] = 1
 
                 if n_samples is None:
@@ -332,6 +345,24 @@ def main(args):
         args.by_class,
     )
 
+    _, null_targets, _ = collect_data(
+        args.null_db,
+        {"dataset": args.dataset, "method": args.method},
+        args.dataset,
+        args.model_behavior_key,
+        args.n_samples,
+        args.by_class,
+    )
+
+    _, full_targets, _ = collect_data(
+        args.full_db,
+        {"dataset": args.dataset, "method": args.method},
+        args.dataset,
+        args.model_behavior_key,
+        args.n_samples,
+        args.by_class,
+    )
+
     random.seed(42)
     np.random.seed(42)
 
@@ -365,6 +396,7 @@ def main(args):
     matches = np.all(
         train_masks[train_indices, None, :] == test_masks[None, :, :], axis=2
     )
+
     matching_train_indices = np.any(matches, axis=1)
     train_indices = np.where(~matching_train_indices)[0]
 
@@ -373,9 +405,9 @@ def main(args):
     num_targets = train_targets.shape[-1]
 
     start = train_masks.shape[-1]
-    step = 10
+    step = 100
 
-    subset_sizes = sequence = [start] + list(range(step, args.max_train_size + 1, step))
+    subset_sizes = [start] + list(range(step, args.max_train_size + 1, step))
 
     for n in tqdm(subset_sizes):
 
@@ -429,8 +461,8 @@ def main(args):
                         train_masks_fold.shape[-1],
                         train_masks_fold,
                         train_targets_fold[:, i],
-                        args.v1,
-                        args.v0,
+                        full_targets.flatten()[i],
+                        null_targets.flatten()[i],
                     )
                 else:
                     raise ValueError(
