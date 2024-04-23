@@ -347,7 +347,7 @@ def main(args):
 
     _, null_targets, _ = collect_data(
         args.null_db,
-        {"dataset": args.dataset, "method": args.method},
+        {"dataset": args.dataset, "method": "retrain"},
         args.dataset,
         args.model_behavior_key,
         args.n_samples,
@@ -356,7 +356,7 @@ def main(args):
 
     _, full_targets, _ = collect_data(
         args.full_db,
-        {"dataset": args.dataset, "method": args.method},
+        {"dataset": args.dataset,  "method": "retrain"},
         args.dataset,
         args.model_behavior_key,
         args.n_samples,
@@ -420,7 +420,7 @@ def main(args):
 
             if args.method == "trak":
                 assert (
-                    args.trak_behavior is None
+                    args.trak_behavior is not None
                 ), "Model behavior should be defined for TRAK."
 
                 coeff = compute_dtrak_trak_scores(
