@@ -147,56 +147,6 @@ def parse_args():
         help="number of bootstrapped iterations",
         default=100,
     )
-    # TRAK/D-TRAK args.
-    parser.add_argument(
-        "--trak_behavior",
-        type=str,
-        choices=[
-            "loss",
-            "mean",
-            "mean-squared-l2-norm",
-            "l1-norm",
-            "l2-norm",
-            "linf-norm",
-        ],
-        default=None,
-        help="Specification for D-TRAK model behavior.",
-    )
-    parser.add_argument(
-        "--t_strategy",
-        type=str,
-        choices=["uniform", "cumulative"],
-        help="strategy for sampling time steps",
-    )
-    parser.add_argument(
-        "--k_partition",
-        type=int,
-        default=None,
-        help="Partition for embeddings across time steps.",
-    )
-    parser.add_argument(
-        "--projector_dim",
-        type=int,
-        default=1024,
-        help="Dimension for TRAK projector",
-    )
-    # file path for local model behavior, e.g. pixel_distance, clip score
-    parser.add_argument(
-        "--sample_size",
-        type=int,
-        default=None,
-        help="Number of samples for local model behavior",
-    )
-    parser.add_argument(
-        "--sample_dir",
-        type=str,
-        help="filepath of sample (generated) images ",
-    )
-    parser.add_argument(
-        "--training_dir",
-        type=str,
-        help="filepath of training data ",
-    )
     return parser.parse_args()
 
 
