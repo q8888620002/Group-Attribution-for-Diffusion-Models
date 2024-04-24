@@ -303,7 +303,7 @@ def main(args):
         save_dir = os.path.join(
             args.outdir,
             args.dataset,
-            "d_track",
+            "d_trak",
             removal_dir,
             f"train_f={args.model_behavior}_t={args.t_strategy}",
         )
@@ -329,10 +329,8 @@ def main(args):
         )
 
         save_dir = os.path.join(
-            args.outdir,
-            args.dataset,
-            "d_track",
-            "reference",
+            args.sample_dir,
+            "d_trak",
             f"reference_f={args.model_behavior}_t={args.t_strategy}",
         )
 
@@ -382,7 +380,7 @@ def main(args):
     pipeline_scheduler = pipeline.scheduler
 
     # Init a memory-mapped array stored on disk directly for D-TRAK results.
-    print(len(remaining_idx))
+
     dstore_keys = np.memmap(
         save_dir,
         dtype=np.float32,
@@ -673,7 +671,7 @@ def main(args):
         val_save_dir = os.path.join(
             args.outdir,
             args.dataset,
-            "d_track",
+            "d_trak",
             removal_dir,
             f"gen_f={args.model_behavior}_t={args.t_strategy}",
         )

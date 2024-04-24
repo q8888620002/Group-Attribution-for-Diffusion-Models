@@ -13,6 +13,7 @@ import random
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+import torch
 from scipy.stats import bootstrap, spearmanr
 from sklearn.linear_model import RidgeCV
 
@@ -20,6 +21,8 @@ from sklearn.linear_model import RidgeCV
 from tqdm import tqdm
 
 import src.constants as constants
+from src.attributions.methods.attribution_utils import CLIPScore, pixel_distance
+from src.attributions.methods.compute_trak_score import compute_dtrak_trak_scores
 from src.attributions.methods.datashapley import (  # kernel_shap,; kernel_shap_ridge,
     data_shapley,
 )
@@ -37,24 +40,6 @@ def parse_args():
         type=str,
         help="filepath of database for recording test model behaviors",
         required=True,
-    )
-    parser.add_argument(
-        "--train_db",
-        type=str,
-        help="filepath of database for recording training model behaviors",
-        required=True,
-    )
-    parser.add_argument(
-        "--full_db",
-        type=str,
-        help="filepath of database for recording training model behaviors",
-        required=None,
-    )
-    parser.add_argument(
-        "--null_db",
-        type=str,
-        help="filepath of database for recording training model behaviors",
-        required=None,
     )
 
     parser.add_argument(
@@ -75,12 +60,6 @@ def parse_args():
         type=str,
         help="experiment name of records to extract as part of the training set",
         default=None,
-    )
-    parser.add_argument(
-        "--max_train_size",
-        type=int,
-        help="maximum number of subsets for training removal-based data attributions",
-        required=True,
     )
     parser.add_argument(
         "--num_test_subset",
@@ -289,7 +268,8 @@ def main(args):
     test_condition_dict = {
         "exp_name": args.test_exp_name,
         "dataset": args.dataset,
-        # "removal_dist": args.removal_dist,
+        "removal_dist": "datamodel",
+        "datamodel_alpha" : args.datamodel_alpha,
         "method": "retrain",  # The test set should pertain only to retrained models.
     }
 
@@ -303,181 +283,101 @@ def main(args):
         args.by_class,
     )
 
-    # Extract subsets for estimating data attribution scores.
-    print(f"Loading training data from {args.train_db}")
-
-    train_condition_dict = {
-        "dataset": args.dataset,
-        "removal_dist": args.removal_dist,
-        "method": "retrain"
-        if args.method in ["trak", "clip_score", "pixel_dist"]
-        else args.method,
-        "exp_name": "retrain_vs_retrain"
-        if args.method in ["trak", "clip_score", "pixel_dist"]
-        else args.train_exp_name,
-    }
-    train_masks, train_targets, train_seeds = collect_data(
-        args.train_db,
-        train_condition_dict,
-        args.dataset,
-        args.model_behavior_key,
-        args.n_samples,
-        args.by_class,
-    )
-
-    _, null_targets, _ = collect_data(
-        args.null_db,
-        {"dataset": args.dataset, "method": "retrain"},
-        args.dataset,
-        args.model_behavior_key,
-        args.n_samples,
-        args.by_class,
-    )
-
-    _, full_targets, _ = collect_data(
-        args.full_db,
-        {"dataset": args.dataset, "method": "retrain"},
-        args.dataset,
-        args.model_behavior_key,
-        args.n_samples,
-        args.by_class,
-    )
-
     random.seed(42)
     np.random.seed(42)
 
     # Filtering testing sets
+    num_targets = test_targets.shape[-1]
 
-    if args.train_db == args.test_db:
-        # If testing subsests within the same distribution.
-
-        common_seeds = list(set(train_seeds) & set(test_seeds))
-        test_seeds_filtered = random.sample(common_seeds, args.num_test_subset)
-
-        test_indices_bool = np.isin(test_seeds, test_seeds_filtered)
-        test_indices = np.where(test_indices_bool)[0]
-        test_masks = test_masks[test_indices]
-        test_targets = test_targets[test_indices]
-
-    else:
-        test_seeds_filtered = []
-        test_indices = np.arange(len(test_masks))
+    test_indices = np.arange(len(test_masks))
 
     if args.num_test_subset is not None:
         test_indices = test_indices[: args.num_test_subset]
         test_masks = test_masks[test_indices]
         test_targets = test_targets[test_indices]
 
-    # Select training instances & filtering overlapped subset
+    if args.method == "trak":
+        assert (
+            args.trak_behavior is not None
+        ), "Model behavior should be defined for TRAK."
 
-    overlap_bool = np.isin(train_seeds, test_seeds_filtered)
-    train_indices = np.where(~overlap_bool)[0]
+        coeff = compute_dtrak_trak_scores(
+            args,
+            retraining=False,
+        )
+    elif args.method == "pixel_dist":
+        coeff = pixel_distance(
+            args.model_behavior_key,
+            args.dataset,
+            args.n_samples,
+            args.sample_dir,
+            args.training_dir
+        )
+    elif args.method == "clip_score":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        clip = CLIPScore(device)
+        coeff = clip.clip_score(
+            args.model_behavior_key,
+            args.dataset,
+            args.n_samples,
+            args.sample_dir,
+            args.training_dir,
+        )
 
-    matches = np.all(
-        train_masks[train_indices, None, :] == test_masks[None, :, :], axis=2
+    assert (
+        coeff.shape[0] == num_targets
+    ), "number of target should match number of samples in sample_dir."
+
+    data_attr_list = coeff
+
+    def my_lds(idx):
+        boot_masks = test_masks[idx, :]
+        lds_list = []
+        for i in range(num_targets):
+            boot_targets = test_targets[idx, i]
+            lds_list.append(
+                spearmanr(boot_masks @ data_attr_list[i], boot_targets).statistic * 100
+            )
+        return np.mean(lds_list)
+
+    boot_result = bootstrap(
+        data=(list(range(len(test_targets))),),
+        statistic=my_lds,
+        n_resamples=args.num_bootstrap_iters,
+        random_state=42,
+    )
+    boot_mean = np.mean(boot_result.bootstrap_distribution.mean())
+    boot_se = boot_result.standard_error
+    boot_ci_low = boot_result.confidence_interval.low
+    boot_ci_high = boot_result.confidence_interval.high
+
+    print(f"Mean: {boot_mean:.2f}")
+    print(f"Standard error: {boot_se:.2f}")
+    print(f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})")
+
+    coeff = np.array(data_attr_list).flatten()
+
+    plt.figure(figsize=(20, 10))
+    bin_edges = np.histogram_bin_edges(coeff, bins="auto")
+    sns.histplot(coeff, bins=bin_edges, alpha=0.5)
+
+    plt.xlabel("Shapley Value")
+    plt.ylabel("Frequency")
+    plt.title(
+        f"{args.dataset} with {args.method}\n"
+        f"Mean: {boot_mean:.3f};"
+        f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
+        f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
     )
 
-    matching_train_indices = np.any(matches, axis=1)
-    train_indices = np.where(~matching_train_indices)[0]
+    result_path = f"results/lds/{args.dataset}/{args.method}/"
 
-    np.random.shuffle(train_indices)
-
-    num_targets = train_targets.shape[-1]
-
-    start = train_masks.shape[-1]
-    step = 100
-
-    subset_sizes = [start] + list(range(step, args.max_train_size + 1, step))
-
-    for n in tqdm(subset_sizes):
-        train_masks_fold = train_masks[train_indices[:n]]
-        train_targets_fold = train_targets[train_indices[:n]]
-
-        data_attr_list = []
-
-        for i in tqdm(range(num_targets)):
-
-            if args.removal_dist == "datamodel":
-
-                datamodel = RidgeCV(alphas=np.linspace(0.01, 10, 100)).fit(
-                    train_masks_fold, train_targets_fold[:, i]
-                )
-                datamodel_str = "Ridge"
-                print("Datamodel parameters")
-                print(f"\tmodel={datamodel_str}")
-                print(f"\talpha={datamodel.alpha_:.8f}")
-
-                coeff = datamodel.coef_
-
-            elif args.removal_dist == "shapley":
-
-                coeff = data_shapley(
-                    train_masks_fold.shape[-1],
-                    train_masks_fold,
-                    train_targets_fold[:, i],
-                    full_targets.flatten()[i],
-                    null_targets.flatten()[i],
-                )
-            else:
-                raise ValueError(
-                    (f"Removal distribution: {args.removal_dist} does not exist.")
-                )
-
-            data_attr_list.append(coeff)
-
-        # Calculate LDS for different training subsets.
-
-        def my_lds(idx):
-            boot_masks = test_masks[idx, :]
-            lds_list = []
-            for i in range(num_targets):
-                boot_targets = test_targets[idx, i]
-                lds_list.append(
-                    spearmanr(boot_masks @ data_attr_list[i], boot_targets).statistic
-                    * 100
-                )
-            return np.mean(lds_list)
-
-        print(f"Estimating scores with {len(train_masks_fold)} subsets with bootstrap.")
-        boot_result = bootstrap(
-            data=(list(range(len(test_targets))),),
-            statistic=my_lds,
-            n_resamples=args.num_bootstrap_iters,
-            random_state=42,
+    os.makedirs(result_path, exist_ok=True)
+    plt.savefig(
+        os.path.join(
+            result_path, f"{args.model_behavior_key}.png"
         )
-        boot_mean = np.mean(boot_result.bootstrap_distribution.mean())
-        boot_se = boot_result.standard_error
-        boot_ci_low = boot_result.confidence_interval.low
-        boot_ci_high = boot_result.confidence_interval.high
-
-        print(f"Mean: {boot_mean:.2f}")
-        print(f"Standard error: {boot_se:.2f}")
-        print(f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})")
-
-        coeff = np.array(data_attr_list).flatten()
-
-        plt.figure(figsize=(20, 10))
-        bin_edges = np.histogram_bin_edges(coeff, bins="auto")
-        sns.histplot(coeff, bins=bin_edges, alpha=0.5)
-
-        plt.xlabel("Shapley Value")
-        plt.ylabel("Frequency")
-        plt.title(
-            f"{args.dataset} with {len(train_masks_fold)} training set\n"
-            f"Mean: {boot_mean:.3f};"
-            f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
-            f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
-        )
-
-        result_path = f"results/lds/{args.dataset}/{args.method}/"
-
-        os.makedirs(result_path, exist_ok=True)
-        plt.savefig(
-            os.path.join(
-                result_path, f"{args.model_behavior_key}_{len(train_masks_fold)}.png"
-            )
-        )
-
+    )
 
 if __name__ == "__main__":
     args = parse_args()
