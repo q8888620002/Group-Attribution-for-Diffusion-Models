@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 import src.constants as constants
-from src.attributions.methods.attribution_utils import sum_scores_by_class
+from src.attributions.methods.attribution_utils import mean_scores_by_class
 from src.datasets import create_dataset
 
 
@@ -100,7 +100,10 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
         kernel = np.linalg.inv(kernel)
 
         scores = val_phi @ ((train_phi @ kernel).T)
+        # Using the average as coefficients
 
+        coeff = np.mean(scores, axis=0)
+        
         # TBD
         #   Normalize based on the meganitude.
 
@@ -112,10 +115,9 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
         #         magnitude = 1
 
         #     scores[i] = score.cpu().numpy() / magnitude
-        # scores = np.ones(len(dataset))
 
     if args.by_class:
-        coeff = -sum_scores_by_class(scores, dataset)
+        coeff = -mean_scores_by_class(scores, dataset)
     else:
         coeff = -scores
 

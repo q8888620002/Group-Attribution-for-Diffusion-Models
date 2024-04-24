@@ -53,6 +53,8 @@ def main(args):
             if not os.path.isfile(weight_path):
                 incomplete_jobs.append(job_id)
     incomplete_jobs_str = ",".join([f"{job}" for job in incomplete_jobs])
+    num_incomplete_jobs = len(incomplete_jobs)
+    print(f"Num of incomplete jobs: {num_incomplete_jobs}")
     print(f"Incomplete jobs: {incomplete_jobs_str}")
 
 

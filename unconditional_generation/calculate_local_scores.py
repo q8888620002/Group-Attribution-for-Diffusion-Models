@@ -5,23 +5,24 @@ import argparse
 import json
 import os
 
-import diffusers
 import torch
-from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline
-from diffusers.training_utils import EMAModel
 from skimage.metrics import (
     mean_squared_error,
     normalized_root_mse,
     structural_similarity,
 )
+from torchvision.utils import save_image
 from tqdm import tqdm
 
+import diffusers
 import src.constants as constants
+from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline
+from diffusers.training_utils import EMAModel
 from src.ddpm_config import DDPMConfig
 from src.utils import get_max_steps, print_args
 
 
-def load_model_ckpt(model, ckpt_dir, use_ema, steps= None, return_ckpt: bool = False):
+def load_model_ckpt(model, ckpt_dir, use_ema, steps=None, return_ckpt: bool = False):
     """Load model parameters from the latest checkpoint in a directory."""
 
     steps = get_max_steps(ckpt_dir) if steps is None else steps
@@ -203,6 +204,8 @@ def main(args):
         config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "cifar100":
         config = {**DDPMConfig.cifar100_config}
+    elif args.dataset == "cifar100_f":
+        config = {**DDPMConfig.cifar100_f_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -211,11 +214,7 @@ def main(args):
         config = {**DDPMConfig.imagenette_config}
     else:
         raise ValueError(
-            (
-                f"dataset={args.dataset} is not one of "
-                f"{constants.DATASET}"
-
-            )
+            (f"dataset={args.dataset} is not one of " f"{constants.DATASET}")
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
     full_model = model_cls(**config["unet_config"])
@@ -263,13 +262,30 @@ def main(args):
         )
         info_dict["removal_model_dir"] = removal_model_dir
 
+    sample_outdir = os.path.join(
+        args.outdir,
+        args.dataset,
+        "local_scores",
+        "ema_generated_samples" if args.use_ema else "generated_samples",
+    )
+    os.makedirs(sample_outdir, exist_ok=True)
+
     # Load full and removal model checkpoints.
     print("Loading full model checkpoint...")
-    load_model_ckpt(full_model, args.full_model_dir, args.use_ema, args.full_model_steps,)
+    load_model_ckpt(
+        full_model,
+        args.full_model_dir,
+        args.use_ema,
+        args.full_model_steps,
+    )
 
     print("Loading removal model checkpoint...")
     removal_ckpt = load_model_ckpt(
-        removal_model, removal_model_dir, args.use_ema, args.removal_model_steps, return_ckpt=True
+        removal_model,
+        removal_model_dir,
+        args.use_ema,
+        args.removal_model_steps,
+        return_ckpt=True,
     )
     info_dict["remaining_idx"] = removal_ckpt["remaining_idx"].numpy().tolist()
     info_dict["removed_idx"] = removal_ckpt["removed_idx"].numpy().tolist()
@@ -319,7 +335,10 @@ def main(args):
         # behavior.
         loss_fn = torch.nn.MSELoss(reduction="mean")
         full_image = torch.from_numpy(full_image).permute([0, 3, 1, 2]).to(args.device)
-
+        save_image(
+            full_image,
+            os.path.join(sample_outdir, f"generated_image_{random_seed}.png"),
+        )
         removal_pipeline = removal_pipeline.to(args.device)
         removal_pipeline.scheduler.set_timesteps(args.num_inference_steps)
         timesteps = removal_pipeline.scheduler.timesteps.to(args.device)

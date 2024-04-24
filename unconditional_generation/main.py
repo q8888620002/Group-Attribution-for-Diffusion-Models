@@ -19,6 +19,7 @@ from tqdm import tqdm
 
 import diffusers
 import src.constants as constants
+import wandb  # wandb for monitoring loss https://wandb.ai/
 from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
 from diffusers.optimization import get_scheduler
 from diffusers.training_utils import EMAModel
@@ -215,6 +216,8 @@ def main(args):
         config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "cifar100":
         config = {**DDPMConfig.cifar100_config}
+    elif args.dataset == "cifar100_f":
+        config = {**DDPMConfig.cifar100_f_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -261,16 +264,16 @@ def main(args):
                 train_dataset, seed=args.removal_seed
             )
         elif args.removal_dist == "datamodel":
-            if args.dataset == "cifar100" or "celeba":
+            if args.dataset in ["cifar100", "cifar100_f", "celeba"]:
                 remaining_idx, removed_idx = remove_data_by_datamodel(
-                    train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed, by_class=True
+                    train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed,by_class=True
                 )
             else:
                 remaining_idx, removed_idx = remove_data_by_datamodel(
                     train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed
                 )
         elif args.removal_dist == "shapley":
-            if args.dataset == "cifar100" or "celeba":
+            if args.dataset in ["cifar100", "cifar100_f", "celeba"]:
                 remaining_idx, removed_idx = remove_data_by_shapley(
                     train_dataset, seed=args.removal_seed, by_class=True
                 )

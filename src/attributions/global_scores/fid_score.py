@@ -3,8 +3,8 @@ FID calculation based on pytorch-fid[1]
 
 [1]: https://github.com/mseitzer/pytorch-fid
 """
-import pickle as pkl
 import os
+import pickle as pkl
 
 import numpy as np
 import torch
@@ -16,7 +16,9 @@ from pytorch_fid.fid_score import (
 from pytorch_fid.inception import InceptionV3
 from torch.nn.functional import adaptive_avg_pool2d
 from tqdm import tqdm
+
 import src.constants as constants
+
 
 def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=None):
     """Calculate fid given a set of generated images."""
@@ -25,9 +27,10 @@ def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=Non
     block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[dims]
     inceptionNet = InceptionV3([block_idx]).to(device)
     inceptionNet.eval()  # Important: .eval() is needed to turn off dropout
+    pre_computed_path = os.path.join(constants.DATASET_DIR, dataset, "precomputed")
 
     # Calculate mu and sigma for reference images
-    # Fix bugs when overwritting pkl when specifying  reference_dir 
+    # Fix bugs when overwritting pkl when specifying  reference_dir
     if reference_dir is not None:
         mu, sigma = compute_statistics_of_path(
             reference_dir, inceptionNet, batch_size, dims, device
@@ -36,17 +39,28 @@ def calculate_fid(dataset, images_dataset, batch_size, device, reference_dir=Non
         stats["mu"] = mu
         stats["sigma"] = sigma
 
-        with open(os.path.join(constants.DATASET_DIR, dataset, "precomputed", f"stats.pkl"), "wb") as file:
+        os.makedirs(pre_computed_path, exist_ok=True)
+
+        with open(os.path.join(pre_computed_path, "stats.pkl"), "wb") as file:
             pkl.dump(stats, file)
 
+        print(
+            f"Pre-calculated mean and mu from {reference_dir} are saved at "
+            f"{pre_computed_path}."
+        )
     else:
         try:
-            with open(os.path.join(constants.DATASET_DIR, dataset, "precomputed", f"stats.pkl"), "rb") as file:
+            with open(
+                os.path.join(pre_computed_path, "stats.pkl"),
+                "rb",
+            ) as file:
                 cifar_train = pkl.load(file)
             mu, sigma = cifar_train["mu"], cifar_train["sigma"]
 
         except FileNotFoundError:
-            raise FileNotFoundError(f"No pre-calculated stats for {dataset} found.")
+            raise FileNotFoundError(
+                f"No pre-calculated stats at {pre_computed_path} found."
+            )
 
     mu1, sigma1 = compute_features_stats(
         images_dataset, inceptionNet, batch_size, dims, device

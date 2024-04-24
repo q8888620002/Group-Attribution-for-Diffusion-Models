@@ -3,11 +3,11 @@ import argparse
 import os
 
 import torch
-from diffusers import DiffusionPipeline
 from torchvision.transforms.functional import to_tensor
 from torchvision.utils import save_image
 from tqdm import tqdm
 
+from diffusers import DiffusionPipeline
 from src.ddpm_config import PromptConfig
 from src.utils import print_args
 
@@ -41,6 +41,12 @@ def parse_args():
         type=str,
         default=None,
         help="directory containing LoRA weights to load",
+    )
+    parser.add_argument(
+        "--lora_steps",
+        type=int,
+        default=None,
+        help="number of LoRA fine-tuning steps",
     )
     parser.add_argument(
         "--dataset",
@@ -113,8 +119,13 @@ def main(args):
     pipeline = pipeline.to("cuda")
 
     if args.lora_dir is not None:
-        pipeline.unet.load_attn_procs(args.lora_dir)
-        print(f"LoRA weights loaded from {args.lora_dir}")
+        weight_name = "pytorch_lora_weights"
+        if args.lora_steps is not None:
+            weight_name += f"_{args.lora_steps}"
+        weight_name += ".safetensors"
+        pipeline.unet.load_attn_procs(args.lora_dir, weight_name=weight_name)
+        weight_path = os.path.join(args.lora_dir, weight_name)
+        print(f"LoRA weights loaded from {weight_path}")
 
     ckpt_file = f"ckpt_seed={args.seed}"
     if args.cls is not None:
