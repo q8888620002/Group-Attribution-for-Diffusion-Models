@@ -6,7 +6,7 @@ import torch
 
 import src.constants as constants
 from src.attributions.methods.attribution_utils import mean_scores_by_class
-from src.datasets import create_dataset, ImageDataset
+from src.datasets import ImageDataset, create_dataset
 
 
 def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
@@ -16,16 +16,14 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
     sample_dataset = ImageDataset(args.sample_dir)
 
     val_grad_path = os.path.join(
-        constants.OUTDIR,
-        args.dataset,
-        "d_track",
-        "reference",
+        args.sample_dir,
+        "d_trak",
         f"reference_f={args.trak_behavior}_t={args.t_strategy}",
     )
 
-    print(
-        f"Loading pre-calculated grads for validation set from {val_grad_path}..."
-    )
+    print(f"Loading pre-calculated grads for validation set from {val_grad_path}...")
+
+    # Load corresponding Phi for local model behavior
 
     val_phi = np.memmap(
         val_grad_path,
@@ -33,6 +31,8 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
         mode="r",
         shape=(len(sample_dataset), args.projector_dim),
     )
+
+    val_phi = val_phi[: args.sample_size]
 
     if retraining:
         # Retraining based
@@ -68,7 +68,7 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
         train_grad_path = os.path.join(
             constants.OUTDIR,
             args.dataset,
-            "d_track",
+            "d_trak",
             "full",
             f"train_f={args.trak_behavior}_t={args.t_strategy}",
         )
@@ -91,8 +91,10 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
 
         scores = val_phi @ ((train_phi @ kernel).T)
         # Using the average as coefficients
-
-        coeff = np.mean(scores, axis=0)
+        if args.model_behavior_key not in ["ssim", "nrmse", "diffusion_loss"]:
+            coeff = np.mean(scores, axis=0)
+        else:
+            coeff = scores
 
         # TBD
         #   Normalize based on the meganitude.

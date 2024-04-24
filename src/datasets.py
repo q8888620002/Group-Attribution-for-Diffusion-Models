@@ -199,7 +199,7 @@ class ImageDataset(Dataset):
             if img.split(".")[-1] in {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
         ]
         if max_size is not None:
-            self.img_list[:max_size]
+            self.img_list = self.img_list[:max_size]
         self.transform = transform
 
     def __getitem__(self, idx):
