@@ -12,12 +12,18 @@ import argparse
 import json
 import math
 import os
+import time
 
 import numpy as np
 import torch
 import torch.nn as nn
 from accelerate import Accelerator
 from lightning.pytorch import seed_everything
+from skimage.metrics import (
+    mean_squared_error,
+    normalized_root_mse,
+    structural_similarity,
+)
 from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
 from tqdm import tqdm
@@ -195,7 +201,13 @@ def parse_args():
         default=0.9999,
         help="maximum decay magnitude EMA",
     )
-
+    parser.add_argument(
+        "--model_behavior",
+        type=str,
+        help="experiment name to record in the database file",
+        default=None,
+        required=True,
+    )
     parser.add_argument(
         "--use_ema",
         help="whether to use the EMA model",
@@ -208,6 +220,18 @@ def parse_args():
         help="experiment name to record in the database file",
         default=None,
         required=True,
+    )
+    parser.add_argument(
+        "--n_local_samples",
+        type=int,
+        help="number of generated samples for computing local model behaviors",
+        default=100,
+    )
+    parser.add_argument(
+        "--n_noises",
+        type=int,
+        help="number of noises per sample and timestep for computing diffusion loss",
+        default=50,
     )
     parser.add_argument(
         "--num_inference_steps",
@@ -311,7 +335,7 @@ def main(args):
 
     args.trained_steps = get_max_steps(args.load)
 
-    model, ema_model, _ , _ = load_ckpt_model(args, args.load)
+    model, ema_model, _, _ = load_ckpt_model(args, args.load)
 
     model.to(device)
     ema_model.to(device)
@@ -400,6 +424,8 @@ def main(args):
     # Influence Unlearning (IU)
     # This is mainly from Wfisher() in
     # https://github.com/OPTML-Group/Unlearn-Sparse/blob/public/unlearn/Wfisher.py#L113.
+
+    unlearn_start_time = time.time()
 
     if args.method == "iu":
         model.eval()
@@ -539,6 +565,7 @@ def main(args):
     else:
         raise ValueError((f"Unlearning method: {args.method} doesn't exist "))
 
+    total_steps_time = time.time() - unlearn_start_time
     # The EMA is used for inference.
 
     ema_model.store(model.parameters())
@@ -549,61 +576,184 @@ def main(args):
     # This is done only once for the main process.
 
     if accelerator.is_main_process:
-        samples = pipeline(
-            batch_size=config["n_samples"],
-            num_inference_steps=args.num_inference_steps,
-            output_type="numpy",
-        ).images
 
-        samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
+        if args.model_behavior == "global":
 
-        save_image(
-            samples,
-            os.path.join(
-                sample_outdir,
-                f"prutirb_ratio_{args.iu_ratio}_steps_{training_steps:0>8}.png",
-            ),
-            nrow=int(math.sqrt(config["n_samples"])),
-        )
-        print(f"Save test images, steps_{training_steps:0>8}.png, in {sample_outdir}.")
-        print(f"Generating {args.n_samples}...")
+            samples = pipeline(
+                batch_size=config["n_samples"],
+                num_inference_steps=args.num_inference_steps,
+                output_type="numpy",
+            ).images
 
-        generated_samples = generate_images(args, pipeline)
+            samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
 
-        images_dataset = TensorDataset(generated_samples)
+            save_image(
+                samples,
+                os.path.join(
+                    sample_outdir,
+                    f"prutirb_ratio_{args.iu_ratio}_steps_{training_steps:0>8}.png",
+                ),
+                nrow=int(math.sqrt(config["n_samples"])),
+            )
+            print(
+                f"Save test images, steps_{training_steps:0>8}.png, in {sample_outdir}."
+            )
+            print(f"Generating {args.n_samples}...")
 
-        is_value = inception_score.eval_is(
-            images_dataset, args.batch_size, resize=True, normalize=True
-        )
+            generated_samples = generate_images(args, pipeline)
 
-        precision, recall = precision_recall.eval_pr(
-            args.dataset,
-            images_dataset,
-            args.batch_size,
-            row_batch_size=10000,
-            col_batch_size=10000,
-            nhood_size=3,
-            device=device,
-            reference_dir=args.reference_dir,
-        )
+            images_dataset = TensorDataset(generated_samples)
 
-        fid_value_str = fid_score.calculate_fid(
-            args.dataset,
-            images_dataset,
-            args.batch_size,
-            device,
-            args.reference_dir,
-        )
+            is_value = inception_score.eval_is(
+                images_dataset, args.batch_size, resize=True, normalize=True
+            )
 
-        print(
-            f"FID score: {fid_value_str}; Precision:{precision};"
-            f"Recall:{recall}; inception score: {is_value}"
-        )
-        info_dict["fid_value"] = fid_value_str
-        info_dict["precision"] = precision
-        info_dict["recall"] = recall
-        info_dict["is"] = is_value
+            precision, recall = precision_recall.eval_pr(
+                args.dataset,
+                images_dataset,
+                args.batch_size,
+                row_batch_size=10000,
+                col_batch_size=10000,
+                nhood_size=3,
+                device=device,
+                reference_dir=args.reference_dir,
+            )
 
+            fid_value_str = fid_score.calculate_fid(
+                args.dataset,
+                images_dataset,
+                args.batch_size,
+                device,
+                args.reference_dir,
+            )
+
+            print(
+                f"FID score: {fid_value_str}; Precision:{precision};"
+                f"Recall:{recall}; inception score: {is_value}"
+            )
+            info_dict["fid_value"] = fid_value_str
+            info_dict["precision"] = precision
+            info_dict["recall"] = recall
+            info_dict["is"] = is_value
+
+        elif args.model_behavior == "local":
+
+            full_model_dir = os.path.join(
+                constants.OUTDIR, args.dataset, "retrain", "models", "full"
+            )
+            print(f"Loading full model checkpoint from {full_model_dir}")
+
+            args.method = "retrain"
+            args.trained_steps = None
+
+            full_model, full_ema_model, _, _ = load_ckpt_model(args, full_model_dir)
+
+            if args.use_ema:
+                full_ema_model.copy_to(full_model.parameters())
+
+            full_pipeline, vqvae, vqvae_latent_dict = build_pipeline(args, full_model)
+
+            # Generate images with the same random noises as inputs.
+            avg_mse_val, avg_nrmse_val, avg_ssim_val, avg_total_loss = 0, 0, 0, 0
+
+            def generate_images(pipeline, device, random_seed, **pipeline_kwargs):
+                """Generate numpy images from a pipeline."""
+                pipeline = pipeline.to(device)
+                images = pipeline(
+                    generator=torch.Generator(device=args.device).manual_seed(
+                        random_seed
+                    ),
+                    output_type="numpy",
+                    **pipeline_kwargs,
+                ).images
+                return images
+
+            for random_seed in tqdm(range(args.n_local_samples)):
+                info_prefix = f"generated_image_{random_seed}"
+                full_image = generate_images(
+                    pipeline=full_pipeline,
+                    device=args.device,
+                    random_seed=random_seed,
+                    num_inference_steps=args.num_inference_steps,
+                    batch_size=1,
+                )
+                removal_image = generate_images(
+                    pipeline=pipeline,
+                    device=args.device,
+                    random_seed=random_seed,
+                    num_inference_steps=args.num_inference_steps,
+                    batch_size=1,
+                )
+
+                # Image similarity metrics as local model behaviors.
+                mse_val = mean_squared_error(
+                    image0=full_image[0], image1=removal_image[0]
+                )
+                nrmse_val = normalized_root_mse(
+                    image_true=full_image[0], image_test=removal_image[0]
+                )
+                ssim_val = structural_similarity(
+                    im1=full_image[0],
+                    im2=removal_image[0],
+                    channel_axis=-1,
+                    data_range=1,
+                )
+
+                avg_mse_val += mse_val
+                avg_nrmse_val += nrmse_val
+                avg_ssim_val += ssim_val
+
+                info_dict[f"{info_prefix}_mse"] = f"{mse_val:.8e}"
+                info_dict[f"{info_prefix}_nrmse"] = f"{nrmse_val:.8e}"
+                info_dict[f"{info_prefix}_ssim"] = f"{ssim_val:.8e}"
+
+                # Diffusion loss at the discrete steps during inference as the 
+                # local model behavior.
+                loss_fn = torch.nn.MSELoss(reduction="mean")
+                full_image = (
+                    torch.from_numpy(full_image).permute([0, 3, 1, 2]).to(args.device)
+                )
+                save_image(
+                    full_image,
+                    os.path.join(sample_outdir, f"generated_image_{random_seed}.png"),
+                )
+                pipeline = pipeline.to(args.device)
+                pipeline.scheduler.set_timesteps(args.num_inference_steps)
+                timesteps = pipeline.scheduler.timesteps.to(args.device)
+
+                noise_generator = torch.Generator(device=args.device).manual_seed(
+                    random_seed
+                )
+
+                with torch.no_grad():
+                    total_loss = 0
+                    for _ in range(args.n_noises):
+                        noises = torch.randn(
+                            (timesteps.shape[0], *full_image.shape[1:]),
+                            generator=noise_generator,
+                            device=args.device,
+                        )
+                        noisy_full_images = pipeline.scheduler.add_noise(
+                            full_image, noises, timesteps
+                        )
+                        pred_noises = pipeline.unet(noisy_full_images, timesteps).sample
+                        total_loss += loss_fn(pred_noises, noises)
+                    total_loss /= args.n_noises
+
+                avg_total_loss += total_loss
+                info_dict[f"{info_prefix}_diffusion_loss"] = f"{total_loss:.8e}"
+
+            avg_mse_val /= args.n_local_samples
+            avg_nrmse_val /= args.n_local_samples
+            avg_ssim_val /= args.n_local_samples
+            avg_total_loss /= args.n_local_samples
+
+            info_dict["avg_mse"] = f"{avg_mse_val:.8e}"
+            info_dict["avg_nrmse"] = f"{avg_nrmse_val:.8e}"
+            info_dict["avg_ssim"] = f"{avg_ssim_val:.8e}"
+            info_dict["avg_total_loss"] = f"{avg_total_loss:.8e}"
+
+        info_dict["total_steps_time"] = total_steps_time
         info_dict["trained_steps"] = training_steps
         info_dict["remaining_idx"] = remaining_idx.tolist()
         info_dict["removed_idx"] = removed_idx.tolist()
@@ -620,4 +770,4 @@ if __name__ == "__main__":
     args = parse_args()
     is_main_process = main(args)
     if is_main_process:
-        print("Influence unlearning done!")
+        print("Unlearning done!")
