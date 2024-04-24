@@ -10,7 +10,7 @@ export PYTHONPATH="$PYTHONPATH:$PWD"
 ```bash
 conda create -n data_attribution python=3.11.5
 conda activate data_attribution
-conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+conda install pytorch==2.2.1 torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
 pip install -r requirements.txt # If torch is already installed, remove torch and torchvision from requirements.txt
 ```
 
@@ -81,7 +81,7 @@ python unconditional_generation/generate_samples.py \
 --seed $pane_index
 ```
 
-1. Evaluate the generates images qualitatively. Or you can also calcualte the FID score by running
+2. Evaluate the generates images qualitatively. Or you can also calcualte the FID score by running
 
 ```bash
 CUDA_VISIBLE_DEVICES=2 \
@@ -98,41 +98,47 @@ python -m pytorch_fid \
 
 ## Retraining
 
-1. Generate the retraining command file by running
+1. Generate the retraining command file by running the following script. Make sure to run this from the repo directory (i.e., `data_attribution/`).
+`unconditional_generation/celeba_experiments/slurm/retrain_shapley.job` will be updated.
+
+### Shapley
 
 ```bash
-python unconditional_generation/celeba_experiments/setup_train_commands.py \
---dataset celeba \
---method="retrain" \
---removal_dist="shapley" \
---num_removal_subsets=300 \
---num_subsets_per_job=1
+start=0
+end=299
+output_file="unconditional_generation/celeba_experiments/slurm/retrain_shapley.txt"
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist shapley --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse" >> $output_file
+done
 ```
 
-Make sure to run this from the repo directory (i.e., `data_attribution/`). After running the above, the file `unconditional_generation/celeba_experiments/train.job` should be updated. A new file `unconditional_generation/celeba_experiments/commands/train/celeba/retrain/shapley/command.txt` should be created. This contains commands to run from the command line.
-
-2. (Optional) Submit the SLURM job for running the command.
-With `unconditional_generation/celeba_experiments/train.job` updated, run
+2. Submit the SLURM job for running the command.
+With `unconditional_generation/celeba_experiments/slurm/retrain_shapley.job` updated, run
 
 ```bash
-cd unconditional_generation/celeba_experiments
-sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
-sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train.job
+cd unconditional_generation/celeba_experiments/slurm
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G retrain_shapley.job
+# sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
 # sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
 ```
 
+### DataShapley
 ```bash
-accelerate launch --config_file deepspeed_config_dp.yaml --main_process_port 29501 --gpu_ids 4,5 \
-unconditional_generation/main.py \
---dataset celeba \
---method retrain \
---removal_dist shapley \
---removal_seed 0 \
---keep_all_ckpts \
---mixed_precision fp16 \
---use_8bit_optimizer \
---gradient_accumulation_steps 1 \
---precompute_stage reuse
+start=0
+end=299
+output_file="unconditional_generation/celeba_experiments/slurm/retrain_datamodel_0_75.txt"
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist datamodel --datamodel_alpha 0.75 --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse" >> $output_file
+done
+```
+
+```bash
+cd unconditional_generation/celeba_experiments/slurm
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G retrain_datamodel_0_75.job
+# sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
+# sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
 ```
 
 ## Calculate global model behavior (diversity score) for the retraining models
@@ -178,22 +184,29 @@ python unconditional_generation/calculate_diversity_score.py \
 2. Generate the command file for diversity score calculation by running
 
 ```bash
-python unconditional_generation/celeba_experiments/setup_diversity_commands.py \
---dataset celeba \
---method="retrain" \
---removal_dist="shapley" \
---num_seeds=300 \
---exp_name "diversity_measure"
+start=0
+end=299
+output_file="unconditional_generation/celeba_experiments/slurm/diversity_retrain_shapley.txt"
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist shapley --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_measure --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_measure.jsonl --n_samples 1000" >> $output_file
+done
 ```
 
-2. (Optional) Submit the SLURM job for running the command.
-With `unconditional_generation/celeba_experiments/diversity.job` updated, run
-
 ```bash
-cd unconditional_generation/celeba_experiments
-sbatch -p gpu-rtx6k --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G diversity.job
-sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G diversity.job
+cd unconditional_generation/celeba_experiments/slurm
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G retrain_datamodel_0_75.job
+# sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
 # sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
+```
+
+```
+module avail
+
+module load cuda/11.2.2
+
+apptainer/launch-container-ro.sh
+import torch; torch.cuda.is_available() 12.1
 ```
 
 
@@ -222,3 +235,19 @@ unconditional_generation/main.py \
 --gradient_accumulation_steps 1 \
 --precompute_stage reuse
 ``` -->
+
+# Sync the data to the server
+
+```bash
+# -z for compression
+# --delete to remove files that are not in the source
+# --include, --exclude to include/exclude files
+# --backup and --backup_dir to keep backup of the files
+
+# dry run
+rsync -Pavn /gscratch/scrubbed/chanwkim/diffusion-attr/ chanwkim@bicycle.cs.washington.edu:/projects/leelab3/chanwkim/data_attribution/diffusion-attr
+
+# actual run
+rsync -Pav /gscratch/scrubbed/chanwkim/diffusion-attr/ chanwkim@bicycle.cs.washington.edu:/projects/leelab3/chanwkim/data_attribution/diffusion-attr
+```
+

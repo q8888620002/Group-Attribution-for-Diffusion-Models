@@ -1,0 +1,20 @@
+#!/bin/bash
+
+#SBATCH --job-name=train-celeba-retrain-datamodel-0-75
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=32G
+#SBATCH --time=23:59:59
+#SBATCH --export=all
+#SBATCH --mail-type=BEGIN,TIME_LIMIT_90
+#SBATCH --mail-user=chanwkim@uw.edu
+#SBATCH --output=/gscratch/scrubbed/chanwkim/diffusion-attr/logs/train/celeba/retrain/datamodel_0_75/run-%x-%A-%a.out
+#SBATCH --requeue
+#SBATCH --array=1-300
+#SBATCH --open-mode=append
+
+PARAMS_FILE="/mmfs1/gscratch/aims/chanwkim/data_attribution/unconditional_generation/celeba_experiments/slurm/retrain_datamodel_0_75.txt"
+PARAMS="$(tail -n +${SLURM_ARRAY_TASK_ID} ${PARAMS_FILE} | head -n 1)"
+
+/mmfs1/gscratch/aims/chanwkim/apptainer/launch-container-ro.sh ./run.sh $PARAMS

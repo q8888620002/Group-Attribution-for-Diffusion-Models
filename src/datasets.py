@@ -330,7 +330,7 @@ def remove_data_by_uniform(
 
 
 def remove_data_by_datamodel(
-    dataset: torch.utils.data.Dataset, alpha: float = 0.5, seed: int = 0
+    dataset: torch.utils.data.Dataset, alpha: float = 0.5, seed: int = 0, by_class: bool = False
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Split a PyTorch Dataset into indices with the remaining and removed data, where
@@ -348,15 +348,31 @@ def remove_data_by_datamodel(
         indices corresponding to the removed data.
     """
     rng = np.random.RandomState(seed)
-    dataset_size = len(dataset)
-    all_idx = np.arange(dataset_size)
+    if by_class:
+        # If splitting by class, we need to sample the class to remove.
+        possible_classes = np.unique([data[1] for data in dataset])
+        all_idx = np.arange(len(possible_classes))
+        
+        num_selected= int(alpha * len(possible_classes))
+        rng.shuffle(all_idx)  # Shuffle in place.
+        
+        remaining_classes = possible_classes[all_idx[:num_selected]]
+        remaining_idx = [
+            i for i, data in enumerate(dataset) if data[1] in remaining_classes
+        ]
+        remaining_idx = np.array(remaining_idx)
+        removed_idx = np.setdiff1d(np.arange(len(dataset)), remaining_idx)
+        return remaining_idx, removed_idx
+    else:
+        dataset_size = len(dataset)
+        all_idx = np.arange(dataset_size)
 
-    num_selected = int(alpha * dataset_size)
-    rng.shuffle(all_idx)  # Shuffle in place.
+        num_selected = int(alpha * dataset_size)
+        rng.shuffle(all_idx)  # Shuffle in place.
 
-    remaining_idx = all_idx[:num_selected]
-    removed_idx = all_idx[num_selected:]
-    return remaining_idx, removed_idx
+        remaining_idx = all_idx[:num_selected]
+        removed_idx = all_idx[num_selected:]
+        return remaining_idx, removed_idx
 
 
 def remove_data_by_shapley(

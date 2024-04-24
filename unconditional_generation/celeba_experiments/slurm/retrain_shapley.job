@@ -14,7 +14,7 @@
 #SBATCH --array=1-300
 #SBATCH --open-mode=append
 
-PARAMS_FILE="/mmfs1/gscratch/aims/chanwkim/data_attribution/unconditional_generation/celeba_experiments/commands/train/celeba/retrain/shapley/command.txt"
+PARAMS_FILE="/mmfs1/gscratch/aims/chanwkim/data_attribution/unconditional_generation/celeba_experiments/slurm/retrain_shapley.txt"
 PARAMS="$(tail -n +${SLURM_ARRAY_TASK_ID} ${PARAMS_FILE} | head -n 1)"
 
-/gscratch/aims/chanwkim/apptainer/launch-container-ro.sh ./run.sh $PARAMS
+/mmfs1/gscratch/aims/chanwkim/apptainer/launch-container-ro.sh ./run.sh $PARAMS

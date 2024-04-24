@@ -12,6 +12,9 @@ fi
 conda activate data_attribution
 export HF_DATASETS_CACHE="/gscratch/scrubbed/chanwkim/.cache/huggingface_cache"
 cd /gscratch/aims/chanwkim/data_attribution
+
+nvidia-smi
+
 export PYTHONPATH="$PYTHONPATH:$PWD"
 
 $*
