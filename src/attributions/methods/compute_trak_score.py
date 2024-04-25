@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 import src.constants as constants
-from src.attributions.methods.attribution_utils import mean_scores_by_class
+from src.attributions.methods.attribution_utils import mean_by_class
 from src.datasets import ImageDataset, create_dataset
 
 
@@ -109,7 +109,7 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
         #     scores[i] = score.cpu().numpy() / magnitude
 
     if args.by_class:
-        coeff = -mean_scores_by_class(coeff, dataset)
+        coeff = -mean_by_class(coeff, dataset)
     else:
         coeff = -scores
 
