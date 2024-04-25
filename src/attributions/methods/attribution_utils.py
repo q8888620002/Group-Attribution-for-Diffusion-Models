@@ -83,12 +83,12 @@ class CLIPScore:
 
         if dataset_name in ["cifar100", "cifar100_f"]:
             dataset = create_dataset(dataset_name=dataset_name, train=True)
-            coeff = mean_scores_by_class(coeff, dataset)
+            coeff = mean_by_class(coeff, dataset)
 
         return coeff
 
 
-def mean_scores_by_class(scores, dataset):
+def mean_by_class(scores, dataset):
     """
     Compute mean scores by classes and return group-based means.
 
@@ -97,6 +97,9 @@ def mean_scores_by_class(scores, dataset):
         dataset, each entry should be a tuple or list with the label as the last element
     :return: Numpy array with mean scores, indexed by label.
     """
+    if scores.ndim == 1:
+        scores = scores.reshape(1, -1)
+
     n, _ = scores.shape
 
     labels = np.array([entry[-1] for entry in dataset])
@@ -109,6 +112,34 @@ def mean_scores_by_class(scores, dataset):
         label_mask = labels == i
         # Average scores across groups
         result[:, i] = np.divide(scores[:, label_mask].sum(axis=1), np.sum(label_mask))
+
+    return result
+
+
+def max_by_class(scores, dataset):
+    """
+    Compute mean scores by classes and return group-based means.
+
+    :param scores: sample-based coefficients
+    :param dataset:
+        dataset, each entry should be a tuple or list with the label as the last element
+    :return: Numpy array with mean scores, indexed by label.
+    """
+    if scores.ndim == 1:
+        scores = scores.reshape(1, -1)
+
+    n, _ = scores.shape
+
+    labels = np.array([entry[-1] for entry in dataset])
+
+    num_labels = len(np.unique(labels))
+    result = np.zeros((n, num_labels))
+
+    for i in range(num_labels):
+        # Create a mask for columns corresponding to the current label
+        label_mask = labels == i
+        # Average scores across groups
+        result[:, i] = np.max(scores[:, label_mask])
 
     return result
 
@@ -189,5 +220,7 @@ def pixel_distance(
 
     if dataset_name in ["cifar100", "cifar100_f"]:
         dataset = create_dataset(dataset_name=dataset_name, train=True)
-        coeff = mean_scores_by_class(coeff, dataset)
+        # coeff = mean_scores_by_class(coeff, dataset)
+        coeff = mean_by_class(coeff, dataset)
+
     return coeff

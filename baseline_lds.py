@@ -15,17 +15,10 @@ import numpy as np
 import seaborn as sns
 import torch
 from scipy.stats import bootstrap, spearmanr
-from sklearn.linear_model import RidgeCV
-
-# from sklearn.model_selection import KFold
-from tqdm import tqdm
 
 import src.constants as constants
 from src.attributions.methods.attribution_utils import CLIPScore, pixel_distance
 from src.attributions.methods.compute_trak_score import compute_dtrak_trak_scores
-from src.attributions.methods.datashapley import (  # kernel_shap,; kernel_shap_ridge,
-    data_shapley,
-)
 from src.datasets import create_dataset, remove_data_by_shapley
 from src.utils import print_args
 
@@ -53,12 +46,6 @@ def parse_args():
         "--test_exp_name",
         type=str,
         help="experiment name of records to extract as part of the test set",
-        default=None,
-    )
-    parser.add_argument(
-        "--train_exp_name",
-        type=str,
-        help="experiment name of records to extract as part of the training set",
         default=None,
     )
     parser.add_argument(
@@ -269,7 +256,7 @@ def main(args):
         "exp_name": args.test_exp_name,
         "dataset": args.dataset,
         "removal_dist": "datamodel",
-        "datamodel_alpha" : args.datamodel_alpha,
+        "datamodel_alpha": args.datamodel_alpha,
         "method": "retrain",  # The test set should pertain only to retrained models.
     }
 
@@ -311,7 +298,7 @@ def main(args):
             args.dataset,
             args.n_samples,
             args.sample_dir,
-            args.training_dir
+            args.training_dir,
         )
     elif args.method == "clip_score":
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -373,11 +360,8 @@ def main(args):
     result_path = f"results/lds/{args.dataset}/{args.method}/"
 
     os.makedirs(result_path, exist_ok=True)
-    plt.savefig(
-        os.path.join(
-            result_path, f"{args.model_behavior_key}.png"
-        )
-    )
+    plt.savefig(os.path.join(result_path, f"{args.model_behavior_key}.png"))
+
 
 if __name__ == "__main__":
     args = parse_args()

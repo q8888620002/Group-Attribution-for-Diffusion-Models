@@ -15,14 +15,10 @@ import numpy as np
 import seaborn as sns
 from scipy.stats import bootstrap, spearmanr
 from sklearn.linear_model import RidgeCV
-
-# from sklearn.model_selection import KFold
 from tqdm import tqdm
 
 import src.constants as constants
-from src.attributions.methods.datashapley import (  # kernel_shap,; kernel_shap_ridge,
-    data_shapley,
-)
+from src.attributions.methods.datashapley import data_shapley
 from src.datasets import create_dataset, remove_data_by_shapley
 from src.utils import print_args
 
