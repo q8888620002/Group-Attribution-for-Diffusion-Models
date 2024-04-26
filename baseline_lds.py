@@ -124,7 +124,7 @@ def parse_args():
             "relative_if",
             "renormalized_if",
             "journey_trak",
-            "d-trak"
+            "d-trak",
         ],
         default=None,
         help="Specification for gradient-based model behavior.",

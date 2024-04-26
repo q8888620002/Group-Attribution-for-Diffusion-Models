@@ -15,7 +15,7 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
 
     sample_dataset = ImageDataset(args.sample_dir)
 
-    if args.gradient_type in ["gradient", "trak","relative_if", "renormalized_if"]:
+    if args.gradient_type in ["gradient", "trak", "relative_if", "renormalized_if"]:
         model_behavior = "loss"
         t_strategy = "uniform"
     elif args.gradient_type == "journey_trak":
@@ -73,19 +73,13 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
     else:
         # retraining free gradient methods
 
-        train_grad_dir = os.path.join(
-            constants.OUTDIR,
-            args.dataset,
-            "d_trak",
-            "full"
-        )
+        train_grad_dir = os.path.join(constants.OUTDIR, args.dataset, "d_trak", "full")
         train_grad_path = os.path.join(
             train_grad_dir,
             f"train_f={model_behavior}_t={t_strategy}",
         )
         kernel_path = os.path.join(
-            train_grad_dir,
-            f"kernel_train_f={model_behavior}_t={t_strategy}.npy"
+            train_grad_dir, f"kernel_train_f={model_behavior}_t={t_strategy}.npy"
         )
 
         print(
@@ -95,8 +89,7 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
             train_grad_path,
             dtype=np.float32,
             mode="r",
-            shape=(len(dataset),
-            args.projector_dim),
+            shape=(len(dataset), args.projector_dim),
         )
 
         if os.path.isfile(kernel_path):
@@ -110,12 +103,8 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
             np.save(kernel_path, kernel)
 
         if args.gradient_type == "vanilla_gradient":
-            train_phi = train_phi / np.linalg.norm(
-                train_phi, axis=1, keepdims=True
-            )
-            val_phi = val_phi / np.linalg.norm(
-                val_phi, axis=1, keepdims=True
-            )
+            train_phi = train_phi / np.linalg.norm(train_phi, axis=1, keepdims=True)
+            val_phi = val_phi / np.linalg.norm(val_phi, axis=1, keepdims=True)
             scores = np.dot(val_phi, train_phi.T)
         else:
             if args.gradient_type == "relative_if":
@@ -123,9 +112,9 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
             elif args.gradient_type == "renormalized_if":
                 magnitude = np.linalg.norm(train_phi)
             else:
-                magnitude = 1.
+                magnitude = 1.0
 
-            scores = val_phi @ ((train_phi @ kernel).T)/ magnitude
+            scores = val_phi @ ((train_phi @ kernel).T) / magnitude
 
     # Using the average as coefficients
     if args.model_behavior_key not in ["ssim", "nrmse", "diffusion_loss"]:
