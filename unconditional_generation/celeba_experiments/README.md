@@ -52,7 +52,7 @@ python unconditional_generation/main.py \
 2. Train the model by running
 
 ```bash
-accelerate launch --config_file unconditional_generation/celeba_experiments/deepspeed_config_dp.yaml --gpu_ids 6,7 \
+accelerate launch --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml --gpu_ids 0 \
 unconditional_generation/main.py \
 --dataset celeba \
 --method retrain \
@@ -60,8 +60,24 @@ unconditional_generation/main.py \
 --mixed_precision fp16 \
 --use_8bit_optimizer \
 --gradient_accumulation_steps 1 \
---precompute_stage reuse
-```
+--precompute_stage reuse \
+--save_null_model
+``` 
+or if you want to use multiple GPUs
+
+```bash
+accelerate launch --config_file unconditional_generation/celeba_experiments/deepspeed_config_dp.yaml --gpu_ids 0,1 \
+unconditional_generation/main.py \
+--dataset celeba \
+--method retrain \
+--keep_all_ckpts \
+--mixed_precision fp16 \
+--use_8bit_optimizer \
+--gradient_accumulation_steps 1 \
+--precompute_stage reuse \
+--save_null_model
+``` 
+
 
 ## Generate samples to see if the training was successful
 
@@ -181,8 +197,20 @@ python unconditional_generation/calculate_diversity_score.py \
 # entropy: 2.15769499526684
 ```
 
-2. Generate the command file for diversity score calculation by running
+2. Calculate diversity score by running
 
+
+null model
+```bash
+python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --trained_steps 0 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_measure_null --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_measure_null.jsonl --n_samples 1000
+```
+
+full model
+```bash
+python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_measure_full --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_measure_full.jsonl --n_samples 1000
+```
+
+Removal Shapley
 ```bash
 start=0
 end=299
@@ -195,46 +223,10 @@ done
 
 ```bash
 cd unconditional_generation/celeba_experiments/slurm
-sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G retrain_datamodel_0_75.job
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G diversity_retrain_shapley.job
 # sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
 # sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
 ```
-
-```
-module avail
-
-module load cuda/11.2.2
-
-apptainer/launch-container-ro.sh
-import torch; torch.cuda.is_available() 12.1
-```
-
-
-<!-- ## Prune and retrain
-
-```bash
-accelerate launch --gpu_ids 1 \
-unconditional_generation/prune.py \
---load /projects/leelab3/chanwkim/data_attribution/diffusion-attr/celeba/retrain/models/full/ \
---dataset celeba \
---pruning_ratio 0.1 \
---pruner magnitude \
---thr 0.05 \
---mixed_precision fp16
-```
-
-```bash
-accelerate launch --config_file unconditional_generation/celeba_experiments/deepspeed_config_dp.yaml --gpu_ids 5,6 \
-unconditional_generation/main.py \
---dataset celeba \
---method prune_fine_tune \
---pruning_ratio 0.3 \
---keep_all_ckpts \
---mixed_precision fp16 \
---use_8bit_optimizer \
---gradient_accumulation_steps 1 \
---precompute_stage reuse
-``` -->
 
 # Sync the data to the server
 

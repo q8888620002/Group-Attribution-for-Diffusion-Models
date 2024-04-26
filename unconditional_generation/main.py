@@ -195,6 +195,12 @@ def parse_args():
         default=1000,
         help="number of diffusion steps during training",
     )
+    parser.add_argument(
+        "--save_null_model",
+        action="store_true",
+        default=False,
+        help="Whether to save the null model",
+    )    
     return parser.parse_args()
 
 
@@ -618,6 +624,23 @@ def main(args):
         pipeline_scheduler,
         lr_scheduler,
     )
+    
+    if args.save_null_model and accelerator.is_main_process:
+        torch.save(
+            {
+                "unet": accelerator.unwrap_model(model).state_dict(),
+                "unet_ema": ema_model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "lr_scheduler": lr_scheduler.state_dict(),
+                "remaining_idx": torch.from_numpy(remaining_idx),
+                "removed_idx": torch.from_numpy(removed_idx),
+                "total_steps_time": total_steps_time,
+            },
+            os.path.join(
+                model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"
+            ),
+        )
+        print(f"Checkpoint saved at step {param_update_steps}")
 
     progress_bar = tqdm(
         range(training_steps),
