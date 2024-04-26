@@ -1,8 +1,10 @@
 """Dataset related functions and classes"""
+
 import os
 from typing import Tuple
 
 import numpy as np
+import pandas as pd
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
@@ -161,30 +163,28 @@ class CelebA(Dataset):
         self.transform = transform
         self.train = train
 
-        all_img_names = os.listdir(root)
+        data_df = pd.read_csv(os.path.join(root, "labels.csv"))
 
-        rng = np.random.RandomState(42)
-        shuffled_indices = rng.permutation([i for i in range(len(all_img_names))])
-
-        train_size = int(0.8 * len(all_img_names))
-
-        if train:
-            self.img_names = [all_img_names[i] for i in shuffled_indices[:train_size]]
-        else:
-            self.img_names = [all_img_names[i] for i in shuffled_indices[train_size:]]
+        assert data_df["filename"].nunique() == len(
+            data_df
+        ), "filename should be unique"
+        # self.data_df = data_df[data_df["split"] == ("train" if train else "test")]
+        self.data_df = data_df
 
     def __len__(self):
         """Return the number of dataset"""
-        return len(self.img_names)
+        return len(self.data_df)
 
     def __getitem__(self, idx):
         """Iterate dataloader"""
-        img_path = os.path.join(self.root, self.img_names[idx])
+        row = self.data_df.iloc[idx]
+        img_path = os.path.join(self.root, row["filename"])
         image = Image.open(img_path).convert("RGB")
         if self.transform:
             image = self.transform(image)
 
-        return image, -1, self.img_names[idx]
+        # return image, -1, row["filename"]
+        return image, row["celeb"], row["filename"]
 
 
 class ImageDataset(Dataset):
@@ -325,7 +325,7 @@ def create_dataset(
                 transforms.Normalize([0.5], [0.5]),  # Normalize to [-1,1].
             ]
         )
-        root_dir = os.path.join(dataset_dir, "celeba/celeba_hq_256")
+        root_dir = os.path.join(dataset_dir, "celeba_hq_256_50_resized")
         dataset = CelebA(root=root_dir, train=train, transform=preprocess)
     elif dataset_name == "imagenette":
         preprocess = transforms.Compose(

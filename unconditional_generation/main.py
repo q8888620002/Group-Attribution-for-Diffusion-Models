@@ -10,6 +10,7 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
+import wandb  # wandb for monitoring loss https://wandb.ai/
 from accelerate import Accelerator
 from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader, Subset
@@ -194,6 +195,12 @@ def parse_args():
         default=1000,
         help="number of diffusion steps during training",
     )
+    parser.add_argument(
+        "--save_null_model",
+        action="store_true",
+        default=False,
+        help="Whether to save the null model",
+    )    
     return parser.parse_args()
 
 
@@ -290,6 +297,10 @@ def main(args):
         # Gradient ascent trains on the removed images.
         remaining_idx, removed_idx = removed_idx, remaining_idx
 
+    # Save the removed and remaining indices for reproducibility.
+    np.save( os.path.join(model_outdir, "remaining_idx.npy"), remaining_idx)
+    np.save( os.path.join(model_outdir, "removed_idx.npy"), removed_idx)              
+
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
     total_steps_time = 0
@@ -314,6 +325,7 @@ def main(args):
         )
         pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
         model = pruned_model_ckpt["unet"]
+        accelerator.print(f"Pruned U-Net resumed from {pruned_model_ckpt}")
     else:
         model = model_cls(**config["unet_config"])
 
@@ -409,9 +421,20 @@ def main(args):
         accelerator.print("Model randomly initialized")
     ema_model.to(device)
 
+    if (accelerator.state.num_processes) > 1:
+        assert (
+            config["batch_size"] % accelerator.state.num_processes == 0
+        ), "Batch size should be divisible by number of processes"
+        accelerator.print(
+            f"Batch size is {config['batch_size']} "
+            f"and number of processes is {accelerator.state.num_processes}",
+            f"Batch size will be divided by number of processes."
+            f"Per process batch size is {config['batch_size'] // accelerator.state.num_processes}",
+        )
+
     num_workers = 4 if torch.get_num_threads() >= 4 else torch.get_num_threads()
 
-    if len(remaining_idx) < config["batch_size"]:
+    if len(remaining_idx) < (config["batch_size"] // accelerator.state.num_processes):
         shuffle = False
 
         remaining_dataloader = DataLoader(
@@ -426,7 +449,7 @@ def main(args):
 
         remaining_dataloader = DataLoader(
             Subset(train_dataset, remaining_idx),
-            batch_size=config["batch_size"],
+            batch_size=config["batch_size"] // accelerator.state.num_processes,
             shuffle=True,
             num_workers=num_workers,
             pin_memory=True,
@@ -601,6 +624,23 @@ def main(args):
         pipeline_scheduler,
         lr_scheduler,
     )
+    
+    if args.save_null_model and accelerator.is_main_process:
+        torch.save(
+            {
+                "unet": accelerator.unwrap_model(model).state_dict(),
+                "unet_ema": ema_model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "lr_scheduler": lr_scheduler.state_dict(),
+                "remaining_idx": torch.from_numpy(remaining_idx),
+                "removed_idx": torch.from_numpy(removed_idx),
+                "total_steps_time": total_steps_time,
+            },
+            os.path.join(
+                model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"
+            ),
+        )
+        print(f"Checkpoint saved at step {param_update_steps}")
 
     progress_bar = tqdm(
         range(training_steps),

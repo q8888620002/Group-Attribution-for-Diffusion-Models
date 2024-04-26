@@ -1,31 +1,50 @@
 """Script that generate diversed celebrty images from miniSD."""
+
 import itertools
 import os
+
+from lightning.pytorch import seed_everything
 
 import src.constants as constants
 from diffusers import StableDiffusionPipeline
 
+seed_everything(42)
+
+# ethnicity = [
+#     "African-American",
+#     "American Indian",
+#     "Asian",
+#     "Black",
+#     "Caucasian",
+#     "East Asian",
+#     "First Nations",
+#     "Hispanic",
+#     "Indigenous American",
+#     "Latino",
+#     "Latinx",
+#     "Native American",
+#     "Multiracial",
+#     "Pacific Islander",
+#     "South Asian",
+#     "Southeast Asian",
+#     "White",
+# ]
+
 ethnicity = [
     "African-American",
-    "American Indian",
-    "Asian",
     "Black",
+    "American Indian",
     "Caucasian",
-    "East Asian",
-    "First Nations",
     "Hispanic",
-    "Indigenous American",
     "Latino",
-    "Latinx",
-    "Native American",
     "Multiracial",
     "Pacific Islander",
-    "South Asian",
-    "Southeast Asian",
+    "Asian",
     "White",
 ]
 
-gender = ["female", "male", "non-binary"]
+# gender = ["female", "male", "non-binary"]
+gender = ["female", "male"]
 age = ["adult", "senior"]
 
 # Generate all combinations of ethnicity and gender
@@ -42,7 +61,7 @@ counter = 1
 for combo in combinations:
     ethnicity, gender, age = combo
 
-    for _ in range(40):  # Repeat 40 times for even distribution
+    for _ in range(100):  # Repeat 40 times for even distribution
         prompt = (
             f"a full-color, and high-resolution headshot of a single, "
             f"{age}, {gender} and {ethnicity} celebrity."
