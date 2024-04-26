@@ -210,7 +210,7 @@ full model
 python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_measure_full --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_measure_full.jsonl --n_samples 1000
 ```
 
-Removal Shapley
+retraining shapley
 ```bash
 start=0
 end=299
