@@ -18,7 +18,7 @@ from scipy.stats import bootstrap, spearmanr
 
 import src.constants as constants
 from src.attributions.methods.attribution_utils import CLIPScore, pixel_distance
-from src.attributions.methods.compute_trak_score import compute_dtrak_trak_scores
+from src.attributions.methods.compute_trak_score import compute_gradient_scores
 from src.datasets import create_dataset, remove_data_by_shapley
 from src.utils import print_args
 
@@ -113,32 +113,21 @@ def parse_args():
         help="number of bootstrapped iterations",
         default=100,
     )
+
     # TRAK/D-TRAK args.
     parser.add_argument(
-        "--trak_behavior",
+        "--gradient_type",
         type=str,
         choices=[
-            "loss",
-            "mean",
-            "mean-squared-l2-norm",
-            "l1-norm",
-            "l2-norm",
-            "linf-norm",
+            "vanilla_gradient",
+            "trak",
+            "relative_if",
+            "renormalized_if",
+            "journey_trak",
+            "d-trak"
         ],
         default=None,
-        help="Specification for D-TRAK model behavior.",
-    )
-    parser.add_argument(
-        "--t_strategy",
-        type=str,
-        choices=["uniform", "cumulative"],
-        help="strategy for sampling time steps",
-    )
-    parser.add_argument(
-        "--k_partition",
-        type=int,
-        default=None,
-        help="Partition for embeddings across time steps.",
+        help="Specification for gradient-based model behavior.",
     )
     parser.add_argument(
         "--projector_dim",
@@ -291,11 +280,7 @@ def main(args):
         test_targets = test_targets[test_indices]
 
     if args.method == "trak":
-        assert (
-            args.trak_behavior is not None
-        ), "Model behavior should be defined for TRAK."
-
-        coeff = compute_dtrak_trak_scores(
+        coeff = compute_gradient_scores(
             args,
             retraining=False,
         )
