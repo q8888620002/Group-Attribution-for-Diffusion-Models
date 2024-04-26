@@ -212,15 +212,15 @@ def collect_data(
                 # avoid duplicated records
 
                 if seed not in removal_seeds:
-                    if method == "gd":
-                        if record["trained_steps"] == 4000:
-                            remaining_masks.append(remaining_mask)
-                            model_behaviors.append(model_behavior)
-                            removal_seeds.append(seed)
-                    else:
-                        remaining_masks.append(remaining_mask)
-                        model_behaviors.append(model_behavior)
-                        removal_seeds.append(seed)
+                    # if method == "gd":
+                    #     if record["trained_steps"] == 4000:
+                    #         remaining_masks.append(remaining_mask)
+                    #         model_behaviors.append(model_behavior)
+                    #         removal_seeds.append(seed)
+                    # else:
+                    remaining_masks.append(remaining_mask)
+                    model_behaviors.append(model_behavior)
+                    removal_seeds.append(seed)
 
     remaining_masks = np.stack(remaining_masks)
     model_behaviors = np.stack(model_behaviors)
@@ -234,12 +234,14 @@ def main(args):
     # Extract subsets for LDS test evaluation.
     test_condition_dict = {
         "exp_name": args.test_exp_name,
-        "dataset": args.dataset,
-        # "removal_dist": args.removal_dist,
-        "method": "retrain",  # The test set should pertain only to retrained models.
+        "dataset": args.dataset,        
+        "removal_dist": "datamodel", 
+        # The test set should pertain only to retrained datamodel subsets.
+        "datamodel_alpha": args.datamodel_alpha,
+        "method": "retrain",  
     }
 
-    print(f"Loading testing data from {args.test_db}")
+    print(f"Loading testing data from {args.test_db}\n")
     test_masks, test_targets, test_seeds = collect_data(
         args.test_db,
         test_condition_dict,
@@ -248,19 +250,14 @@ def main(args):
         args.n_samples,
         args.by_class,
     )
-
     # Extract subsets for estimating data attribution scores.
     print(f"Loading training data from {args.train_db}")
 
     train_condition_dict = {
         "dataset": args.dataset,
         "removal_dist": args.removal_dist,
-        "method": "retrain"
-        if args.method in ["trak", "clip_score", "pixel_dist"]
-        else args.method,
-        "exp_name": "retrain_vs_retrain"
-        if args.method in ["trak", "clip_score", "pixel_dist"]
-        else args.train_exp_name,
+        "method": args.method,
+        "exp_name": args.train_exp_name,
     }
     train_masks, train_targets, train_seeds = collect_data(
         args.train_db,
@@ -331,7 +328,8 @@ def main(args):
     num_targets = train_targets.shape[-1]
 
     start = train_masks.shape[-1]
-    step = 100
+
+    step = 100 if args.max_train_size > 100 else 10
 
     subset_sizes = [start] + list(range(step, args.max_train_size + 1, step))
 

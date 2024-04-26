@@ -148,6 +148,13 @@ def parse_args():
     )
     # file path for local model behavior, e.g. pixel_distance, clip score
     parser.add_argument(
+        "--by",
+        type=str,
+        help="aggregation according to mean or max",
+        default="mean",
+        choices=["mean", "max"],
+    )
+    parser.add_argument(
         "--sample_size",
         type=int,
         default=None,
@@ -295,8 +302,9 @@ def main(args):
     elif args.method == "pixel_dist":
         coeff = pixel_distance(
             args.model_behavior_key,
+            args.by,
             args.dataset,
-            args.n_samples,
+            args.n_samples if args.sample_size is None else args.sample_size,
             args.sample_dir,
             args.training_dir,
         )
@@ -305,8 +313,9 @@ def main(args):
         clip = CLIPScore(device)
         coeff = clip.clip_score(
             args.model_behavior_key,
+            args.by,
             args.dataset,
-            args.n_samples,
+            args.n_samples if args.sample_size is None else args.sample_size,
             args.sample_dir,
             args.training_dir,
         )

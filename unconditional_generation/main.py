@@ -60,7 +60,7 @@ def parse_args():
     )
     parser.add_argument(
         "--excluded_class",
-        help='Classes to be excluded, e.g. "1, 2, 3, etc" ', 
+        help='Classes to be excluded, e.g. "1, 2, 3, etc" ',
         type=str,
         default=None,
     )
@@ -261,7 +261,7 @@ def main(args):
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
     if args.excluded_class is not None:
-        excluded_class = [int(k) for k in args.excluded_class.split(',')]
+        excluded_class = [int(k) for k in args.excluded_class.split(",")]
         remaining_idx, removed_idx = remove_data_by_class(
             train_dataset, excluded_class=excluded_class
         )
@@ -273,7 +273,10 @@ def main(args):
         elif args.removal_dist == "datamodel":
             if args.dataset in ["cifar100", "cifar100_f", "celeba"]:
                 remaining_idx, removed_idx = remove_data_by_datamodel(
-                    train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed,by_class=True
+                    train_dataset,
+                    alpha=args.datamodel_alpha,
+                    seed=args.removal_seed,
+                    by_class=True,
                 )
             else:
                 remaining_idx, removed_idx = remove_data_by_datamodel(
@@ -310,7 +313,7 @@ def main(args):
 
     # Load full model instead of state_dict for pruned model.
     # if method is retrain.
-    if args.method != "retrain":
+    if args.method not in ["retrain", "gd_u"]:
         # Load pruned model
         pruned_model_path = os.path.join(
             args.outdir,

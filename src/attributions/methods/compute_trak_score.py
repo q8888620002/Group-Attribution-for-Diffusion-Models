@@ -5,7 +5,7 @@ import numpy as np
 import torch
 
 import src.constants as constants
-from src.attributions.methods.attribution_utils import mean_by_class
+from src.attributions.methods.attribution_utils import aggregate_by_class
 from src.datasets import ImageDataset, create_dataset
 
 
@@ -64,12 +64,14 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
             scores += val_phi @ ((train_phi @ kernel).T) / len(training_seeds)
     else:
         # retraining free TRAK/D-TRAK
-
-        train_grad_path = os.path.join(
+        train_grad_dir = os.path.join(
             constants.OUTDIR,
             args.dataset,
             "d_trak",
-            "full",
+            "full"
+        )
+        train_grad_path = os.path.join(
+            train_grad_dir,
             f"train_f={args.trak_behavior}_t={args.t_strategy}",
         )
         print(
@@ -82,12 +84,25 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
             shape=(len(dataset), args.projector_dim),
         )
 
-        # dstore_keys = torch.from_numpy(dstore_keys).cuda()
+        kernel_path = os.path.join(
+            train_grad_dir, 
+            f"kernel_train_f={args.trak_behavior}_t={args.t_strategy}.npy"
+        )
+        
+        if os.path.isfile(kernel_path):
 
-        kernel = train_phi.T @ train_phi
-        kernel = kernel + 5e-1 * np.eye(kernel.shape[0])
+            # Check if the kernel file exists
+            print("Kernel file exists. Loading...")
+            kernel = np.load(kernel_path)
+        else:
+            # dstore_keys = torch.from_numpy(dstore_keys).cuda()
 
-        kernel = np.linalg.inv(kernel)
+            kernel = train_phi.T @ train_phi
+            kernel = kernel + 5e-1 * np.eye(kernel.shape[0])
+
+            kernel = np.linalg.inv(kernel)
+
+            np.save(kernel_path, kernel)
 
         scores = val_phi @ ((train_phi @ kernel).T)
         # Using the average as coefficients
@@ -109,7 +124,7 @@ def compute_dtrak_trak_scores(args, retraining=False, training_seeds=None):
         #     scores[i] = score.cpu().numpy() / magnitude
 
     if args.by_class:
-        coeff = -mean_by_class(coeff, dataset)
+        coeff = -aggregate_by_class(coeff, dataset)
     else:
         coeff = -scores
 
