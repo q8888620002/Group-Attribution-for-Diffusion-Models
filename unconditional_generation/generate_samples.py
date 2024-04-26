@@ -180,6 +180,7 @@ def main(args):
             args.outdir,
             args.dataset,
             args.method,
+            str(args.trained_steps),
             "ema_generated_samples" if args.use_ema else "generated_samples",
             removal_dir,
         )
