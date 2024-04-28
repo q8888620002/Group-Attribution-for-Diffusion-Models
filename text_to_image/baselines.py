@@ -306,7 +306,9 @@ def main(args):
                 np.save(handle, rank)
         global_rank = np.argsort(-output.mean(axis=-1), kind="stable")
         with open(
-            os.path.join(output_dir, f"all_generated_images_{args.group}_{name}.npy"),
+            os.path.join(
+                output_dir, f"all_generated_images_{args.group}_rank_{name}.npy"
+            ),
             "wb",
         ) as handle:
             np.save(handle, global_rank)
