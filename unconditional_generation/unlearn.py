@@ -643,6 +643,7 @@ def main(args):
             )
             print(f"Loading full model checkpoint from {full_model_dir}")
 
+        
             args.method = "retrain"
             args.trained_steps = None
 

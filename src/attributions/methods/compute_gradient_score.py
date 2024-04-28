@@ -15,23 +15,25 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
 
     sample_dataset = ImageDataset(args.sample_dir)
 
-    if args.gradient_type in ["gradient", "trak", "relative_if", "renormalized_if"]:
-        model_behavior = "loss"
-        t_strategy = "uniform"
-    elif args.gradient_type == "journey_trak":
-        model_behavior = "loss"
-        t_strategy = "cumulative"
-    elif args.gradient_type == "d_trak":
+    if args.gradient_type == "d_trak":
         model_behavior = "mean-squared-l2-norm"
         t_strategy = "uniform"
     else:
-        raise ValueError(f"{args.gradient_type} not defined.")
+        model_behavior = "loss"
+        t_strategy = "uniform"
 
-    val_grad_path = os.path.join(
-        args.sample_dir,
-        "d_trak",
-        f"reference_f={model_behavior}_t={t_strategy}",
-    )
+    if args.gradient_type == "journey_trak":
+        val_grad_path = os.path.join(
+            args.sample_dir,
+            "d_trak",
+            "reference_f=loss_t=cumulative",
+        )
+    else:
+        val_grad_path = os.path.join(
+            args.sample_dir,
+            "d_trak",
+            f"reference_f={model_behavior}_t={t_strategy}",
+        )
     print(f"Loading pre-calculated grads for validation set from {val_grad_path}...")
 
     val_phi = np.memmap(

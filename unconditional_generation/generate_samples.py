@@ -251,6 +251,7 @@ def main(args):
         pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256").to(
             device
         )
+        pipeline.num_inference_steps = 50
         pipeline.vqvae.config.scaling_factor = 1
         pipeline.unet = model.to(device)
     else:
