@@ -45,7 +45,7 @@ def parse_args():
     )
     parser.add_argument(
         "--excluded_class",
-        help='Classes to be excluded, e.g. "1, 2, 3, etc" ', 
+        help='Classes to be excluded, e.g. "1, 2, 3, etc" ',
         type=str,
         default=None,
     )

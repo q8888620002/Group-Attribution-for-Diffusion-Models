@@ -219,7 +219,7 @@ def main(args):
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
     full_model = model_cls(**config["unet_config"])
 
-    if args.method == "retrain":
+    if args.method in ["retrain", "gd_u"]:
         # Use the model architecture from the config file.
         removal_model = model_cls(**config["unet_config"])
         print("Removal model architecture loaded from DDPMConfig")

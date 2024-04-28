@@ -153,7 +153,7 @@ def load_ckpt_model(args, model_loaddir):
         ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
 
-        if args.method not in ["retrain"]:
+        if args.method not in ["retrain", "gd_u"]:
             # Load pruned model
             pruned_model_path = os.path.join(
                 args.outdir,

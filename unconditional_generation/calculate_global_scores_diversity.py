@@ -198,7 +198,7 @@ def main(args):
         new_cluster_images,
     ) = calculate_diversity_score(
         ref_image_dir_or_tensor=os.path.join(
-            constants.OUTDIR, args.dataset, "generated_samples"
+            constants.OUTDIR, args.dataset, "cluster_imgs"
         ),
         generated_images_dir_or_tensor=generated_samples,
         num_cluster=20,

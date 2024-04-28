@@ -18,7 +18,7 @@ from scipy.stats import bootstrap, spearmanr
 
 import src.constants as constants
 from src.attributions.methods.attribution_utils import CLIPScore, pixel_distance
-from src.attributions.methods.compute_trak_score import compute_gradient_scores
+from src.attributions.methods.compute_gradient_score import compute_gradient_scores
 from src.datasets import create_dataset, remove_data_by_shapley
 from src.utils import print_args
 
@@ -124,7 +124,7 @@ def parse_args():
             "relative_if",
             "renormalized_if",
             "journey_trak",
-            "d-trak",
+            "d_trak",
         ],
         default=None,
         help="Specification for gradient-based model behavior.",
@@ -310,6 +310,7 @@ def main(args):
     ), "number of target should match number of samples in sample_dir."
 
     data_attr_list = coeff
+    print(np.argsort(-coeff.flatten())[:5])
 
     def my_lds(idx):
         boot_masks = test_masks[idx, :]

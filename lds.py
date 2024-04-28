@@ -178,7 +178,7 @@ def collect_data(
 
             if keep:
                 seed = int(record["removal_seed"])
-                method = record["method"]
+                # method = record["method"]
 
                 # Check if remaining_idx is empty or incorrect indices.
                 if (
@@ -234,11 +234,11 @@ def main(args):
     # Extract subsets for LDS test evaluation.
     test_condition_dict = {
         "exp_name": args.test_exp_name,
-        "dataset": args.dataset,        
-        "removal_dist": "datamodel", 
+        "dataset": args.dataset,
+        "removal_dist": "datamodel",
         # The test set should pertain only to retrained datamodel subsets.
         "datamodel_alpha": args.datamodel_alpha,
-        "method": "retrain",  
+        "method": "retrain",
     }
 
     print(f"Loading testing data from {args.test_db}\n")
@@ -366,7 +366,7 @@ def main(args):
                 raise ValueError(
                     (f"Removal distribution: {args.removal_dist} does not exist.")
                 )
-
+            print(np.argsort(-coeff.flatten())[:5])
             data_attr_list.append(coeff)
 
         # Calculate LDS for different training subsets.
