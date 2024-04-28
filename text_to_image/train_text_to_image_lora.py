@@ -501,6 +501,18 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
+        "--removal_rank_file",
+        type=str,
+        help="numpy file containing top units to remove",
+        default=None,
+    )
+    parser.add_argument(
+        "--removal_rank_proportion",
+        type=float,
+        help="proportion of top ranked units to remove",
+        default=None,
+    )
+    parser.add_argument(
         "--removal_unit",
         type=str,
         help="unit of data for removal",
@@ -539,6 +551,12 @@ def main():
         
         removal_dir = f"{args.removal_unit}_{removal_dir_dist}"
         removal_dir += f"/{removal_dir_dist}_seed={args.removal_seed}"
+    
+    if args.removal_rank_file is not None:
+        assert args.removal_rank_proportion is not None
+        removal_dir = f"counterfactual_top_{args.removal_rank_proportion}"
+        rank_method = os.path.basename(args.removal_rank_file).split(".")[0]
+        removal_dir += f"/{rank_method}"
 
     assert args.dataset_name is None
     args.dataset = (
@@ -851,7 +869,7 @@ def main():
         if "artbench" in args.dataset:
             assert dataset["train"].num_rows == 5000
 
-    if args.removal_dist is not None:
+    if args.removal_dist is not None or args.removal_rank_file is not None:
         # Load csv file containing indexed removal units.
         if args.cls is None:
             removal_unit_file = os.path.join(
@@ -870,7 +888,7 @@ def main():
             print(f"Removal index file loaded from {removal_idx_file}")
             remaining_idx = removal_idx_df["idx"][removal_idx_df["remaining"]].to_numpy()
             removal_idx = removal_idx_df["idx"][~removal_idx_df["remaining"]].to_numpy()
-        else:
+        elif args.removal_dist is not None:
             if args.removal_dist == "shapley":
                 remaining_idx, removed_idx = remove_data_by_shapley(
                     removal_unit_df, args.removal_seed
@@ -889,6 +907,22 @@ def main():
                 raise ValueError(
                     f"--removal_dist={args.removal_dist} has to be ['shapley', 'uniform']"
                 )
+            removal_idx_df = pd.concat(
+                [
+                    pd.DataFrame({"idx": remaining_idx, "remaining": True}),
+                    pd.DataFrame({"idx": removed_idx, "remaining": False}),
+                ]
+            )
+            removal_idx_df.to_csv(removal_idx_file, index=False)
+            print(f"Removal index file saved to {removal_idx_file}")
+        else:
+            with open(args.removal_rank_file, "rb") as handle:
+                removal_rank = np.load(handle)
+            num_removed_units = math.floor(
+                len(removal_rank) * args.removal_rank_proportion
+            )
+            removed_idx = removal_rank[:num_removed_units]
+            remaining_idx = removal_rank[num_removed_units:]
             removal_idx_df = pd.concat(
                 [
                     pd.DataFrame({"idx": remaining_idx, "remaining": True}),
