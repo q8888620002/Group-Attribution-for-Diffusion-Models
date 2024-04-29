@@ -58,7 +58,7 @@ from transformers import CLIPTextModel, CLIPTokenizer
 
 import time
 from src.datasets import remove_data_by_shapley, remove_data_by_uniform, remove_data_by_datamodel
-from src.ddpm_config import PromptConfig
+from src.ddpm_config import PromptConfig, LoraUnlearningConfig, LoraSparseUnlearningConfig
 from src.utils import fix_get_processor
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -461,7 +461,7 @@ def parse_args():
         "--method",
         type=str,
         default="retrain",
-        choices=["retrain", "pruned_ft"],
+        choices=["retrain", "pruned_ft", "sparse_gd", "gd"],
         help="training or unlearning method",
     )
     parser.add_argument(
@@ -525,6 +525,18 @@ def parse_args():
         help="random seed for sampling from the removal distribution",
         default=0,
     )
+    parser.add_argument(
+        "--lora_dir",
+        type=str,
+        help="directory containing trained LoRA weights to load",
+        default=None,
+    )
+    parser.add_argument(
+        "--lora_steps",
+        type=int,
+        help="number of trained steps for the LoRA weights to load",
+        default=None,
+    )
 
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
@@ -566,6 +578,7 @@ def main():
         args.dataset = args.dataset + f"_{args.cls}"
     args.model_outdir, args.sample_outdir = None, None
 
+    expected_num_lora_params = None
     if args.method == "pruned_ft":
         args.method = f"pruned_ft_ratio={args.pruning_ratio}_lr={args.learning_rate}"
         args.lora_dir = os.path.join(
@@ -578,9 +591,22 @@ def main():
         info_df = pd.read_csv(os.path.join(args.lora_dir, "info.csv"))
         expected_num_lora_params = info_df[info_df["metric"] == "pruned_lora_params"]
         expected_num_lora_params = expected_num_lora_params["value"].item()
-    else:
-        args.lora_dir = None
-        expected_num_lora_params = None
+    elif args.method in ["sparse_gd"]:
+        if args.dataset == "artbench_post_impressionism":
+            sparse_unlearning_config = LoraSparseUnlearningConfig.artbench_post_impressionism_config
+        else:
+            raise NotImplementedError
+        args.lora_dir = sparse_unlearning_config["lora_dir"]
+        args.lora_steps = sparse_unlearning_config["lora_steps"]
+        args.max_train_steps = sparse_unlearning_config["max_train_steps"]
+    elif args.method in ["gd"]:
+        if args.dataset == "artbench_post_impressionism":
+            unlearning_config = LoraUnlearningConfig.artbench_post_impressionism_config
+        else:
+            raise NotImplementedError
+        args.lora_dir = unlearning_config["lora_dir"]
+        args.lora_steps = None
+        args.max_train_steps = unlearning_config["max_train_steps"]
 
     if args.output_dir is not None:
         args.output_dir = os.path.join(args.output_dir, args.dataset, args.method)
@@ -763,10 +789,13 @@ def main():
         # Runtime bugfix when LoRA ranks are different across attention to_q, to_k, 
         # to_v, and to_out.
         fix_get_processor(unet)
-        unet.load_attn_procs(
-            args.lora_dir, weight_name="pytorch_lora_weights.safetensors"
-        )
-        lora_file = os.path.join(args.lora_dir, "pytorch_lora_weights.safetensors")
+        weight_name = "pytorch_lora_weights"
+        if args.lora_steps is not None:
+            weight_name += f"_{args.lora_steps}"
+        weight_name += ".safetensors"
+
+        unet.load_attn_procs(args.lora_dir, weight_name=weight_name)
+        lora_file = os.path.join(args.lora_dir, weight_name)
         logger.info(f"LoRA weights loaded from {lora_file}")
 
         # Convert non-LoRA parameters to the specified precision.
@@ -787,7 +816,8 @@ def main():
         total_num_lora_params = sum(
             [param.numel() for param in unet_lora_parameters]
         )
-        assert total_num_lora_params == expected_num_lora_params
+        if expected_num_lora_params is not None:
+            assert total_num_lora_params == expected_num_lora_params
 
     if args.enable_xformers_memory_efficient_attention:
         if is_xformers_available():
@@ -1114,13 +1144,18 @@ def main():
     time_file = os.path.join(args.model_outdir, "time.csv")
     if not os.path.exists(time_file) and accelerator.is_main_process:
         with open(time_file, "w") as f:
-            f.write("epoch,time,gpu\n")
+            if args.max_train_steps is None:
+                f.write("epoch,time,gpu\n")
+            else:
+                f.write("step,time,gpu\n")
     for epoch in range(first_epoch, args.num_train_epochs):
-        if accelerator.is_main_process:
-            start_time = time.time()
+        if args.max_train_steps is None and accelerator.is_main_process:
+            epoch_start_time = time.time()
         unet.train()
         train_loss = 0.0
         for step, batch in enumerate(train_dataloader):
+            if args.max_train_steps is not None and accelerator.is_main_process:
+                step_start_time = time.time()
             with accelerator.accumulate(unet):
                 # Convert images to latent space
                 latents = vae.encode(
@@ -1218,6 +1253,11 @@ def main():
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
+                if args.max_train_steps is not None and accelerator.is_main_process:
+                    step_time = time.time() - step_start_time
+                    time_record = f"{global_step},{step_time:.8f},{torch.cuda.get_device_name()}\n"
+                    with open(time_file, "a") as f:
+                        f.write(time_record)
                 progress_bar.update(1)
                 global_step += 1
                 accelerator.log({"train_loss": train_loss}, step=global_step)
@@ -1346,11 +1386,12 @@ def main():
 
                 del pipeline
                 torch.cuda.empty_cache()
-            epoch_time = time.time() - start_time
-            time_record = f"{epoch},{epoch_time:.8f},{torch.cuda.get_device_name()}\n"
-            with open(time_file, "a") as f:
-                f.write(time_record)
-                print(f"Epoch training time recorded at {time_file}")
+            if args.max_train_steps is None:
+                epoch_time = time.time() - epoch_start_time
+                time_record = f"{epoch},{epoch_time:.8f},{torch.cuda.get_device_name()}\n"
+                with open(time_file, "a") as f:
+                    f.write(time_record)
+                    print(f"Epoch training time recorded at {time_file}")
 
     # Save the lora layers
     accelerator.wait_for_everyone()
