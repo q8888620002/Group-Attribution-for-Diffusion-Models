@@ -154,7 +154,7 @@ def main(args):
                 args.dataset,
                 args.method,
                 "models",
-                args.removal_method,
+                f"{args.removal_unit}_{args.removal_dist}",
                 f"{args.removal_dist}_seed={removal_seed}",
             )
             command += " --ckpt_path={}".format(ckpt_path)
