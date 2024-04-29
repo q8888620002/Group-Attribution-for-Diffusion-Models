@@ -3,7 +3,7 @@
 import argparse
 import os
 
-from src.constants import DATASET_DIR, LOGDIR, OUTDIR
+from src.constants import DATASET_DIR, LOGDIR, TMP_OUTDIR
 from src.ddpm_config import LoraTrainingConfig, TextToImageModelBehaviorConfig
 from src.experiment_utils import format_config_arg, update_job_file
 from src.utils import print_args
@@ -82,7 +82,7 @@ def main(args):
             DATASET_DIR, "artbench-10-imagefolder-split", "train"
         )
         training_config["train_data_dir"] = train_data_dir
-        training_config["output_dir"] = os.path.join(OUTDIR, f"seed{args.seed}")
+        training_config["output_dir"] = os.path.join(TMP_OUTDIR, f"seed{args.seed}")
         training_config["seed"] = args.seed
         training_config["method"] = args.method
         training_config["removal_dist"] = args.removal_dist
@@ -116,7 +116,7 @@ def main(args):
     logdir = os.path.join(LOGDIR, "unlearn", exp_name)
     os.makedirs(logdir, exist_ok=True)
 
-    db_dir = os.path.join(OUTDIR, f"seed{args.seed}", args.dataset)
+    db_dir = os.path.join(TMP_OUTDIR, f"seed{args.seed}", args.dataset)
     os.makedirs(db_dir, exist_ok=True)
     db = os.path.join(
         db_dir, f"{args.method}_{args.removal_unit}_{args.removal_dist}.jsonl"
@@ -149,7 +149,7 @@ def main(args):
                 ckpt_dir, f"{args.removal_dist}_seed_{removal_seed}.pt"
             )
             lora_dir = os.path.join(
-                OUTDIR,
+                TMP_OUTDIR,
                 f"seed{args.seed}",
                 args.dataset,
                 args.method,
