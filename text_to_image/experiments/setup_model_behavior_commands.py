@@ -156,7 +156,7 @@ def main(args):
         ratio_list = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         lora_steps_list = [
             num_update_steps_per_epoch * num_epochs
-            for num_epochs in [20, 40, 60, 80, 100, 120, 140, 160, 180, 200]
+            for num_epochs in [10, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200]
         ]
         learning_rate_list = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3]
         assert (
