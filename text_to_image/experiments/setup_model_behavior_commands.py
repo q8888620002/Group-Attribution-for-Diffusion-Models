@@ -43,7 +43,14 @@ def parse_args():
     parser.add_argument(
         "--removal_method",
         type=str,
-        choices=["full", "artist_shapley"],
+        choices=[
+            "full",
+            "artist_shapley",
+            "artist_datamodel_alpha=0.1",
+            "artist_datamodel_alpha=0.25",
+            "artist_datamodel_alpha=0.5",
+            "artist_datamodel_alpha=0.75",
+        ],
         default=None,
         help="removal method for [retrain]",
     )
@@ -57,7 +64,7 @@ def parse_args():
         "--num_executions_per_job",
         type=int,
         help="number of script executions to run for each SLURM job",
-        default=10,
+        default=20,
     )
     parser.add_argument(
         "--num_images",
@@ -151,8 +158,9 @@ def main(args):
             num_update_steps_per_epoch * num_epochs
             for num_epochs in [20, 40, 60, 80, 100, 120, 140, 160, 180, 200]
         ]
+        learning_rate_list = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3]
         assert (
-            len(ratio_list) * len(lora_steps_list)
+            len(ratio_list) * len(lora_steps_list) * len(learning_rate_list)
         ) % args.num_executions_per_job == 0
         ckpt_dir = os.path.join(ckpt_dir, "pruned_ft")
         os.makedirs(ckpt_dir, exist_ok=True)
@@ -161,42 +169,47 @@ def main(args):
         with open(command_file, "w") as handle:
             command = ""
             for ratio in ratio_list:
-                for lora_steps in lora_steps_list:
-                    command += "python text_to_image/compute_model_behaviors.py"
-                    for key, val in config.items():
-                        command += " " + format_config_arg(key, val)
-                    ckpt_path = os.path.join(
-                        ckpt_dir, f"ratio_{ratio}_lora_steps_{lora_steps}.pt"
-                    )
-                    db = os.path.join(db_dir, "pruned_ft.jsonl")
-                    lora_dir = os.path.join(
-                        OUTDIR,
-                        f"seed{args.opt_seed}",
-                        args.dataset,
-                        f"pruned_ft_ratio={ratio}",
-                        "models",
-                        "full",
-                    )
-                    command += " --ckpt_path={}".format(ckpt_path)
-                    command += " --db={}".format(db)
-                    command += " --exp_name={}".format(
-                        os.path.join(
-                            exp_name, f"ratio={ratio}", f"lora_steps={lora_steps}"
+                for learning_rate in learning_rate_list:
+                    for lora_steps in lora_steps_list:
+                        command += "python text_to_image/compute_model_behaviors.py"
+                        for key, val in config.items():
+                            command += " " + format_config_arg(key, val)
+                        ckpt_filename = f"ratio_{ratio}"
+                        ckpt_filename += f"_lr_{learning_rate}"
+                        ckpt_filename += f"_lora_steps_{lora_steps}.pt"
+                        ckpt_path = os.path.join(ckpt_dir, ckpt_filename)
+                        db = os.path.join(db_dir, "pruned_ft_ratio_lr_lora_steps.jsonl")
+                        lora_dir = os.path.join(
+                            OUTDIR,
+                            f"seed{args.opt_seed}",
+                            args.dataset,
+                            f"pruned_ft_ratio={ratio}_lr={learning_rate}",
+                            "models",
+                            "full",
                         )
-                    )
-                    command += " --lora_dir={}".format(lora_dir)
-                    command += " --lora_steps={}".format(lora_steps)
-                    num_executions += 1
+                        command += " --ckpt_path={}".format(ckpt_path)
+                        command += " --db={}".format(db)
+                        command += " --exp_name={}".format(
+                            os.path.join(
+                                exp_name,
+                                f"ratio={ratio}",
+                                f"lr={learning_rate}",
+                                f"lora_steps={lora_steps}",
+                            )
+                        )
+                        command += " --lora_dir={}".format(lora_dir)
+                        command += " --lora_steps={}".format(lora_steps)
+                        num_executions += 1
 
-                    if num_executions % args.num_executions_per_job == 0:
-                        handle.write(command + "\n")
-                        command = ""
-                        num_jobs += 1
-                    else:
-                        command += " ; "
+                        if num_executions % args.num_executions_per_job == 0:
+                            handle.write(command + "\n")
+                            command = ""
+                            num_jobs += 1
+                        else:
+                            command += " ; "
 
     elif args.removal_method is not None:
-        removal_dist = args.removal_method.split("_")[-1]
+        removal_dist = "_".join(args.removal_method.split("_")[1:])
         ckpt_dir = os.path.join(ckpt_dir, args.removal_method)
         os.makedirs(ckpt_dir, exist_ok=True)
 
