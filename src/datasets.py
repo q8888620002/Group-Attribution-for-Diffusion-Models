@@ -103,6 +103,9 @@ class CIFAR100_original(CIFAR100):
             i for i, target in enumerate(self.targets) if target in self.classes_to_keep
         ]
         self.data = self.data[filtered_indices]
+        
+        # reset class label
+
         self.targets = [
             self.classes_to_keep.index(target)
             for i, target in enumerate(self.targets)
@@ -419,7 +422,7 @@ def remove_data_by_datamodel(
 
         remaining_class_size = int(alpha * len(possible_classes))
         rng.shuffle(possible_classes)  # Shuffle in place.
-        remaining_classes = possible_classes[remaining_class_size:]
+        remaining_classes = possible_classes[:remaining_class_size]
 
         remaining_idx = [
             i for i, data in enumerate(dataset) if data[1] in remaining_classes

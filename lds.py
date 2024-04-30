@@ -109,6 +109,7 @@ def parse_args():
         help="key to query model behavior in the database",
         default="fid_value",
         choices=[
+            "is",
             "fid_value",
             "mse",
             "nrmse",
@@ -116,7 +117,10 @@ def parse_args():
             "diffusion_loss",
             "precision",
             "recall",
-            "is",
+            "avg_mse",
+            "avg_ssim",
+            "avg_nrmse",
+            "avg_total_loss"
         ],
     )
     parser.add_argument(
@@ -362,11 +366,32 @@ def main(args):
                     full_targets.flatten()[i],
                     null_targets.flatten()[i],
                 )
+            elif args.method == "loo":
+
+                loo_condition_dict = {
+                    "exp_name": args.test_exp_name,
+                    "dataset": args.dataset,
+                    "method": "loo", 
+                }
+
+                loo_masks, loo_targets, _ = collect_data(
+                    args.loo_db,
+                    loo_condition_dict,
+                    args.dataset,
+                    args.model_behavior_key,
+                    args.n_samples,
+                    args.by_class,
+                )
+
+                coeff = np.zeros((num_targets, len(loo_masks.shape[-1])))
+
+                coeff[i, :] = np.mutiply(full_targets - loo_targets, loo_masks)
+                
             else:
                 raise ValueError(
                     (f"Removal distribution: {args.removal_dist} does not exist.")
                 )
-            print(np.argsort(-coeff.flatten())[:5])
+            # print(np.argsort(-coeff.flatten())[:5])
             data_attr_list.append(coeff)
 
         # Calculate LDS for different training subsets.

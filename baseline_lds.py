@@ -34,7 +34,24 @@ def parse_args():
         help="filepath of database for recording test model behaviors",
         required=True,
     )
-
+    parser.add_argument(
+        "--full_db",
+        type=str,
+        help="filepath of database for recording training model behaviors",
+        required=None,
+    )
+    parser.add_argument(
+        "--null_db",
+        type=str,
+        help="filepath of database for recording LOO model behaviors",
+        required=None,
+    )
+    parser.add_argument(
+        "--loo_db",
+        type=str,
+        help="filepath of database for recording training model behaviors",
+        required=None,
+    )
     parser.add_argument(
         "--dataset",
         type=str,
@@ -44,6 +61,12 @@ def parse_args():
     )
     parser.add_argument(
         "--test_exp_name",
+        type=str,
+        help="experiment name of records to extract as part of the test set",
+        default=None,
+    )
+    parser.add_argument(
+        "--train_exp_name",
         type=str,
         help="experiment name of records to extract as part of the test set",
         default=None,
@@ -79,6 +102,7 @@ def parse_args():
         help="key to query model behavior in the database",
         default="fid_value",
         choices=[
+            "is",
             "fid_value",
             "mse",
             "nrmse",
@@ -86,7 +110,10 @@ def parse_args():
             "diffusion_loss",
             "precision",
             "recall",
-            "is",
+            "avg_mse",
+            "avg_ssim",
+            "avg_nrmse",
+            "avg_total_loss"
         ],
     )
     parser.add_argument(
@@ -225,11 +252,15 @@ def collect_data(
                         for i in range(n_samples)
                     ]
 
-                # avoid duplicated records
+                # Avoid duplicated records based on seed or class. 
+
+                if record["excluded_class"] is not None and record["removal_dist"] is None:
+                    seed = int(record["excluded_class"])
 
                 if seed not in removal_seeds:
                     if method == "gd":
                         if record["trained_steps"] == 4000:
+                            # Only extract record when trained steps == 4000 for gd.
                             remaining_masks.append(remaining_mask)
                             model_behaviors.append(model_behavior)
                             removal_seeds.append(seed)
@@ -304,6 +335,44 @@ def main(args):
             args.sample_dir,
             args.training_dir,
         )
+    elif args.method == "loo":
+        loo_condition_dict = {
+            "exp_name": args.train_exp_name,
+            "dataset": args.dataset,
+            "method": "retrain", 
+        }
+
+        loo_masks, loo_targets, _ = collect_data(
+            args.loo_db,
+            loo_condition_dict,
+            args.dataset,
+            args.model_behavior_key,
+            args.n_samples,
+            args.by_class,
+        )
+
+        _, null_targets, _ = collect_data(
+            args.null_db,
+            {"dataset": args.dataset, "method": "retrain"},
+            args.dataset,
+            args.model_behavior_key,
+            args.n_samples,
+            args.by_class,
+        )
+
+        _, full_targets, _ = collect_data(
+            args.full_db,
+            {"dataset": args.dataset, "method": "retrain"},
+            args.dataset,
+            args.model_behavior_key,
+            args.n_samples,
+            args.by_class,
+        )
+
+        coeff = np.zeros((num_targets, loo_masks.shape[-1]))
+        
+        for i in range(num_targets):
+            coeff[i] = np.dot((full_targets[:, i] - loo_targets[:, i]).T, 1.0 - loo_masks)
 
     assert (
         coeff.shape[0] == num_targets
