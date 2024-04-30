@@ -329,7 +329,7 @@ def main(args):
         )
         pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
         model = pruned_model_ckpt["unet"]
-        accelerator.print(f"Pruned U-Net resumed from {pruned_model_ckpt}")
+        accelerator.print(f"Pruned U-Net resumed from {pruned_model_path}")
     else:
         model = model_cls(**config["unet_config"])
 

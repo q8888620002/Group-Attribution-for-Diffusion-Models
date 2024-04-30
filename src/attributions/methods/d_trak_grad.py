@@ -14,14 +14,7 @@ from trak.utils import is_not_buffer
 
 import diffusers
 import src.constants as constants
-from diffusers import (
-    DDIMScheduler,
-    DDPMPipeline,
-    DDPMScheduler,
-    DiffusionPipeline,
-    LDMPipeline,
-    VQModel,
-)
+from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
 from src.datasets import (
     ImageDataset,
     TensorDataset,
@@ -361,17 +354,28 @@ def main(args):
         vqvae = vqvae.to(device)
         text_encoder = text_encoder.to(device)
     elif args.dataset == "celeba":
-        model_id = "CompVis/ldm-celebahq-256"
-        vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
+        # The pipeline is of class LDMPipeline.
+        pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256")
+        pipeline.unet = model
 
-        for param in vqvae.parameters():
-            param.requires_grad = False
+        vqvae = pipeline.vqvae
+        pipeline.vqvae.config.scaling_factor = 1
+        vqvae.requires_grad_(False)
 
-        pipeline = LDMPipeline(
-            unet=model,
-            vqvae=vqvae,
-            scheduler=DDIMScheduler(**config["scheduler_config"]),
-        ).to(device)
+        # Load the precomputed output, avoiding GPU memory usage by the VQ-VAE model
+        pipeline.vqvae = None
+        vqvae_latent_dir = os.path.join(
+            args.outdir,
+            args.dataset,
+            "precomputed_emb",
+        )
+        vqvae_latent_dict = torch.load(
+            os.path.join(
+                vqvae_latent_dir,
+                "vqvae_output.pt",
+            ),
+            map_location="cpu",
+        )
     else:
         pipeline = DDPMPipeline(
             unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
@@ -583,11 +587,20 @@ def main(args):
         ),
     )
 
-    for step, (image, _) in enumerate(remaining_dataloader):
+    for step, (image, label) in enumerate(remaining_dataloader):
 
         seed_everything(args.opt_seed, workers=True)
         image = image.to(device)
         bsz = image.shape[0]
+
+        if args.dataset == "celeba":
+            imageid = label
+            image = torch.stack(
+                [vqvae_latent_dict[imageid[i]] for i in range(len(image))]
+            ).to(device)
+            image = image * vqvae.config.scaling_factor
+
+        noise = torch.randn_like(image).to(device)
 
         if args.t_strategy == "uniform":
             selected_timesteps = range(0, 1000, 1000 // args.k_partition)
