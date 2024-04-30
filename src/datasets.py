@@ -361,7 +361,7 @@ def remove_data_by_class(
         A numpy array with the remaining indices, and another numpy array with the
         indices corresponding to the removed data.
     """
-    removed_idx = [i for i, (_, label) in enumerate(dataset) if label == excluded_class]
+    removed_idx = [i for i, (data) in enumerate(dataset) if data[1] == excluded_class]
     removed_idx = np.array(removed_idx)
     remaining_idx = np.setdiff1d(np.arange(len(dataset)), removed_idx)
     return remaining_idx, removed_idx
