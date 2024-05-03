@@ -8,7 +8,8 @@ datasets==2.17.0
 torch_pruning==1.3.2
 bitsandbytes==0.42.0
 traker==0.1.3
-fast-jl
+fast-jl==0.1.3
+pytorch_fid
 tqdm
 argparse
 pre-commit

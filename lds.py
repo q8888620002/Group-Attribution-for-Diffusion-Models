@@ -111,6 +111,7 @@ def parse_args():
         choices=[
             "is",
             "fid_value",
+            "entropy",
             "mse",
             "nrmse",
             "ssim",
@@ -120,7 +121,7 @@ def parse_args():
             "avg_mse",
             "avg_ssim",
             "avg_nrmse",
-            "avg_total_loss"
+            "avg_total_loss",
         ],
     )
     parser.add_argument(
@@ -164,7 +165,13 @@ def collect_data(
 ):
     """Collect data for fitting and evaluating data attribution scores."""
     dataset = create_dataset(dataset_name=dataset_name, train=True)
-    index_to_class = {i: label for i, (_, label) in enumerate(dataset)}
+
+    unique_values = sorted(set(data[1] for data in dataset))
+    value_to_number = {value: i  for i, value in enumerate(unique_values)}
+
+    index_to_class = {i: value_to_number[data[1]] for i, data in enumerate(dataset)}
+    # else:
+    #     index_to_class = {i: label for i, (_, label) in enumerate(dataset)}
 
     train_size = len(dataset)
 
@@ -371,7 +378,7 @@ def main(args):
                 loo_condition_dict = {
                     "exp_name": args.test_exp_name,
                     "dataset": args.dataset,
-                    "method": "loo", 
+                    "method": "loo",
                 }
 
                 loo_masks, loo_targets, _ = collect_data(
@@ -386,7 +393,7 @@ def main(args):
                 coeff = np.zeros((num_targets, len(loo_masks.shape[-1])))
 
                 coeff[i, :] = np.mutiply(full_targets - loo_targets, loo_masks)
-                
+
             else:
                 raise ValueError(
                     (f"Removal distribution: {args.removal_dist} does not exist.")

@@ -524,7 +524,8 @@ def main(args):
                 vqvae_latent_dict,
                 os.path.join(vqvae_latent_dir, "vqvae_output.pt"),
             )
-
+            pipeline.to(device)
+            
             accelerator.print(
                 "VQVAE output saved. Set precompute_state=reuse to unload VQVAE model."
             )

@@ -61,7 +61,7 @@ def generate_images(pipeline, device, random_seed, **pipeline_kwargs):
     """Generate numpy images from a pipeline."""
     pipeline = pipeline.to(device)
     images = pipeline(
-        generator=torch.Generator(device=args.device).manual_seed(random_seed),
+        generator=torch.Generator().manual_seed(random_seed),
         output_type="numpy",
         **pipeline_kwargs,
     ).images

@@ -90,7 +90,7 @@ class CLIPScore:
         else:
             coeff = similarity
 
-        if dataset_name in ["cifar100", "cifar100_f"]:
+        if dataset_name in ["cifar100", "cifar100_f", "celeba"]:
             dataset = create_dataset(dataset_name=dataset_name, train=True)
             coeff = aggregate_by_class(coeff, dataset, by)
 
@@ -111,9 +111,12 @@ def aggregate_by_class(scores, dataset, by="mean"):
 
     n, _ = scores.shape
 
-    labels = np.array([entry[-1] for entry in dataset])
 
+    unique_values = sorted(set(data[1] for data in dataset))
+    value_to_number = {value: i  for i, value in enumerate(unique_values)}
+    labels = np.array([value_to_number[entry[1]] for entry in dataset])
     num_labels = len(np.unique(labels))
+
     result = np.zeros((n, num_labels))
 
     for i in range(num_labels):
@@ -170,7 +173,7 @@ def pixel_distance(
 
     Args:
     ----
-        model_behavior_key: model behavior 
+        model_behavior_key: model behavior
         by: aggregated class based coefficients based on mean or max
         dataset_name: dataset
         sample_size: number of generated samples.
@@ -205,7 +208,7 @@ def pixel_distance(
     else:
         coeff = similarities
 
-    if dataset_name in ["cifar100", "cifar100_f"]:
+    if dataset_name in ["cifar100", "cifar100_f", "celeba"]:
         dataset = create_dataset(dataset_name=dataset_name, train=True)
         # coeff = mean_scores_by_class(coeff, dataset)
 
