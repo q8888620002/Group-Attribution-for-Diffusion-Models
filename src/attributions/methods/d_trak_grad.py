@@ -1,6 +1,7 @@
 """Class for TRAK score calculation."""
 import argparse
 import os
+import json
 
 import numpy as np
 import torch
@@ -124,12 +125,21 @@ def parse_args():
             "l1-norm",
             "l2-norm",
             "linf-norm",
+            "ssim",
+            "fid",
+            "nrmse",
+            "is"
         ],
         default=None,
         required=True,
         help="Specification for D-TRAK model behavior.",
     )
-
+    parser.add_argument(
+        "--model_behavior_value",
+        type=float,
+        default=None,
+        help="Model output for a pre-calculated model behavior e.g. FID, SSIM, IS.",
+    )
     parser.add_argument(
         "--t_strategy",
         type=str,
@@ -160,7 +170,18 @@ def parse_args():
         action="store_true",
         default=False,
     )
-
+    parser.add_argument(
+        "--full_db",
+        type=str,
+        help="filepath of database for recording training model behaviors",
+        required=None,
+    )
+    parser.add_argument(
+        "--n_samples",
+        type=int,
+        help="number of generated images to consider for local model behaviors",
+        default=None,
+    )
     return parser.parse_args()
 
 
@@ -209,6 +230,40 @@ def vectorize_and_ignore_buffers(g, params_dict=None):
             out.append(torch.cat([x[b].flatten() for x in g]))
     return torch.stack(out)
 
+
+def collect_data(
+    db, condition_dict, dataset_name, model_behavior_key, n_samples
+):
+    """Collect data for fitting and evaluating data attribution scores."""
+    dataset = create_dataset(dataset_name=dataset_name, train=True)
+    index_to_class = {i: label for i, (_, label) in enumerate(dataset)}
+
+    train_size = len(dataset)
+
+    model_behaviors = []
+
+    with open(db, "r") as handle:
+        for line in handle:
+            record = json.loads(line)
+
+            keep = all(
+                [record[key] == condition_dict[key] for key in condition_dict.keys()]
+            )
+
+            if keep:
+                if n_samples is None:
+                    model_behavior = [float(record[model_behavior_key])]
+                else:
+                    model_behavior = [
+                        float(record[f"generated_image_{i}_{model_behavior_key}"])
+                        for i in range(n_samples)
+                    ]
+
+                model_behaviors.append(model_behavior)
+
+    model_behaviors = np.stack(model_behaviors)
+
+    return  model_behaviors
 
 def main(args):
     """Main function for computing project@gradient for D-TRAK and TRAK."""
@@ -291,6 +346,7 @@ def main(args):
             batch_size=config["batch_size"],
             shuffle=True,
             num_workers=1,
+            pin_memory=True,
         )
 
         save_dir = os.path.join(
@@ -300,7 +356,6 @@ def main(args):
             removal_dir,
             f"train_f={args.model_behavior}_t={args.t_strategy}",
         )
-
     else:
 
         preprocess = transforms.Compose(
@@ -319,6 +374,7 @@ def main(args):
             batch_size=config["batch_size"],
             shuffle=True,
             num_workers=1,
+            pin_memory=True
         )
 
         save_dir = os.path.join(
@@ -362,20 +418,26 @@ def main(args):
         pipeline.vqvae.config.scaling_factor = 1
         vqvae.requires_grad_(False)
 
-        # Load the precomputed output, avoiding GPU memory usage by the VQ-VAE model
-        pipeline.vqvae = None
-        vqvae_latent_dir = os.path.join(
-            args.outdir,
-            args.dataset,
-            "precomputed_emb",
-        )
-        vqvae_latent_dict = torch.load(
-            os.path.join(
-                vqvae_latent_dir,
-                "vqvae_output.pt",
-            ),
-            map_location="cpu",
-        )
+        if args.sample_dir is None:
+            # Load the precomputed output, avoiding GPU memory usage by the VQ-VAE model
+            pipeline.vqvae = None
+            vqvae_latent_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "precomputed_emb",
+            )
+            vqvae_latent_dict = torch.load(
+                os.path.join(
+                    vqvae_latent_dir,
+                    "vqvae_output.pt",
+                ),
+                map_location="cpu",
+            )
+        else:
+            vqvae = vqvae.to(device)
+
+        pipeline.to(device)
+
     else:
         pipeline = DDPMPipeline(
             unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
@@ -441,6 +503,7 @@ def main(args):
             # print(f.size())
             # print(f)
             ####
+
             return f
 
     elif args.model_behavior == "mean":
@@ -468,6 +531,7 @@ def main(args):
             # print(f.size())
             # print(f)
             ####
+
             return f
 
     elif args.model_behavior == "l1-norm":
@@ -540,6 +604,7 @@ def main(args):
                     "timestep": timesteps,
                 },
             )
+
             predictions = predictions.sample
             ####
             predictions = predictions.reshape(1, -1)
@@ -550,7 +615,32 @@ def main(args):
             # print(f)
             ####
             return f
+    elif args.model_behavior in ["ssim", "nrmse"]:
 
+
+        def compute_f(params, buffers, noisy_latents, timesteps, targets, full_model_behavior=full_targets):
+
+            noisy_latents = noisy_latents.unsqueeze(0)
+            timesteps = timesteps.unsqueeze(0)
+            targets = targets.unsqueeze(0)
+
+            predictions = functional_call(
+                model,
+                (params, buffers),
+                args=noisy_latents,
+                kwargs={
+                    "timestep": timesteps,
+                },
+            )
+
+            predictions = predictions.sample
+
+            #### Assign model behavior output to batch tensor
+            f = F.l1_loss(predictions, predictions + full_targets.float(), reduction="none")
+            f = f.reshape(1, -1)
+            f = f.mean()
+            import ipdb;ipdb.set_trace()
+            return f
     else:
         print(args.model_behavior)
 
@@ -586,18 +676,22 @@ def main(args):
             0,
         ),
     )
-
-    for step, (image, label) in enumerate(remaining_dataloader):
+    for step, batch in enumerate(remaining_dataloader):
 
         seed_everything(args.opt_seed, workers=True)
+
+        image, label = batch[0], batch[1]
         image = image.to(device)
         bsz = image.shape[0]
 
         if args.dataset == "celeba":
-            imageid = label
-            image = torch.stack(
-                [vqvae_latent_dict[imageid[i]] for i in range(len(image))]
-            ).to(device)
+            if args.sample_dir is None: # Compute TRAK with pre-computed embeddings.
+                imageid = batch[2]
+                image = torch.stack(
+                    [vqvae_latent_dict[imageid[i]] for i in range(len(image))]
+                ).to(device)
+            else: # Directly encode the images if there's no precomputation
+                image = vqvae.encode(image, False)[0]
             image = image * vqvae.config.scaling_factor
 
         noise = torch.randn_like(image).to(device)
@@ -633,6 +727,7 @@ def main(args):
                 timesteps,
                 target,
             )
+
             # if len(keys) == 0:
             #     keys = ft_per_sample_grads.keys()
 

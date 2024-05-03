@@ -643,11 +643,14 @@ def main(args):
             )
             print(f"Loading full model checkpoint from {full_model_dir}")
 
-        
+
             args.method = "retrain"
+            temp_method = args.method
+
             args.trained_steps = None
 
             full_model, full_ema_model, _, _ = load_ckpt_model(args, full_model_dir)
+            args.method = temp_method
 
             if args.use_ema:
                 full_ema_model.copy_to(full_model.parameters())
@@ -708,7 +711,7 @@ def main(args):
                 info_dict[f"{info_prefix}_nrmse"] = f"{nrmse_val:.8e}"
                 info_dict[f"{info_prefix}_ssim"] = f"{ssim_val:.8e}"
 
-                # Diffusion loss at the discrete steps during inference as the 
+                # Diffusion loss at the discrete steps during inference as the
                 # local model behavior.
                 loss_fn = torch.nn.MSELoss(reduction="mean")
                 full_image = (

@@ -103,6 +103,7 @@ def parse_args():
         default="fid_value",
         choices=[
             "is",
+            "entropy",
             "fid_value",
             "mse",
             "nrmse",
@@ -113,7 +114,8 @@ def parse_args():
             "avg_mse",
             "avg_ssim",
             "avg_nrmse",
-            "avg_total_loss"
+            "avg_total_loss",
+            "entropy"
         ],
     )
     parser.add_argument(
@@ -203,7 +205,11 @@ def collect_data(
 ):
     """Collect data for fitting and evaluating data attribution scores."""
     dataset = create_dataset(dataset_name=dataset_name, train=True)
-    index_to_class = {i: label for i, (_, label) in enumerate(dataset)}
+
+    unique_values = sorted(set(data[1] for data in dataset))
+    value_to_number = {value: i  for i, value in enumerate(unique_values)}
+
+    index_to_class = {i: value_to_number[data[1]] for i, data in enumerate(dataset)}
 
     train_size = len(dataset)
 
@@ -252,9 +258,12 @@ def collect_data(
                         for i in range(n_samples)
                     ]
 
-                # Avoid duplicated records based on seed or class. 
+                # Avoid duplicated records based on seed or class.
 
-                if record["excluded_class"] is not None and record["removal_dist"] is None:
+                if (
+                    record["excluded_class"] is not None
+                    and record["removal_dist"] is None
+                ):
                     seed = int(record["excluded_class"])
 
                 if seed not in removal_seeds:
@@ -339,7 +348,7 @@ def main(args):
         loo_condition_dict = {
             "exp_name": args.train_exp_name,
             "dataset": args.dataset,
-            "method": "retrain", 
+            "method": "retrain",
         }
 
         loo_masks, loo_targets, _ = collect_data(
@@ -370,10 +379,11 @@ def main(args):
         )
 
         coeff = np.zeros((num_targets, loo_masks.shape[-1]))
-        
-        for i in range(num_targets):
-            coeff[i] = np.dot((full_targets[:, i] - loo_targets[:, i]).T, 1.0 - loo_masks)
 
+        for i in range(num_targets):
+            coeff[i] = np.dot(
+                (full_targets[:, i] - loo_targets[:, i]).T, 1.0 - loo_masks
+            )
     assert (
         coeff.shape[0] == num_targets
     ), "number of target should match number of samples in sample_dir."
