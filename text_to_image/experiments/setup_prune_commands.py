@@ -68,7 +68,7 @@ def main(args):
     with open(command_file, "w") as handle:
         for i in range(1, 10):
             pruning_ratio = i / 10
-            for learning_rate in [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3]:
+            for learning_rate in [1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3]:
                 model_outdir = os.path.join(
                     training_config["output_dir"],
                     args.dataset,
