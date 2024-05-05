@@ -3,6 +3,8 @@
 import argparse
 import os
 
+import pandas as pd
+
 from src.constants import DATASET_DIR, LOGDIR, TMP_OUTDIR
 from src.ddpm_config import LoraTrainingConfig, TextToImageModelBehaviorConfig
 from src.experiment_utils import format_config_arg, update_job_file
@@ -122,16 +124,30 @@ def main(args):
         db_dir, f"{args.method}_{args.removal_unit}_{args.removal_dist}.jsonl"
     )
 
+    removal_seed_list = [i for i in range(args.num_removal_subsets)]
+    if os.path.exists(db):
+        df = pd.read_json(db, lines=True)
+        df["removal_seed"] = (
+            df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
+        )
+        existing_removal_seed_list = df["removal_seed"].tolist()
+        removal_seed_list = set(removal_seed_list) - set(existing_removal_seed_list)
+        removal_seed_list = sorted(list(removal_seed_list))
+        if len(removal_seed_list) == 0:
+            print("Model behaviors have already been computed for all subsets!")
+        elif 0 < len(removal_seed_list) < args.num_removal_subsets:
+            print(f"Only {len(removal_seed_list)} subsets are missing model behaviors")
+    assert len(removal_seed_list) % args.num_subsets_per_job == 0
+
     ckpt_dir = os.path.join(
         LOGDIR, f"seed{args.seed}", args.dataset, "model_behaviors", "unlearn", exp_name
     )
     os.makedirs(ckpt_dir, exist_ok=True)
 
     num_jobs = 0
-    assert args.num_removal_subsets % args.num_subsets_per_job == 0
     with open(command_file, "w") as handle:
         command = ""
-        for i, removal_seed in enumerate(range(args.num_removal_subsets)):
+        for i, removal_seed in enumerate(removal_seed_list):
             command += "accelerate launch"
             command += " --gpu_ids=0"
             command += " --mixed_precision={}".format("fp16")
