@@ -158,7 +158,7 @@ def main(args):
             num_update_steps_per_epoch * num_epochs
             for num_epochs in [10, 20, 40, 60, 80, 100, 120, 140, 160, 180, 200]
         ]
-        learning_rate_list = [1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3]
+        learning_rate_list = [1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3]
         assert (
             len(ratio_list) * len(lora_steps_list) * len(learning_rate_list)
         ) % args.num_executions_per_job == 0
