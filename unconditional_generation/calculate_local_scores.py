@@ -294,11 +294,15 @@ def main(args):
     full_pipeline = build_pipeline(args.dataset, full_model)
     removal_pipeline = build_pipeline(args.dataset, removal_model)
 
+    if args.dataset == "celeba":
+        vqvae = full_pipeline.vqvae
+
     # Generate images with the same random noises as inputs.
     avg_mse_val, avg_nrmse_val, avg_ssim_val, avg_total_loss = 0, 0, 0, 0
 
     for random_seed in tqdm(range(args.n_samples)):
         info_prefix = f"generated_image_{random_seed}"
+
         full_image = generate_images(
             pipeline=full_pipeline,
             device=args.device,
@@ -306,6 +310,7 @@ def main(args):
             num_inference_steps=args.num_inference_steps,
             batch_size=1,
         )
+
         removal_image = generate_images(
             pipeline=removal_pipeline,
             device=args.device,
@@ -347,6 +352,11 @@ def main(args):
 
         with torch.no_grad():
             total_loss = 0
+
+            if args.dataset == "celeba":
+                full_image = vqvae.encode(full_image, False)[0]
+                full_image = full_image * vqvae.config.scaling_factor
+
             for _ in range(args.n_noises):
                 noises = torch.randn(
                     (timesteps.shape[0], *full_image.shape[1:]),

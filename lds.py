@@ -167,7 +167,7 @@ def collect_data(
     dataset = create_dataset(dataset_name=dataset_name, train=True)
 
     unique_values = sorted(set(data[1] for data in dataset))
-    value_to_number = {value: i  for i, value in enumerate(unique_values)}
+    value_to_number = {value: i for i, value in enumerate(unique_values)}
 
     index_to_class = {i: value_to_number[data[1]] for i, data in enumerate(dataset)}
     # else:

@@ -395,7 +395,7 @@ class DDPMConfig:
         "batch_size": 32,
         "training_steps": {
             "retrain": 20000,
-            "prune_fine_tune": 20000,
+            "prune_fine_tune": 40000,
             "ga": 5,
             "gd": 4000,
             "esd": 500,
@@ -414,7 +414,7 @@ class DDPMConfig:
             "gd": 40000,
             "esd": 100,
         },
-        "n_samples": 32,
+        "n_samples": 4,
         "unet_config": {
             "_class_name": "UNet2DModel",
             "_diffusers_version": "0.0.4",
