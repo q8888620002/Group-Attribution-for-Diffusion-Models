@@ -31,6 +31,7 @@ from tqdm import tqdm
 import src.constants as constants
 from diffusers.optimization import get_scheduler
 from src.attributions.global_scores import fid_score, inception_score, precision_recall
+from src.attributions.global_scores.diversity_score import calculate_diversity_score
 from src.datasets import (
     TensorDataset,
     create_dataset,
@@ -98,10 +99,16 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["iu", "ga"],
+        choices=["iu", "ga", "gd"],
     )
     parser.add_argument(
         "--iu_ratio", type=float, help="ratio for purturbing model weights", default=1.0
+    )
+    parser.add_argument(
+        "--ga_ratio", type=float, help="ratio for unlearning steps", default=2.0
+    )
+    parser.add_argument(
+        "--gd_steps", type=int, help="ratio for unlearning steps", default=4000
     )
     parser.add_argument(
         "--opt_seed",
@@ -360,12 +367,18 @@ def main(args):
         pin_memory=True,
     )
 
-    training_steps = len(removed_dataloader)
+    if args.method == "ga":
+        training_steps = len(removed_dataloader)
+    else:
+        training_steps = len(remaining_dataloader)
 
     pipeline_scheduler = pipeline.scheduler
 
     if not args.use_8bit_optimizer:
         optimizer_kwargs = config["optimizer_config"]["kwargs"]
+
+        if args.method == "ga":
+            optimizer_kwargs["lr"] = 1e-5
         optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
             model.parameters(), **optimizer_kwargs
         )
@@ -466,9 +479,100 @@ def main(args):
         model = apply_perturb(model, args.iu_ratio * delta_w)
         ema_model.step(model.parameters())
 
+    elif args.method == "gd":
+        param_update_steps = 0
+
+        progress_bar = tqdm(
+            range(args.gd_steps),
+            initial=param_update_steps,
+            desc="Step",
+            disable=not accelerator.is_main_process,
+        )
+
+        loss_fn = nn.MSELoss(reduction="mean")
+
+        while param_update_steps < args.gd_steps:
+
+            for j, batch in enumerate(remaining_dataloader):
+
+                model.train()
+
+                image, label = batch[0], batch[1]
+
+                if args.precompute_stage == "reuse":
+                    imageid_r = batch[2]
+
+                image = image.to(device)
+
+                if args.dataset == "imagenette":
+                    image = vqvae.encode(image).latent_dist.sample()
+                    image = image * vqvae.config.scaling_factor
+                    input_ids_r = label_tokenizer(label).to(device)
+                    encoder_hidden_states = text_encoder(input_ids_r)[0]
+                elif args.dataset == "celeba":
+                    if args.precompute_stage is None:
+                        # Directly encode the images if there's no precomputation
+                        image = vqvae.encode(image, False)[0]
+                    elif args.precompute_stage == "reuse":
+                        # Retrieve the latent representations.
+                        image = torch.stack(
+                            [vqvae_latent_dict[imageid_r[i]] for i in range(len(image))]
+                        ).to(device)
+                    image = image * vqvae.config.scaling_factor
+                noise = torch.randn_like(image).to(device)
+
+                # Antithetic sampling of time steps.
+                timesteps = torch.randint(
+                    0,
+                    pipeline_scheduler.config.num_train_timesteps,
+                    (len(image) // 2 + 1,),
+                    device=image.device,
+                ).long()
+                timesteps = torch.cat(
+                    [
+                        timesteps,
+                        pipeline_scheduler.config.num_train_timesteps - timesteps - 1,
+                    ],
+                    dim=0,
+                )[: len(image)]
+
+                noisy_images = pipeline_scheduler.add_noise(image, noise, timesteps)
+
+                with accelerator.accumulate(model):
+                    optimizer.zero_grad()
+                    if args.dataset == "imagenette":
+                        eps = model(
+                            noisy_images, timesteps, encoder_hidden_states
+                        ).sample
+                    else:
+                        eps = model(noisy_images, timesteps).sample
+
+                    loss = loss_fn(eps, noise)
+
+                    accelerator.backward(loss)
+                    if accelerator.sync_gradients:
+                        # Clip the gradients when the gradients are synced. This has to
+                        # happen before calling optimizer.step() to update the model
+                        # parameters.
+                        accelerator.clip_grad_norm_(model.parameters(), 1.0)
+                    optimizer.step()
+                    lr_scheduler.step()
+
+                    if accelerator.sync_gradients:
+                        # Update the EMA model when the gradients are synced
+                        # (that is, when model parameters are updated).
+                        ema_model.step(model.parameters())
+                        param_update_steps += 1
+                        progress_bar.update(1)
+
+                if param_update_steps == args.gd_steps:
+                    break
+
+        model = accelerator.unwrap_model(model).eval()
+
     elif args.method == "ga":
 
-        training_steps = training_steps // 2
+        training_steps = int(training_steps // args.ga_ratio)
         param_update_steps = 0
 
         progress_bar = tqdm(
@@ -576,65 +680,82 @@ def main(args):
     # This is done only once for the main process.
 
     if accelerator.is_main_process:
+        samples = pipeline(
+            batch_size=config["n_samples"],
+            num_inference_steps=args.num_inference_steps,
+            output_type="numpy",
+        ).images
 
+        samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
+
+        save_image(
+            samples,
+            os.path.join(
+                sample_outdir,
+                f"prutirb_ratio_{args.iu_ratio}_steps_{training_steps:0>8}.png",
+            ),
+            nrow=int(math.sqrt(config["n_samples"])),
+        )
+        print(f"Save test images, steps_{training_steps:0>8}.png, in {sample_outdir}.")
         if args.model_behavior == "global":
 
-            samples = pipeline(
-                batch_size=config["n_samples"],
-                num_inference_steps=args.num_inference_steps,
-                output_type="numpy",
-            ).images
-
-            samples = torch.from_numpy(samples).permute([0, 3, 1, 2])
-
-            save_image(
-                samples,
-                os.path.join(
-                    sample_outdir,
-                    f"prutirb_ratio_{args.iu_ratio}_steps_{training_steps:0>8}.png",
-                ),
-                nrow=int(math.sqrt(config["n_samples"])),
-            )
-            print(
-                f"Save test images, steps_{training_steps:0>8}.png, in {sample_outdir}."
-            )
             print(f"Generating {args.n_samples}...")
 
             generated_samples = generate_images(args, pipeline)
 
-            images_dataset = TensorDataset(generated_samples)
+            if args.dataset == "celeba":
+                (
+                    entropy,
+                    cluster_count,
+                    cluster_proportions,
+                    ref_cluster_images,
+                    new_cluster_images,
+                ) = calculate_diversity_score(
+                    ref_image_dir_or_tensor=os.path.join(
+                        constants.OUTDIR, args.dataset, "cluster_imgs"
+                    ),
+                    generated_images_dir_or_tensor=generated_samples,
+                    num_cluster=20,
+                )
+                info_dict["entropy"] = entropy
+                info_dict["cluster_count"] = cluster_count
+                info_dict["cluster_proportions"]=cluster_proportions
+                info_dict["remaining_idx"] = remaining_idx
+                info_dict["removed_idx"] = removed_idx
+            else:
+                images_dataset = TensorDataset(generated_samples)
 
-            is_value = inception_score.eval_is(
-                images_dataset, args.batch_size, resize=True, normalize=True
-            )
+                is_value = inception_score.eval_is(
+                    images_dataset, args.batch_size, resize=True, normalize=True
+                )
 
-            precision, recall = precision_recall.eval_pr(
-                args.dataset,
-                images_dataset,
-                args.batch_size,
-                row_batch_size=10000,
-                col_batch_size=10000,
-                nhood_size=3,
-                device=device,
-                reference_dir=args.reference_dir,
-            )
+                precision, recall = precision_recall.eval_pr(
+                    args.dataset,
+                    images_dataset,
+                    args.batch_size,
+                    row_batch_size=10000,
+                    col_batch_size=10000,
+                    nhood_size=3,
+                    device=device,
+                    reference_dir=args.reference_dir,
+                )
 
-            fid_value_str = fid_score.calculate_fid(
-                args.dataset,
-                images_dataset,
-                args.batch_size,
-                device,
-                args.reference_dir,
-            )
+                fid_value_str = fid_score.calculate_fid(
+                    args.dataset,
+                    images_dataset,
+                    args.batch_size,
+                    device,
+                    args.reference_dir,
+                )
 
-            print(
-                f"FID score: {fid_value_str}; Precision:{precision};"
-                f"Recall:{recall}; inception score: {is_value}"
-            )
-            info_dict["fid_value"] = fid_value_str
-            info_dict["precision"] = precision
-            info_dict["recall"] = recall
-            info_dict["is"] = is_value
+                print(
+                    f"FID score: {fid_value_str}; Precision:{precision};"
+                    f"Recall:{recall}; inception score: {is_value}"
+                )
+                info_dict["fid_value"] = fid_value_str
+                info_dict["precision"] = precision
+                info_dict["recall"] = recall
+                info_dict["is"] = is_value
 
         elif args.model_behavior == "local":
 
@@ -643,10 +764,8 @@ def main(args):
             )
             print(f"Loading full model checkpoint from {full_model_dir}")
 
-
-            args.method = "retrain"
             temp_method = args.method
-
+            args.method = "retrain"
             args.trained_steps = None
 
             full_model, full_ema_model, _, _ = load_ckpt_model(args, full_model_dir)
@@ -660,11 +779,11 @@ def main(args):
             # Generate images with the same random noises as inputs.
             avg_mse_val, avg_nrmse_val, avg_ssim_val, avg_total_loss = 0, 0, 0, 0
 
-            def generate_images(pipeline, device, random_seed, **pipeline_kwargs):
+            def generate_local_images(pipeline, device, random_seed, **pipeline_kwargs):
                 """Generate numpy images from a pipeline."""
                 pipeline = pipeline.to(device)
                 images = pipeline(
-                    generator=torch.Generator(device=args.device).manual_seed(
+                    generator=torch.Generator().manual_seed(
                         random_seed
                     ),
                     output_type="numpy",
@@ -674,14 +793,14 @@ def main(args):
 
             for random_seed in tqdm(range(args.n_local_samples)):
                 info_prefix = f"generated_image_{random_seed}"
-                full_image = generate_images(
+                full_image = generate_local_images(
                     pipeline=full_pipeline,
                     device=args.device,
                     random_seed=random_seed,
                     num_inference_steps=args.num_inference_steps,
                     batch_size=1,
                 )
-                removal_image = generate_images(
+                removal_image = generate_local_images(
                     pipeline=pipeline,
                     device=args.device,
                     random_seed=random_seed,
@@ -731,6 +850,10 @@ def main(args):
 
                 with torch.no_grad():
                     total_loss = 0
+                    if args.dataset == "celeba":
+                        full_image = vqvae.encode(full_image, False)[0]
+                        full_image = full_image * vqvae.config.scaling_factor
+
                     for _ in range(args.n_noises):
                         noises = torch.randn(
                             (timesteps.shape[0], *full_image.shape[1:]),
@@ -774,4 +897,4 @@ if __name__ == "__main__":
     args = parse_args()
     is_main_process = main(args)
     if is_main_process:
-        print("Unlearning done!")
+        print(f"Unlearning with {args.method} is done!")

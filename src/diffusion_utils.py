@@ -182,7 +182,8 @@ def load_ckpt_model(args, model_loaddir):
             removed_idx = np.array([], dtype=int)
 
         model.load_state_dict(ckpt["unet"])
-
+        model.eval()
+        
         model_str = "U-Net"
 
         print(f"Trained {model_str} loaded from {ckpt_path}")
@@ -241,7 +242,6 @@ def build_pipeline(args, model):
         if args.precompute_stage is None:
             # Move the VQ-VAE model to the device without any operations.
             vqvae = vqvae.to(device)
-            vqvae = None
             vqvae_latent_dict = None
 
         elif args.precompute_stage == "save":
