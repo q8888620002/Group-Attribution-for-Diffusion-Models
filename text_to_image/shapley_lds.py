@@ -1,13 +1,15 @@
 """Evaluate data attributions using the linear datamodel score (LDS)."""
 
 import argparse
+import math
+import os
 
 import numpy as np
 import pandas as pd
-from scipy.stats import bootstrap, spearmanr
-from tqdm import tqdm
+from scipy.stats import spearmanr
 
 from src.attributions.methods.datashapley import data_shapley
+from src.constants import OUTDIR
 from src.ddpm_config import DatasetStats
 from src.utils import print_args
 
@@ -15,7 +17,7 @@ from src.utils import print_args
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="evaluate data attribution methods using the linear model score"
+        description="evaluate Shapley values using the linear model score"
     )
     parser.add_argument(
         "--dataset",
@@ -25,21 +27,28 @@ def parse_args():
         default="artbench_post_impressionism",
     )
     parser.add_argument(
-        "--test_db",
+        "--datamodel_alpha",
+        type=float,
+        help="datamodel alpha for the test set",
+        default=0.5,
+    )
+    parser.add_argument(
+        "--baseline_fit_db",
         type=str,
-        help="database with model behaviors for evaluating data attributions",
+        help="database with model behaviors for fitting baseline Shapley values",
         required=True,
     )
     parser.add_argument(
         "--fit_db",
         type=str,
-        help="database with model behaviors for fitting data attributions",
+        help="database with model behaviors for fitting Shapley values",
         required=True,
     )
     parser.add_argument(
-        "--remove_overlap",
-        action="store_true",
-        help="whether to remove overlap in removal seeds in the test and fit databases",
+        "--fit_size_factor",
+        type=float,
+        help="factor for scaling the baseline fitting size",
+        default=1.0,
     )
     parser.add_argument(
         "--null_db",
@@ -54,6 +63,11 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
+        "--outfile",
+        type=str,
+        help="output file path for saving the LDS results",
+    )
+    parser.add_argument(
         "--test_size",
         type=int,
         help="number of subsets used for evaluating data attributions",
@@ -63,7 +77,7 @@ def parse_args():
         "--fit_size",
         type=int,
         nargs="*",
-        help="number of subsets used for fitting data attributions",
+        help="number of subsets used for fitting baseline data attributions",
         default=[300],
     )
     parser.add_argument(
@@ -78,12 +92,6 @@ def parse_args():
         type=int,
         help="number of generated images to consider for local model behaviors",
         default=None,
-    )
-    parser.add_argument(
-        "--bootstrap_size",
-        type=int,
-        help="number of bootstraps for reporting test statistics",
-        default=100,
     )
     return parser.parse_args()
 
@@ -121,38 +129,60 @@ def collect_data(
         return model_behavior_array
 
 
+def evaluate_lds(attrs_all, test_data_list, num_model_behaviors):
+    """Evaluate LDS mean and CI across a list of test data."""
+    lds_list = []
+    for (x_test, y_test) in test_data_list:
+        model_behavior_lds_list = []
+        for k in range(num_model_behaviors):
+            model_behavior_lds_list.append(
+                spearmanr(x_test @ attrs_all[:, k], y_test[:, k]).statistic * 100
+            )
+        lds_list.append(np.mean(model_behavior_lds_list))
+    lds_mean = np.mean(lds_list)
+    lds_ci = np.std(lds_list) / np.sqrt(len(lds_list)) * 1.96
+    return lds_mean, lds_ci
+
+
 def main(args):
     """Main function."""
     if args.dataset == "artbench_post_impressionism":
         dataset_stats = DatasetStats.artbench_post_impressionism_stats
         num_groups = dataset_stats["num_groups"]
+        test_db_list = [
+            os.path.join(
+                OUTDIR,
+                f"seed{seed}",
+                args.dataset,
+                f"retrain_artist_datamodel_alpha={args.datamodel_alpha}.jsonl",
+            )
+            for seed in [42, 43, 44]
+        ]
     else:
         raise ValueError
 
-    # Read in and preprocess databases as data frames.
-    test_df = pd.read_json(args.test_db, lines=True)
-    test_df["subset_seed"] = (
-        test_df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
-    )
-    test_df = test_df.sort_values(by="subset_seed")
-
-    fit_df = pd.read_json(args.fit_db, lines=True)
-    fit_df["subset_seed"] = (
-        fit_df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
-    )
-    fit_df = fit_df.sort_values(by="subset_seed")
-
-    test_subset_seeds = [i for i in range(args.test_size)]
-    test_df = test_df[test_df["subset_seed"].isin(test_subset_seeds)]
-    assert len(test_df) == args.test_size
-
-    if args.remove_overlap:
-        fit_df = fit_df[~fit_df["subset_seed"].isin(test_subset_seeds)]
-
-    null_df = pd.read_json(args.null_db, lines=True)
-    full_df = pd.read_json(args.full_db, lines=True)
+    # Collect test data.
+    test_data_list = []
+    for test_db in test_db_list:
+        test_df = pd.read_json(test_db, lines=True)
+        test_df["subset_seed"] = (
+            test_df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
+        )
+        test_df = test_df.sort_values(by="subset_seed")
+        test_subset_seeds = [i for i in range(args.test_size)]
+        test_df = test_df[test_df["subset_seed"].isin(test_subset_seeds)]
+        assert len(test_df) == args.test_size
+        x_test, y_test = collect_data(
+            df=test_df,
+            num_groups=num_groups,
+            model_behavior_key=args.model_behavior_key,
+            n_samples=args.n_samples,
+        )
+        test_data_list.append((x_test, y_test))
+    num_model_behaviors = y_test.shape[-1]
 
     # Collect null and full model behaviors.
+    null_df = pd.read_json(args.null_db, lines=True)
     y_null = collect_data(
         df=null_df,
         num_groups=num_groups,
@@ -161,6 +191,8 @@ def main(args):
         collect_remaining_masks=False,
     )
     y_null = y_null.flatten()
+
+    full_df = pd.read_json(args.full_db, lines=True)
     y_full = collect_data(
         df=full_df,
         num_groups=num_groups,
@@ -170,65 +202,83 @@ def main(args):
     )
     y_full = y_full.flatten()
 
-    # Collect test data.
-    x_test, y_test = collect_data(
-        df=test_df,
-        num_groups=num_groups,
-        model_behavior_key=args.model_behavior_key,
-        n_samples=args.n_samples,
+    # Read in data frames with fitting data.
+    baseline_fit_df = pd.read_json(args.baseline_fit_db, lines=True)
+    baseline_fit_df["subset_seed"] = (
+        baseline_fit_df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
     )
-    num_model_behaviors = y_test.shape[-1]
+    baseline_fit_df = baseline_fit_df.sort_values(by="subset_seed")
 
-    # Collect fitting data with varying sizes.
-    x_fit_list, y_fit_list = [], []
-    for n in args.fit_size:
-        x_fit, y_fit = collect_data(
-            df=fit_df[:n],
+    fit_df = pd.read_json(args.fit_db, lines=True)
+    fit_df["subset_seed"] = (
+        fit_df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
+    )
+    fit_df = fit_df.sort_values(by="subset_seed")
+
+    # Evaluate Shapley values with varying fitting sizes.
+    baseline_lds_mean_list, baseline_lds_ci_list = [], []
+    lds_mean_list, lds_ci_list = [], []
+    fit_size_list = []
+    for baseline_fit_size in args.fit_size:
+        baseline_x_fit, baseline_y_fit = collect_data(
+            df=baseline_fit_df[:baseline_fit_size],
             num_groups=num_groups,
             model_behavior_key=args.model_behavior_key,
             n_samples=args.n_samples,
         )
-        x_fit_list.append(x_fit)
-        y_fit_list.append(y_fit)
 
-    # Evaluate LDS with varying fitting sizes.
-    for i in range(len(args.fit_size)):
+        fit_size = math.floor(baseline_fit_size * args.fit_size_factor)
+        fit_size_list.append(fit_size)
+        x_fit, y_fit = collect_data(
+            df=fit_df[:fit_size],
+            num_groups=num_groups,
+            model_behavior_key=args.model_behavior_key,
+            n_samples=args.n_samples,
+        )
 
-        # Fit data shapley values for all the model behaviors.
-        x_fit = x_fit_list[i]
-        y_fit_all = y_fit_list[i]
-        attrs_all = []
-        for k in tqdm(range(num_model_behaviors)):
+        baseline_attrs_all, attrs_all = [], []
+        for k in range(num_model_behaviors):
             v0 = y_null[k]
             v1 = y_full[k]
-            y_fit = y_fit_all[:, k]
+            baseline_attrs = data_shapley(
+                dataset_size=baseline_x_fit.shape[-1],
+                x_train=baseline_x_fit,
+                y_train=baseline_y_fit[:, k],
+                v0=v0,
+                v1=v1,
+            )
+            baseline_attrs_all.append(baseline_attrs)
+
             attrs = data_shapley(
-                dataset_size=x_fit.shape[-1], x_train=x_fit, y_train=y_fit, v0=v0, v1=v1
+                dataset_size=x_fit.shape[-1],
+                x_train=x_fit,
+                y_train=y_fit[:, k],
+                v0=v0,
+                v1=v1,
             )
             attrs_all.append(attrs)
+        baseline_attrs_all = np.stack(baseline_attrs_all, axis=1)
         attrs_all = np.stack(attrs_all, axis=1)
 
-        # LDS with bootstrap.
-        def my_lds(idx):
-            x_boot = x_test[idx, :]
-            lds_list = []
-            for k in range(num_model_behaviors):
-                y_boot = y_test[idx, k]
-                lds_list.append(
-                    spearmanr(x_boot @ attrs_all[:, k], y_boot).statistic * 100
-                )
-            return np.mean(lds_list)
-
-        boot_result = bootstrap(
-            data=(list(range(len(x_test))),),
-            statistic=my_lds,
-            n_resamples=args.bootstrap_size,
-            random_state=0,
+        baseline_lds_mean, baseline_lds_ci = evaluate_lds(
+            attrs_all=baseline_attrs_all,
+            test_data_list=test_data_list,
+            num_model_behaviors=num_model_behaviors,
         )
-        boot_mean = boot_result.bootstrap_distribution.mean()
-        boot_se = boot_result.standard_error
-        print(f"Fitting size = {args.fit_size[i]}")
-        print(f"\tLDS: {boot_mean:.3f} ({boot_se:.3f})")
+        baseline_lds_mean_list.append(baseline_lds_mean)
+        baseline_lds_ci_list.append(baseline_lds_ci)
+
+        lds_mean, lds_ci = evaluate_lds(
+            attrs_all=attrs_all,
+            test_data_list=test_data_list,
+            num_model_behaviors=num_model_behaviors,
+        )
+        lds_mean_list.append(lds_mean)
+        lds_ci_list.append(lds_ci)
+
+        print(f"Baseline fit size: {baseline_fit_size}, fit size: {fit_size}")
+        print(f"\tBaseline LDS: {baseline_lds_mean:.2f} ({baseline_lds_ci:.2f})")
+        print(f"\tLDS: {lds_mean:.2f} ({lds_ci:.2f})")
 
 
 if __name__ == "__main__":
