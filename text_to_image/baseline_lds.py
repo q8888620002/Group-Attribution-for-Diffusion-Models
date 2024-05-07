@@ -5,8 +5,9 @@ import os
 
 import numpy as np
 import pandas as pd
-from scipy.stats import bootstrap, spearmanr
+from scipy.stats import spearmanr
 
+from src.constants import OUTDIR
 from src.ddpm_config import DatasetStats
 from src.utils import print_args
 
@@ -24,10 +25,10 @@ def parse_args():
         default="artbench_post_impressionism",
     )
     parser.add_argument(
-        "--test_db",
-        type=str,
-        help="database with model behaviors for evaluating data attributions",
-        required=True,
+        "--datamodel_alpha",
+        type=float,
+        help="datamodel alpha for the test set",
+        default=0.5,
     )
     parser.add_argument(
         "--group",
@@ -60,12 +61,6 @@ def parse_args():
         type=int,
         help="number of generated images to consider for local model behaviors",
         default=None,
-    )
-    parser.add_argument(
-        "--bootstrap_size",
-        type=int,
-        help="number of bootstraps for reporting test statistics",
-        default=100,
     )
     return parser.parse_args()
 
@@ -103,38 +98,64 @@ def collect_data(
         return model_behavior_array
 
 
+def evaluate_lds(attrs_all, test_data_list, num_model_behaviors):
+    """Evaluate LDS mean and CI across a list of test data."""
+    lds_list = []
+    for (x_test, y_test) in test_data_list:
+        model_behavior_lds_list = []
+        for k in range(num_model_behaviors):
+            model_behavior_lds_list.append(
+                spearmanr(x_test @ attrs_all[:, k], y_test[:, k]).statistic * 100
+            )
+        lds_list.append(np.mean(model_behavior_lds_list))
+    lds_mean = np.mean(lds_list)
+    lds_ci = np.std(lds_list) / np.sqrt(len(lds_list)) * 1.96
+    return lds_mean, lds_ci
+
+
 def main(args):
     """Main function."""
     if args.dataset == "artbench_post_impressionism":
         dataset_stats = DatasetStats.artbench_post_impressionism_stats
         num_groups = dataset_stats["num_groups"]
+        test_db_list = [
+            os.path.join(
+                OUTDIR,
+                f"seed{seed}",
+                args.dataset,
+                f"retrain_artist_datamodel_alpha={args.datamodel_alpha}.jsonl",
+            )
+            for seed in [42, 43, 44]
+        ]
     else:
         raise ValueError
 
-    # Read in and preprocess databases as data frames.
-    test_df = pd.read_json(args.test_db, lines=True)
-    test_df["subset_seed"] = (
-        test_df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
-    )
-    test_df = test_df.sort_values(by="subset_seed")
-
-    test_subset_seeds = [i for i in range(args.test_size)]
-    test_df = test_df[test_df["subset_seed"].isin(test_subset_seeds)]
-    assert len(test_df) == args.test_size
-
     # Collect test data.
-    x_test, y_test = collect_data(
-        df=test_df,
-        num_groups=num_groups,
-        model_behavior_key=args.model_behavior_key,
-        n_samples=args.n_samples,
-    )
-    if args.model_behavior_key in ["simple_loss", "nrmse"]:
-        # The directionality of these model behaviors is opposite of pixel and CLIP
-        # similarity, so we flip their signs.
-        y_test *= -1.0
+    test_data_list = []
+    for test_db in test_db_list:
+        test_df = pd.read_json(test_db, lines=True)
+        test_df["subset_seed"] = (
+            test_df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
+        )
+        test_df = test_df.sort_values(by="subset_seed")
+        test_subset_seeds = [i for i in range(args.test_size)]
+        test_df = test_df[test_df["subset_seed"].isin(test_subset_seeds)]
+        assert len(test_df) == args.test_size
+        x_test, y_test = collect_data(
+            df=test_df,
+            num_groups=num_groups,
+            model_behavior_key=args.model_behavior_key,
+            n_samples=args.n_samples,
+        )
+        if args.model_behavior_key in ["simple_loss", "nrmse"]:
+            # The directionality of these model behaviors is opposite of pixel and CLIP
+            # similarity, so we flip their signs.
+            y_test *= -1.0
+
+        test_data_list.append((x_test, y_test))
     num_model_behaviors = y_test.shape[-1]
 
+    # Specify the baseline attributions.
     baseline_list = [
         "avg_pixel_similarity",
         "max_pixel_similarity",
@@ -154,27 +175,13 @@ def main(args):
             if num_model_behaviors == 1:
                 attrs_all = np.mean(attrs_all, axis=-1, keepdims=True)
 
-        # LDS with bootstrap.
-        def my_lds(idx):
-            x_boot = x_test[idx, :]
-            lds_list = []
-            for k in range(num_model_behaviors):
-                y_boot = y_test[idx, k]
-                lds_list.append(
-                    spearmanr(x_boot @ attrs_all[:, k], y_boot).statistic * 100
-                )
-            return np.mean(lds_list)
-
-        boot_result = bootstrap(
-            data=(list(range(len(x_test))),),
-            statistic=my_lds,
-            n_resamples=args.bootstrap_size,
-            random_state=0,
+        lds_mean, lds_ci = evaluate_lds(
+            attrs_all=attrs_all,
+            test_data_list=test_data_list,
+            num_model_behaviors=num_model_behaviors,
         )
-        boot_mean = boot_result.bootstrap_distribution.mean()
-        boot_se = boot_result.standard_error
         print(f"{baseline}")
-        print(f"\tLDS: {boot_mean:.3f} ({boot_se:.3f})")
+        print(f"\tLDS: {lds_mean:.3f} ({lds_ci:.3f})")
 
 
 if __name__ == "__main__":
