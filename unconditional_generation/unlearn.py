@@ -289,10 +289,12 @@ def main(args):
             )
         elif args.removal_dist == "shapley":
             if args.dataset == "cifar100" or "celeba":
+                args.by_class = True
                 remaining_idx, removed_idx = remove_data_by_shapley(
-                    train_dataset, seed=args.removal_seed, by_class=True
+                    train_dataset, seed=args.removal_seed, by_class=args.by_class
                 )
             else:
+                args.by_class = False
                 remaining_idx, removed_idx = remove_data_by_shapley(
                     train_dataset, seed=args.removal_seed
                 )
@@ -309,7 +311,7 @@ def main(args):
 
     args.trained_steps = get_max_steps(args.load)
 
-    model, ema_model = load_ckpt_model(args)
+    model, ema_model, _ , _ = load_ckpt_model(args, args.load)
 
     model.to(device)
     ema_model.to(device)
@@ -408,25 +410,25 @@ def main(args):
         )
 
         print("Calculating gradients with removed dataset....")
-        total, forget_grad = get_grad(
+        forget_count, forget_grad = get_grad(
             args, removed_dataloader, pipeline, vqvae_latent_dict
         )
 
         print("Calculating gradients with remaining dataset...")
-        total_2, retain_grad = get_grad(
+        retain_count, retain_grad = get_grad(
             args, remaining_dataloader, pipeline, vqvae_latent_dict
         )
-        # import ipdb;ipdb.set_trace()
 
         # weight normalization to ensure 1^Tw =1
-        retain_grad *= total / ((total + total_2) * total_2)
+        retain_grad *= forget_count / ((forget_count + retain_count) * retain_count)
 
         # 1/N in equation (1)
-        forget_grad /= total + total_2
+        forget_grad /= forget_count + retain_count
 
         # woodfisher approximation for hessian matrix
         delta_w = woodfisher_diff(
             args,
+            retain_count,
             remaining_dataloader,
             pipeline,
             forget_grad - retain_grad,
@@ -603,10 +605,9 @@ def main(args):
         info_dict["is"] = is_value
 
         info_dict["trained_steps"] = training_steps
-        info_dict["remaining_idx"] = remaining_idx
-        info_dict["removed_idx"] = removed_idx
-
-        args.device = ""
+        info_dict["remaining_idx"] = remaining_idx.tolist()
+        info_dict["removed_idx"] = removed_idx.tolist()
+        info_dict["device"] = str(args.device)
 
         with open(args.db, "a+") as f:
             f.write(json.dumps(info_dict) + "\n")

@@ -1,11 +1,13 @@
 """Unpack CIFAR-10 data into png image files."""
 import os
 import pickle
+import random
 
 from PIL import Image
 import torchvision.transforms as transforms
 
 from torchvision.datasets import CIFAR100
+from src.datasets import  CIFAR100_filter
 
 def unpickle(file):
     """Unpickle batch data saved with bytes encoding."""
@@ -40,30 +42,37 @@ def process_batch(batch_data, output_path, batch_file, labels=None):
             img.save(os.path.join(output_folder, f"{batch_file}_image_{i}.png"))
 
 
-def save_images_with_labels(dataset, target_labels):
+def save_images_with_labels(dataset, save_path, target_labels=None):
 
     # Loop through the dataset
+    os.makedirs(save_path, exist_ok=True)
+
     for i in range(len(dataset)):
         image, label = dataset[i]
         
-        # Check if the current image's label is in our list of target labels
-        if label in target_labels:
-            # Save the image
-            image.save(os.path.join('/gscratch/aims/datasets/cifar100/train', f'img_{i}_label_{label}.jpg'))
+        if target_labels is not None:
+            if label in target_labels:            
+                image.save(os.path.join(save_path, f'img_{i}_label_{label}.jpg'))
+        else:
+            image.save(os.path.join(save_path, f'img_{i}_label_{label}.jpg'))
 
 trainset = CIFAR100(root='/gscratch/aims/datasets/cifar100', train=True, download=True)
 
-classes_to_keep = [
-            # 0, 1, 2, 3, 4,   # Aquatic mammals
-            # 5, 6, 7, 8, 9,   # Fish
-            # 75, 76, 77, 78, 79,  # Reptiles
+random.seed(42)
+target_labels = random.sample(range(100), 25)
+save_images_with_labels(trainset, '/gscratch/aims/datasets/cifar100_f/filtered_2', target_labels)
 
-            40, 41, 42, 43, 44,  # Large carnivores
-            55, 56, 57, 58, 59,  # Large omnivores and herbivores
-            60, 61, 62, 63, 64,  # Medium mammals
-            80, 81, 82, 83, 84   # Small mammals
-]
-save_images_with_labels(trainset, classes_to_keep)
+
+# classes_to_keep = [
+#             # 0, 1, 2, 3, 4,   # Aquatic mammals
+#             # 5, 6, 7, 8, 9,   # Fish
+#             # 75, 76, 77, 78, 79,  # Reptiles
+
+#             40, 41, 42, 43, 44,  # Large carnivores
+#             55, 56, 57, 58, 59,  # Large omnivores and herbivores
+#             60, 61, 62, 63, 64,  # Medium mammals
+#             80, 81, 82, 83, 84   # Small mammals
+# ]
 
 # batch_path = "/gscratch/aims/datasets/cifar/cifar-10-batches-py"
 # batch_files = [

@@ -3,15 +3,15 @@
 import argparse
 import os
 
-import diffusers
 import torch
-from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline
-from diffusers.training_utils import EMAModel
 from lightning.pytorch import seed_everything
 from torchvision.utils import save_image
 from tqdm import tqdm
 
+import diffusers
 import src.constants as constants
+from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline
+from diffusers.training_utils import EMAModel
 from src.datasets import create_dataset
 from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import ImagenetteCaptioner
@@ -132,6 +132,8 @@ def main(args):
         config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "cifar100":
         config = {**DDPMConfig.cifar100_config}
+    elif args.dataset == "cifar100_f":
+        config = {**DDPMConfig.cifar100_f_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -178,6 +180,7 @@ def main(args):
             args.outdir,
             args.dataset,
             args.method,
+            str(args.trained_steps),
             "ema_generated_samples" if args.use_ema else "generated_samples",
             removal_dir,
         )

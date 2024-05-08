@@ -1,4 +1,5 @@
 """Utilities for duffusion pipeline"""
+
 import math
 import os
 from typing import List
@@ -107,12 +108,13 @@ class LabelTokenizer:
         return inputs.input_ids
 
 
-def load_ckpt_model(args):
+def load_ckpt_model(args, model_loaddir):
     """
         Load model parameters from the latest checkpoint in a directory.
     Args:
     ----
         args: arguments from training pipeline
+        model_loaddir: model path
     Return:
     ------
         pre-trained model, indices of remaining and removed subset.
@@ -124,6 +126,8 @@ def load_ckpt_model(args):
         config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "cifar100":
         config = {**DDPMConfig.cifar100_config}
+    elif args.dataset == "cifar100_f":
+        config = {**DDPMConfig.cifar100_f_config}
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
     elif args.dataset == "mnist":
@@ -142,11 +146,11 @@ def load_ckpt_model(args):
     trained_steps = (
         args.trained_steps
         if args.trained_steps is not None
-        else get_max_steps(args.load)
+        else get_max_steps(model_loaddir)
     )
 
     if trained_steps is not None:
-        ckpt_path = os.path.join(args.load, f"ckpt_steps_{trained_steps:0>8}.pt")
+        ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
 
         if args.method not in ["retrain"]:
@@ -181,23 +185,22 @@ def load_ckpt_model(args):
 
         model_str = "U-Net"
 
-        if args.use_ema:
-            ema_model = EMAModel(
-                model.parameters(),
-                model_cls=model_cls,
-                model_config=model.config,
-            )
-            ema_model.load_state_dict(ckpt["unet_ema"])
-            ema_model.copy_to(model.parameters())
-            model_str = "EMA"
+        print(f"Trained {model_str} loaded from {ckpt_path}")
 
-        print(f"Trained model loaded from {args.load}")
+        ema_model = EMAModel(
+            model.parameters(),
+            model_cls=model_cls,
+            model_config=model.config,
+        )
+        ema_model.load_state_dict(ckpt["unet_ema"])
+        model_str = "EMA"
+
         print(f"\t{model_str} loaded from {ckpt_path}")
     else:
-        raise ValueError(f"No trained checkpoints found at {args.load}")
+        raise ValueError(f"No trained checkpoints found at {model_loaddir}")
 
-    return model, ema_model
-    
+    return model, ema_model, remaining_idx, removed_idx
+
 
 def build_pipeline(args, model):
     """Build the diffusion pipeline for the sepcific dataset and U-Net model."""
@@ -238,6 +241,8 @@ def build_pipeline(args, model):
         if args.precompute_stage is None:
             # Move the VQ-VAE model to the device without any operations.
             vqvae = vqvae.to(device)
+            vqvae = None
+            vqvae_latent_dict = None
 
         elif args.precompute_stage == "save":
             assert (
@@ -299,7 +304,6 @@ def build_pipeline(args, model):
             )
 
         captioner = None
-
 
     else:
         pipeline = DDPMPipeline(unet=model, scheduler=DDIMScheduler()).to(args.device)

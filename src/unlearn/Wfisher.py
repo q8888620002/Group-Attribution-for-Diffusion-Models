@@ -40,6 +40,7 @@ def get_grad(args, data_loaders, pipeline, vqvae_latent_dict=None):
     model = pipeline.unet
     device = pipeline.device
 
+    unique_labels = set()
     model.eval()
 
     if args.dataset == "celeba":
@@ -108,20 +109,30 @@ def get_grad(args, data_loaders, pipeline, vqvae_latent_dict=None):
         loss = loss_fn(eps_f, noise)
         grad = sam_grad(model, loss) * batch_size
         total_grad += grad
-        total_count += batch_size
-    
+
+        if args.by_class:
+            new_labels = {l.item() for l in torch.unique(label)}
+            new_labels -= unique_labels
+            unique_labels.update(new_labels)
+            total_count += len(new_labels)
+        else:
+
+            total_count += batch_size
+
     return total_count, total_grad
 
 
-def woodfisher_diff(args, data_loaders, pipeline, grads, vqvae_latent_dict=None):
-    """Calculate grdient for a given dataloader"""
+def woodfisher_diff(args, N, data_loaders, pipeline, grads, vqvae_latent_dict=None):
+    """
+    Calculate the hessian inverse with woodfisher approximation
+    equation (2) in https://arxiv.org/pdf/2004.14340.pdf
+    """
 
     device = pipeline.device
     model = pipeline.unet
 
     model.eval()
 
-    N = len(data_loaders) 
     k_vec = torch.clone(grads)
     o_vec = None
 

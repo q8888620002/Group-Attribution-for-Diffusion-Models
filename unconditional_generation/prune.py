@@ -1,15 +1,22 @@
 """Pruning diffusion models"""
+
 import argparse
 import math
 import os
 import sys
 
-import diffusers
 import numpy as np
 import torch
 import torch.nn as nn
 import torch_pruning as tp
 from accelerate import Accelerator
+from lightning.pytorch import seed_everything
+from torch.utils.data import DataLoader
+from torchvision.utils import save_image
+from tqdm import tqdm
+
+import diffusers
+import src.constants as constants
 from diffusers import (
     DDIMPipeline,
     DDIMScheduler,
@@ -21,12 +28,6 @@ from diffusers import (
 )
 from diffusers.models.attention import Attention
 from diffusers.models.resnet import Downsample2D, Upsample2D
-from lightning.pytorch import seed_everything
-from torch.utils.data import DataLoader
-from torchvision.utils import save_image
-from tqdm import tqdm
-
-import src.constants as constants
 from src.datasets import create_dataset
 from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer
@@ -45,7 +46,7 @@ def parse_args():
         "--dataset",
         type=str,
         help="dataset for training or unlearning",
-        choices=["mnist", "cifar2", "cifar", "celeba"],
+        choices=constants.DATASET,
         default=None,
     )
     parser.add_argument(
@@ -171,7 +172,7 @@ def run_inference(
                 scheduler=pipeline_scheduler,
             ).to(accelerator.device)
             samples = pipeline(
-                batch_size=config["n_samples"],
+                batch_size=4,  # config["n_samples"],
                 num_inference_steps=args.num_inference_steps,
                 output_type="numpy",
             ).images
@@ -210,6 +211,12 @@ def main(args):
             "sample": torch.randn(1, 3, 32, 32).to(device),
             "timestep": torch.ones((1,)).long().to(device),
         }
+    elif args.dataset in ["cifar100", "cifar100_f"]:
+        config = {**DDPMConfig.cifar100_f_config}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 32, 32).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
         example_inputs = {
@@ -226,10 +233,7 @@ def main(args):
         config = {**DDPMConfig.imagenette_config}
     else:
         raise ValueError(
-            (
-                f"dataset={args.dataset} is not one of "
-                "['cifar','cifar2', 'mnist', 'celeba', 'imagenette']"
-            )
+            (f"dataset={args.dataset} is not one of " f"{constants.DATASET}")
         )
     model_cls = getattr(diffusers, config["unet_config"]["_class_name"])
 
@@ -289,16 +293,26 @@ def main(args):
         text_encoder = text_encoder.to(device)
     elif args.dataset == "celeba":
         model_id = "CompVis/ldm-celebahq-256"
-        vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
+        # vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
 
-        for param in vqvae.parameters():
-            param.requires_grad = False
+        # for param in vqvae.parameters():
+        #     param.requires_grad = False
 
-        pipeline = LDMPipeline(
-            unet=model,
-            vqvae=vqvae,
-            scheduler=DDIMScheduler(**config["scheduler_config"]),
-        ).to(device)
+        # pipeline = LDMPipeline(
+        #     unet=model,
+        #     vqvae=vqvae,
+        #     scheduler=DDIMScheduler(**config["scheduler_config"]),
+        # ).to(device)
+        pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256").to(
+            device
+        )
+        pipeline.unet = model.to(device)
+        vqvae = pipeline.vqvae
+        pipeline.vqvae.config.scaling_factor = 1
+        vqvae.requires_grad_(False)
+
+        vqvae = vqvae.to(device)
+
         captioner = None
     else:
         pipeline = DDPMPipeline(
