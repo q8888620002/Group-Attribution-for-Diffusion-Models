@@ -181,7 +181,7 @@ def main(args):
             num_model_behaviors=num_model_behaviors,
         )
         print(f"{baseline}")
-        print(f"\tLDS: {lds_mean:.3f} ({lds_ci:.3f})")
+        print(f"\tLDS: {lds_mean:.2f} ({lds_ci:.2f})")
 
 
 if __name__ == "__main__":
