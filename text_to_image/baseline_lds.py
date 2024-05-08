@@ -46,7 +46,7 @@ def parse_args():
         "--test_size",
         type=int,
         help="number of subsets used for evaluating data attributions",
-        default=150,
+        default=100,
     )
     parser.add_argument(
         "--model_behavior_key",
@@ -65,7 +65,7 @@ def parse_args():
         "--bootstrap_size",
         type=int,
         help="number of bootstraps for reporting test statistics",
-        default=150,
+        default=100,
     )
     return parser.parse_args()
 
@@ -141,6 +141,8 @@ def main(args):
         "avg_clip_similarity",
         "max_clip_similarity",
     ]
+    if "aesthetic_score" in args.model_behavior_key:
+        baseline_list.extend(["avg_aesthetic_score", "max_aesthetic_score"])
     baseline_list = [f"{args.group}_{baseline}" for baseline in baseline_list]
 
     for baseline in baseline_list:

@@ -19,7 +19,7 @@ from transformers import CLIPTokenizer
 from diffusers import DDPMScheduler, DiffusionPipeline
 from src.aesthetics import get_aesthetic_model
 from src.ddpm_config import PromptConfig
-from src.utils import print_args
+from src.utils import fix_get_processor, print_args
 
 
 def parse_args():
@@ -210,6 +210,7 @@ def main(args):
         if args.lora_steps is not None:
             weight_name += f"_{args.lora_steps}"
         weight_name += ".safetensors"
+        fix_get_processor(pipeline.unet)  # Runtime bugfix.
         pipeline.unet.load_attn_procs(args.lora_dir, weight_name=weight_name)
 
         removal_idx_file = os.path.join(args.lora_dir, "removal_idx.csv")

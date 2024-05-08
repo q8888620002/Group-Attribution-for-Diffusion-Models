@@ -278,28 +278,44 @@ def main(args):
         group_max_clip_similarity[i, :] = group_clip_similarity.max(axis=0)
         group_avg_clip_similarity[i, :] = group_clip_similarity.mean(axis=0)
 
+    output_dict = {
+        "max_pixel_similarity": group_max_pixel_similarity,
+        "avg_pixel_similarity": group_avg_pixel_similarity,
+        "max_clip_similarity": group_max_clip_similarity,
+        "avg_clip_similarity": group_avg_clip_similarity,
+    }
+
     # Save results.
     output_dir = os.path.join(args.output_dir, "baselines")
     os.makedirs(output_dir, exist_ok=True)
-    with open(
-        os.path.join(output_dir, f"{args.group}_max_pixel_similarity.npy"), "wb"
-    ) as handle:
-        np.save(handle, group_max_pixel_similarity)
-    with open(
-        os.path.join(output_dir, f"{args.group}_avg_pixel_similarity.npy"), "wb"
-    ) as handle:
-        np.save(handle, group_avg_pixel_similarity)
-    with open(
-        os.path.join(output_dir, f"{args.group}_max_clip_similarity.npy"), "wb"
-    ) as handle:
-        np.save(handle, group_max_clip_similarity)
-    with open(
-        os.path.join(output_dir, f"{args.group}_avg_clip_similarity.npy"), "wb"
-    ) as handle:
-        np.save(handle, group_avg_clip_similarity)
+    for name, output in output_dict.items():
+        with open(os.path.join(output_dir, f"{args.group}_{name}.npy"), "wb") as handle:
+            np.save(handle, output)
+
+    # Rank groups and save ranked group indices.
+    for name, output in output_dict.items():
+        for i in range(args.num_images):
+            file_prefix = f"generated_image_{i}_{args.group}_rank"
+            rank = np.argsort(
+                -output[:, i],  # Flip sign for descending rankings.
+                kind="stable",
+            )
+            with open(
+                os.path.join(output_dir, f"{file_prefix}_{name}.npy"), "wb"
+            ) as handle:
+                np.save(handle, rank)
+        global_rank = np.argsort(-output.mean(axis=-1), kind="stable")
+        with open(
+            os.path.join(
+                output_dir, f"all_generated_images_{args.group}_rank_{name}.npy"
+            ),
+            "wb",
+        ) as handle:
+            np.save(handle, global_rank)
 
 
 if __name__ == "__main__":
     args = parse_args()
     print_args(args)
     main(args)
+    print("Done!")

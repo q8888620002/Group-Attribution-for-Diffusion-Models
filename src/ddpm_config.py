@@ -636,6 +636,36 @@ class LoraTrainingConfig:
     }
 
 
+class LoraUnlearningConfig:
+    """Unlearning configurations for text_to_image/train_text_to_image_lora.py"""
+
+    artbench_post_impressionism_config = {
+        "lora_dir": os.path.join(
+            OUTDIR, "seed42", "artbench_post_impressionism", "retrain", "models", "full"
+        ),
+        "max_train_steps": 200,
+    }
+
+
+class LoraSparseUnlearningConfig:
+    """Sparse unlearning configurations for text_to_image/train_text_to_image_lora.py"""
+
+    # Config based on the highest SSIM compared to images genearted from the same seeds
+    # using the original fully trained model.
+    artbench_post_impressionism_config = {
+        "lora_dir": os.path.join(
+            OUTDIR,
+            "seed42",
+            "artbench_post_impressionism",
+            "pruned_ft_ratio=0.9_lr=1e-06",
+            "models",
+            "full",
+        ),
+        "lora_steps": 1580,
+        "max_train_steps": 200,
+    }
+
+
 class TextToImageGenerationConfig:
     """Configurations for text_to_image/generate_samples.py"""
 

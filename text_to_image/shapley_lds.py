@@ -37,6 +37,11 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
+        "--remove_overlap",
+        action="store_true",
+        help="whether to remove overlap in removal seeds in the test and fit databases",
+    )
+    parser.add_argument(
         "--null_db",
         type=str,
         help="database with model behaviors for the null model",
@@ -52,7 +57,7 @@ def parse_args():
         "--test_size",
         type=int,
         help="number of subsets used for evaluating data attributions",
-        default=150,
+        default=100,
     )
     parser.add_argument(
         "--fit_size",
@@ -78,7 +83,7 @@ def parse_args():
         "--bootstrap_size",
         type=int,
         help="number of bootstraps for reporting test statistics",
-        default=150,
+        default=100,
     )
     return parser.parse_args()
 
@@ -140,7 +145,9 @@ def main(args):
     test_subset_seeds = [i for i in range(args.test_size)]
     test_df = test_df[test_df["subset_seed"].isin(test_subset_seeds)]
     assert len(test_df) == args.test_size
-    fit_df = fit_df[~fit_df["subset_seed"].isin(test_subset_seeds)]
+
+    if args.remove_overlap:
+        fit_df = fit_df[~fit_df["subset_seed"].isin(test_subset_seeds)]
 
     null_df = pd.read_json(args.null_db, lines=True)
     full_df = pd.read_json(args.full_db, lines=True)

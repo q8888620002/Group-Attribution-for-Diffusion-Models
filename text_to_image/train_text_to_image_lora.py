@@ -57,8 +57,8 @@ from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
 import time
-from src.datasets import remove_data_by_shapley, remove_data_by_uniform
-from src.ddpm_config import PromptConfig
+from src.datasets import remove_data_by_shapley, remove_data_by_uniform, remove_data_by_datamodel
+from src.ddpm_config import PromptConfig, LoraUnlearningConfig, LoraSparseUnlearningConfig
 from src.utils import fix_get_processor
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -461,7 +461,7 @@ def parse_args():
         "--method",
         type=str,
         default="retrain",
-        choices=["retrain", "pruned_ft"],
+        choices=["retrain", "pruned_ft", "sparse_gd", "gd"],
         help="training or unlearning method",
     )
     parser.add_argument(
@@ -491,7 +491,25 @@ def parse_args():
         "--removal_dist",
         type=str,
         help="distribution for removing data",
-        choices=["uniform", "shapley"],
+        choices=["uniform", "shapley", "datamodel"],
+        default=None,
+    )
+    parser.add_argument(
+        "--datamodel_alpha",
+        type=float,
+        help="alpha value for the datamodel removal distribution",
+        default=None,
+    )
+    parser.add_argument(
+        "--removal_rank_file",
+        type=str,
+        help="numpy file containing top units to remove",
+        default=None,
+    )
+    parser.add_argument(
+        "--removal_rank_proportion",
+        type=float,
+        help="proportion of top ranked units to remove",
         default=None,
     )
     parser.add_argument(
@@ -506,6 +524,18 @@ def parse_args():
         type=int,
         help="random seed for sampling from the removal distribution",
         default=0,
+    )
+    parser.add_argument(
+        "--lora_dir",
+        type=str,
+        help="directory containing trained LoRA weights to load",
+        default=None,
+    )
+    parser.add_argument(
+        "--lora_steps",
+        type=int,
+        help="number of trained steps for the LoRA weights to load",
+        default=None,
     )
 
     args = parser.parse_args()
@@ -527,8 +557,18 @@ def main():
         if args.removal_unit is None:
             raise ValueError("--removal_unit is not specified")
         
-        removal_dir = f"{args.removal_unit}_{args.removal_dist}"
-        removal_dir += f"/{args.removal_dist}_seed={args.removal_seed}"
+        removal_dir_dist = args.removal_dist
+        if args.removal_dist == "datamodel":
+            removal_dir_dist += f"_alpha={args.datamodel_alpha}"
+        
+        removal_dir = f"{args.removal_unit}_{removal_dir_dist}"
+        removal_dir += f"/{removal_dir_dist}_seed={args.removal_seed}"
+    
+    if args.removal_rank_file is not None:
+        assert args.removal_rank_proportion is not None
+        removal_dir = f"counterfactual_top_{args.removal_rank_proportion}"
+        rank_method = os.path.basename(args.removal_rank_file).split(".")[0]
+        removal_dir += f"/{rank_method}"
 
     assert args.dataset_name is None
     args.dataset = (
@@ -538,8 +578,9 @@ def main():
         args.dataset = args.dataset + f"_{args.cls}"
     args.model_outdir, args.sample_outdir = None, None
 
+    expected_num_lora_params = None
     if args.method == "pruned_ft":
-        args.method = f"pruned_ft_ratio={args.pruning_ratio}"
+        args.method = f"pruned_ft_ratio={args.pruning_ratio}_lr={args.learning_rate}"
         args.lora_dir = os.path.join(
             args.output_dir,
             args.dataset,
@@ -550,9 +591,22 @@ def main():
         info_df = pd.read_csv(os.path.join(args.lora_dir, "info.csv"))
         expected_num_lora_params = info_df[info_df["metric"] == "pruned_lora_params"]
         expected_num_lora_params = expected_num_lora_params["value"].item()
-    else:
-        args.lora_dir = None
-        expected_num_lora_params = None
+    elif args.method in ["sparse_gd"]:
+        if args.dataset == "artbench_post_impressionism":
+            sparse_unlearning_config = LoraSparseUnlearningConfig.artbench_post_impressionism_config
+        else:
+            raise NotImplementedError
+        args.lora_dir = sparse_unlearning_config["lora_dir"]
+        args.lora_steps = sparse_unlearning_config["lora_steps"]
+        args.max_train_steps = sparse_unlearning_config["max_train_steps"]
+    elif args.method in ["gd"]:
+        if args.dataset == "artbench_post_impressionism":
+            unlearning_config = LoraUnlearningConfig.artbench_post_impressionism_config
+        else:
+            raise NotImplementedError
+        args.lora_dir = unlearning_config["lora_dir"]
+        args.lora_steps = None
+        args.max_train_steps = unlearning_config["max_train_steps"]
 
     if args.output_dir is not None:
         args.output_dir = os.path.join(args.output_dir, args.dataset, args.method)
@@ -735,10 +789,13 @@ def main():
         # Runtime bugfix when LoRA ranks are different across attention to_q, to_k, 
         # to_v, and to_out.
         fix_get_processor(unet)
-        unet.load_attn_procs(
-            args.lora_dir, weight_name="pytorch_lora_weights.safetensors"
-        )
-        lora_file = os.path.join(args.lora_dir, "pytorch_lora_weights.safetensors")
+        weight_name = "pytorch_lora_weights"
+        if args.lora_steps is not None:
+            weight_name += f"_{args.lora_steps}"
+        weight_name += ".safetensors"
+
+        unet.load_attn_procs(args.lora_dir, weight_name=weight_name)
+        lora_file = os.path.join(args.lora_dir, weight_name)
         logger.info(f"LoRA weights loaded from {lora_file}")
 
         # Convert non-LoRA parameters to the specified precision.
@@ -759,7 +816,8 @@ def main():
         total_num_lora_params = sum(
             [param.numel() for param in unet_lora_parameters]
         )
-        assert total_num_lora_params == expected_num_lora_params
+        if expected_num_lora_params is not None:
+            assert total_num_lora_params == expected_num_lora_params
 
     if args.enable_xformers_memory_efficient_attention:
         if is_xformers_available():
@@ -841,7 +899,7 @@ def main():
         if "artbench" in args.dataset:
             assert dataset["train"].num_rows == 5000
 
-    if args.removal_dist is not None:
+    if args.removal_dist is not None or args.removal_rank_file is not None:
         # Load csv file containing indexed removal units.
         if args.cls is None:
             removal_unit_file = os.path.join(
@@ -860,7 +918,7 @@ def main():
             print(f"Removal index file loaded from {removal_idx_file}")
             remaining_idx = removal_idx_df["idx"][removal_idx_df["remaining"]].to_numpy()
             removal_idx = removal_idx_df["idx"][~removal_idx_df["remaining"]].to_numpy()
-        else:
+        elif args.removal_dist is not None:
             if args.removal_dist == "shapley":
                 remaining_idx, removed_idx = remove_data_by_shapley(
                     removal_unit_df, args.removal_seed
@@ -869,10 +927,32 @@ def main():
                 remaining_idx, removed_idx = remove_data_by_uniform(
                     removal_unit_df, args.removal_seed
                 )
+            elif args.removal_dist == "datamodel":
+                remaining_idx, removed_idx = remove_data_by_datamodel(
+                    dataset=removal_unit_df,
+                    seed=args.removal_seed,
+                    alpha=args.datamodel_alpha,
+                )
             else:
                 raise ValueError(
-                    f"--removal_dist={args.removal_idst} has to be ['shapley', 'uniform']"
+                    f"--removal_dist={args.removal_dist} has to be ['shapley', 'uniform']"
                 )
+            removal_idx_df = pd.concat(
+                [
+                    pd.DataFrame({"idx": remaining_idx, "remaining": True}),
+                    pd.DataFrame({"idx": removed_idx, "remaining": False}),
+                ]
+            )
+            removal_idx_df.to_csv(removal_idx_file, index=False)
+            print(f"Removal index file saved to {removal_idx_file}")
+        else:
+            with open(args.removal_rank_file, "rb") as handle:
+                removal_rank = np.load(handle)
+            num_removed_units = math.floor(
+                len(removal_rank) * args.removal_rank_proportion
+            )
+            removed_idx = removal_rank[:num_removed_units]
+            remaining_idx = removal_rank[num_removed_units:]
             removal_idx_df = pd.concat(
                 [
                     pd.DataFrame({"idx": remaining_idx, "remaining": True}),
@@ -1064,13 +1144,18 @@ def main():
     time_file = os.path.join(args.model_outdir, "time.csv")
     if not os.path.exists(time_file) and accelerator.is_main_process:
         with open(time_file, "w") as f:
-            f.write("epoch,time,gpu\n")
+            if args.max_train_steps is None:
+                f.write("epoch,time,gpu\n")
+            else:
+                f.write("step,time,gpu\n")
     for epoch in range(first_epoch, args.num_train_epochs):
-        if accelerator.is_main_process:
-            start_time = time.time()
+        if args.max_train_steps is None and accelerator.is_main_process:
+            epoch_start_time = time.time()
         unet.train()
         train_loss = 0.0
         for step, batch in enumerate(train_dataloader):
+            if args.max_train_steps is not None and accelerator.is_main_process:
+                step_start_time = time.time()
             with accelerator.accumulate(unet):
                 # Convert images to latent space
                 latents = vae.encode(
@@ -1168,6 +1253,11 @@ def main():
 
             # Checks if the accelerator has performed an optimization step behind the scenes
             if accelerator.sync_gradients:
+                if args.max_train_steps is not None and accelerator.is_main_process:
+                    step_time = time.time() - step_start_time
+                    time_record = f"{global_step},{step_time:.8f},{torch.cuda.get_device_name()}\n"
+                    with open(time_file, "a") as f:
+                        f.write(time_record)
                 progress_bar.update(1)
                 global_step += 1
                 accelerator.log({"train_loss": train_loss}, step=global_step)
@@ -1296,11 +1386,12 @@ def main():
 
                 del pipeline
                 torch.cuda.empty_cache()
-            epoch_time = time.time() - start_time
-            time_record = f"{epoch},{epoch_time:.8f},{torch.cuda.get_device_name()}\n"
-            with open(time_file, "a") as f:
-                f.write(time_record)
-                print(f"Epoch training time recorded at {time_file}")
+            if args.max_train_steps is None:
+                epoch_time = time.time() - epoch_start_time
+                time_record = f"{epoch},{epoch_time:.8f},{torch.cuda.get_device_name()}\n"
+                with open(time_file, "a") as f:
+                    f.write(time_record)
+                    print(f"Epoch training time recorded at {time_file}")
 
     # Save the lora layers
     accelerator.wait_for_everyone()
