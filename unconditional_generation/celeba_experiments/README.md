@@ -121,11 +121,16 @@ python -m pytorch_fid \
 
 ```bash
 start=0
-end=299
+end=899
 output_file="unconditional_generation/celeba_experiments/slurm/retrain_shapley.txt"
+> $output_file
 for (( seed=$start; seed<=$end; seed++ ))
 do
-  echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist shapley --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse" >> $output_file
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr/celeba/retrain/models/shapley/shapley_seed=$seed/ckpt_steps_00020001.pt"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"
+    echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist shapley --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse" >> $output_file
+  fi
 done
 ```
 
@@ -139,20 +144,150 @@ sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-
 # sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
 ```
 
-### DataShapley
+### Datamodel (0.75)
 ```bash
 start=0
-end=299
+end=99
 output_file="unconditional_generation/celeba_experiments/slurm/retrain_datamodel_0_75.txt"
+> $output_file
 for (( seed=$start; seed<=$end; seed++ ))
 do
-  echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist datamodel --datamodel_alpha 0.75 --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse" >> $output_file
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr/celeba/retrain/models/datamodel/datamodel_alpha=0.75_seed=$seed/ckpt_steps_00020001.pt"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"
+    echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist datamodel --datamodel_alpha 0.75 --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse" >> $output_file
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed43/celeba/retrain/models/datamodel/datamodel_alpha=0.75_seed=$seed/ckpt_steps_00020001.pt"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"
+    echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist datamodel --datamodel_alpha 0.75 --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse  --opt_seed 43 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed43/" >> $output_file
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed44/celeba/retrain/models/datamodel/datamodel_alpha=0.75_seed=$seed/ckpt_steps_00020001.pt"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"
+    echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist datamodel --datamodel_alpha 0.75 --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse  --opt_seed 44 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed44/" >> $output_file
+  fi
 done
 ```
 
 ```bash
 cd unconditional_generation/celeba_experiments/slurm
 sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G retrain_datamodel_0_75.job
+# sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
+# sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
+```
+
+### Datamodel (0.5)
+```bash
+start=0
+end=99
+output_file="unconditional_generation/celeba_experiments/slurm/retrain_datamodel_0_5.txt"
+> $output_file
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr/celeba/retrain/models/datamodel/datamodel_alpha=0.5_seed=$seed/ckpt_steps_00020001.pt"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"
+    echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist datamodel --datamodel_alpha 0.5 --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse" >> $output_file  
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed43/celeba/retrain/models/datamodel/datamodel_alpha=0.5_seed=$seed/ckpt_steps_00020001.pt"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"
+    echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist datamodel --datamodel_alpha 0.5 --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse  --opt_seed 43 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed43/" >> $output_file
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed44/celeba/retrain/models/datamodel/datamodel_alpha=0.5_seed=$seed/ckpt_steps_00020001.pt"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"
+    echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist datamodel --datamodel_alpha 0.5 --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse  --opt_seed 44 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed44/" >> $output_file
+  fi
+done
+```
+
+```bash 
+cd unconditional_generation/celeba_experiments/slurm
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G retrain_datamodel_0_5.job
+# sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
+# sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
+```
+
+### Datamodel (0.25)
+```bash
+start=0
+end=99
+output_file="unconditional_generation/celeba_experiments/slurm/retrain_datamodel_0_25.txt"
+> $output_file
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr/celeba/retrain/models/datamodel/datamodel_alpha=0.25_seed=$seed/ckpt_steps_00020001.pt"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"
+    echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist datamodel --datamodel_alpha 0.25 --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse" >> $output_file  
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed43/celeba/retrain/models/datamodel/datamodel_alpha=0.25_seed=$seed/ckpt_steps_00020001.pt"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"
+    echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist datamodel --datamodel_alpha 0.25 --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse  --opt_seed 43 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed43/" >> $output_file
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed44/celeba/retrain/models/datamodel/datamodel_alpha=0.25_seed=$seed/ckpt_steps_00020001.pt"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"
+    echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --removal_dist datamodel --datamodel_alpha 0.25 --removal_seed $seed --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse  --opt_seed 44 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed44/" >> $output_file
+  fi
+done
+```
+
+```bash 
+cd unconditional_generation/celeba_experiments/slurm
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G retrain_datamodel_0_25.job
+# sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
+# sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
+```
+
+
+
+
+
+
+
+### Leave one out
+```bash
+output_file="unconditional_generation/celeba_experiments/slurm/retrain_leave_one_out.txt"
+> $output_file
+for excluded_class in 17 63 65 95 104 122 162 177 188 204 206 228 321 329 330 335 342 368 422 423 449 451 452 509 521 573 593 598 603 615 632 636 651 805 812 858 870 982 1047 1293 1429 1538 1581 1775 1837 1838 2020 2120 2214 2632
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr/celeba/retrain/models/excluded_$excluded_class/ckpt_steps_00020001.pt"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $excluded_class"
+    echo "accelerate launch --gpu_ids 0 --config_file unconditional_generation/celeba_experiments/deepspeed_config_single.yaml unconditional_generation/main.py --dataset celeba --method retrain --excluded_class $excluded_class --mixed_precision fp16 --use_8bit_optimizer --gradient_accumulation_steps 1 --precompute_stage reuse" >> $output_file
+  fi
+done
+```
+
+
+
+
+
+```bash
+cd unconditional_generation/celeba_experiments/slurm
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G retrain_leave_one_out.job
 # sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
 # sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
 ```
@@ -213,17 +348,167 @@ python unconditional_generation/calculate_global_scores_diversity.py --dataset c
 retraining shapley
 ```bash
 start=0
-end=299
+end=599
 output_file="unconditional_generation/celeba_experiments/slurm/diversity_retrain_shapley.txt"
+> $output_file
 for (( seed=$start; seed<=$end; seed++ ))
 do
-  echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist shapley --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_measure --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_measure.jsonl --n_samples 1000" >> $output_file
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_measure/celeba_retrain_models_shapley_shapley_seed=${seed}_sample.jpg"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"
+    echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist shapley --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_retrain_shapley --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_retrain_shapley.jsonl --n_samples 1000" >> $output_file
+  fi
+done
+```
+
+
+```bash
+cd unconditional_generation/celeba_experiments/slurm
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G diversity_retrain_shapley.job
+# sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
+# sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
+```
+
+retraining datamodel (alpha=0.75)
+```bash
+start=0
+end=99
+output_file="unconditional_generation/celeba_experiments/slurm/diversity_datamodel_0_75.txt"
+> $output_file
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_datamodel_0_75/celeba_retrain_models_datamodel_datamodel_alpha=0.75_seed=${seed}_sample.jpg"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"  
+    echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist datamodel --datamodel_alpha 0.75 --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_datamodel_0_75 --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_datamodel_0_75.jsonl --n_samples 1000" >> $output_file
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed43/celeba/diversity_datamodel_0_75/celeba_retrain_models_datamodel_datamodel_alpha=0.75_seed=${seed}_sample.jpg"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"  
+    echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist datamodel --datamodel_alpha 0.75 --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_datamodel_0_75 --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr_seed43/celeba/diversity_datamodel_0_75.jsonl --n_samples 1000 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed43/" >> $output_file
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed44/celeba/diversity_datamodel_0_75/celeba_retrain_models_datamodel_datamodel_alpha=0.75_seed=${seed}_sample.jpg"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"  
+    echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist datamodel --datamodel_alpha 0.75 --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_datamodel_0_75 --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr_seed44/celeba/diversity_datamodel_0_75.jsonl --n_samples 1000 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed44/" >> $output_file
+  fi
 done
 ```
 
 ```bash
 cd unconditional_generation/celeba_experiments/slurm
-sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G diversity_retrain_shapley.job
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G diversity_datamodel_0_75.job
+# sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
+# sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
+```
+
+retraining datamodel (alpha=0.5)
+
+```bash
+start=0
+end=99
+output_file="unconditional_generation/celeba_experiments/slurm/diversity_datamodel_0_5.txt"
+> $output_file
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_datamodel_0_5/celeba_retrain_models_datamodel_datamodel_alpha=0.5_seed=${seed}_sample.jpg"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"  
+    echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist datamodel --datamodel_alpha 0.5 --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_datamodel_0_5 --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_datamodel_0_5.jsonl --n_samples 1000" >> $output_file
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed43/celeba/diversity_datamodel_0_5/celeba_retrain_models_datamodel_datamodel_alpha=0.5_seed=${seed}_sample.jpg"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"  
+    echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist datamodel --datamodel_alpha 0.5 --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_datamodel_0_5 --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr_seed43/celeba/diversity_datamodel_0_5.jsonl --n_samples 1000 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed43/" >> $output_file
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed44/celeba/diversity_datamodel_0_5/celeba_retrain_models_datamodel_datamodel_alpha=0.5_seed=${seed}_sample.jpg"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"  
+    echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist datamodel --datamodel_alpha 0.5 --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_datamodel_0_5 --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr_seed44/celeba/diversity_datamodel_0_5.jsonl --n_samples 1000 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed44/" >> $output_file
+  fi
+done
+```
+
+```bash
+cd unconditional_generation/celeba_experiments/slurm
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G diversity_datamodel_0_5.job
+# sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
+# sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
+```
+
+
+retraining datamodel (alpha=0.25)
+
+```bash
+start=0
+end=99
+output_file="unconditional_generation/celeba_experiments/slurm/diversity_datamodel_0_25.txt"
+> $output_file
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_datamodel_0_25/celeba_retrain_models_datamodel_datamodel_alpha=0.25_seed=${seed}_sample.jpg"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"  
+    echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist datamodel --datamodel_alpha 0.25 --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_datamodel_0_25 --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_datamodel_0_25.jsonl --n_samples 1000" >> $output_file
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed43/celeba/diversity_datamodel_0_25/celeba_retrain_models_datamodel_datamodel_alpha=0.25_seed=${seed}_sample.jpg"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"  
+    echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist datamodel --datamodel_alpha 0.25 --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_datamodel_0_25 --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr_seed43/celeba/diversity_datamodel_0_25.jsonl --n_samples 1000 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed43/" >> $output_file
+  fi
+done
+for (( seed=$start; seed<=$end; seed++ ))
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr_seed44/celeba/diversity_datamodel_0_25/celeba_retrain_models_datamodel_datamodel_alpha=0.25_seed=${seed}_sample.jpg"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $seed"  
+    echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --removal_dist datamodel --datamodel_alpha 0.25 --removal_seed $seed --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_datamodel_0_25 --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr_seed44/celeba/diversity_datamodel_0_25.jsonl --n_samples 1000 --outdir /gscratch/scrubbed/chanwkim/diffusion-attr_seed44/" >> $output_file
+  fi
+done
+```
+
+```bash
+cd unconditional_generation/celeba_experiments/slurm
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G diversity_datamodel_0_25.job
+# sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
+# sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
+```
+
+
+
+Leave one out
+
+```bash
+output_file="unconditional_generation/celeba_experiments/slurm/diversity_leave_one_out.txt"
+> $output_file
+for excluded_class in 17 63 65 95 104 122 162 177 188 204 206 228 321 329 330 335 342 368 422 423 449 451 452 509 521 573 593 598 603 615 632 636 651 805 812 858 870 982 1047 1293 1429 1538 1581 1775 1837 1838 2020 2120 2214 2632
+do
+  file_path="/gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_leave_one_out/celeba_retrain_models_excluded_${excluded_class}_sample.jpg"
+  if [ ! -f "$file_path" ]; then
+    echo "Missing $excluded_class"
+    echo "python unconditional_generation/calculate_global_scores_diversity.py --dataset celeba --excluded_class $excluded_class --trained_steps 20001 --use_ema --method retrain --num_inference_steps 100 --exp_name diversity_leave_one_out --seed 42 --db /gscratch/scrubbed/chanwkim/diffusion-attr/celeba/diversity_leave_one_out.jsonl --n_samples 1000" >> $output_file
+  fi
+done
+```
+
+```bash
+cd unconditional_generation/celeba_experiments/slurm
+sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G diversity_leave_one_out.job
 # sbatch -p gpu-rtx6k --account=aims --gres=gpu:rtx6k:1 --cpus-per-task=4 --mem=16G train.job
 # sbatch -p ckpt --account=aims --gpus=1 --constraint="a40|rtx6k|a100" --cpus-per-task=4 --mem=16G train_copy.job
 ```
@@ -243,3 +528,11 @@ rsync -Pavn /gscratch/scrubbed/chanwkim/diffusion-attr/ chanwkim@bicycle.cs.wash
 rsync -Pav /gscratch/scrubbed/chanwkim/diffusion-attr/ chanwkim@bicycle.cs.washington.edu:/projects/leelab3/chanwkim/data_attribution/diffusion-attr
 ```
 
+calculate 3 seed x 100 datamodel
+calculate diveristy score.
+prioritze alpha of 0.5
+
+
+ll /gscratch/scrubbed/chanwkim/diffusion-attr/logs/diversity/diversity_measure -tr
+
+cat /gscratch/scrubbed/chanwkim/diffusion-attr/logs/diversity/diversity_measure/run-18089346-144.out
