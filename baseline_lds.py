@@ -17,6 +17,7 @@ import torch
 from scipy.stats import bootstrap, spearmanr
 
 import src.constants as constants
+from src.attributions.global_scores.diversity_score import calcualte_embedding_dist
 from src.attributions.methods.attribution_utils import CLIPScore, pixel_distance
 from src.attributions.methods.compute_gradient_score import compute_gradient_scores
 from src.datasets import create_dataset, remove_data_by_shapley
@@ -32,7 +33,6 @@ def parse_args():
         "--test_db",
         type=str,
         help="filepath of database for recording test model behaviors",
-        required=True,
     )
     parser.add_argument(
         "--full_db",
@@ -191,6 +191,21 @@ def parse_args():
     return parser.parse_args()
 
 
+def evaluate_lds(attrs_all, test_data_list, num_model_behaviors):
+    """Evaluate LDS mean and CI across a list of test data."""
+    lds_list = []
+    for (x_test, y_test) in test_data_list:
+        model_behavior_lds_list = []
+        for k in range(num_model_behaviors):
+            model_behavior_lds_list.append(
+                spearmanr(x_test @ attrs_all[k], y_test[:, k]).statistic * 100
+            )
+        lds_list.append(np.mean(model_behavior_lds_list))
+    lds_mean = np.mean(lds_list)
+    lds_ci = np.std(lds_list) / np.sqrt(len(lds_list)) * 1.96
+    return lds_mean, lds_ci
+
+
 def removed_by_classes(index_to_class, remaining_idx):
     """Function that maps data index to subgroup index"""
     remaining_classes = set(index_to_class[idx] for idx in remaining_idx)
@@ -296,15 +311,45 @@ def main(args):
         "method": "retrain",  # The test set should pertain only to retrained models.
     }
 
-    print(f"Loading testing data from {args.test_db}")
-    test_masks, test_targets, test_seeds = collect_data(
-        args.test_db,
-        test_condition_dict,
-        args.dataset,
-        args.model_behavior_key,
-        args.n_samples,
-        args.by_class,
-    )
+    if args.dataset == "cifar100":
+        test_db_list = [
+            os.path.join(
+                "/gscratch/aims/mingyulu/results_ming",
+                args.dataset,
+                "datamodel",
+                f"retrain_global_behavior_seed{seed}.jsonl",
+            )
+            for seed in [42, 43, 44]
+        ]
+    elif args.dataset == "celeba":
+        test_db_list = [
+            os.path.join(
+                "/gscratch/aims/mingyulu/results_ming",
+                args.dataset,
+                "datamodel",
+                f"diversity_datamodel_"
+                f"{str(args.datamodel_alpha).replace('.', '_')}"
+                f"_seed{seed}.jsonl"
+            )
+            for seed in [42, 43, 44]
+        ]
+    else:
+        raise ValueError
+
+    test_data_list = []
+
+    for db_path in test_db_list:
+        print(f"Loading testing data from {db_path}")
+
+        test_masks, test_targets, test_seeds = collect_data(
+            db_path,
+            test_condition_dict,
+            args.dataset,
+            args.model_behavior_key,
+            args.n_samples,
+            args.by_class,
+        )
+        test_data_list.append((test_masks, test_targets))
 
     random.seed(42)
     np.random.seed(42)
@@ -323,6 +368,10 @@ def main(args):
         coeff = compute_gradient_scores(
             args,
             retraining=False,
+        )
+    elif args.method == "emb_dist":
+        coeff = calcualte_embedding_dist(
+            args.dataset, args.training_dir, num_cluster=20, use_cache=False, by=args.by
         )
     elif args.method == "pixel_dist":
         coeff = pixel_distance(
@@ -389,52 +438,60 @@ def main(args):
     ), "number of target should match number of samples in sample_dir."
 
     data_attr_list = coeff
-    print(np.argsort(-coeff.flatten())[:5])
+    # print(np.argsort(-coeff.flatten())[:5])
 
-    def my_lds(idx):
-        boot_masks = test_masks[idx, :]
-        lds_list = []
-        for i in range(num_targets):
-            boot_targets = test_targets[idx, i]
-            lds_list.append(
-                spearmanr(boot_masks @ data_attr_list[i], boot_targets).statistic * 100
-            )
-        return np.mean(lds_list)
+    lds_mean, lds_ci = evaluate_lds(data_attr_list, test_data_list, num_targets)
 
-    boot_result = bootstrap(
-        data=(list(range(len(test_targets))),),
-        statistic=my_lds,
-        n_resamples=args.num_bootstrap_iters,
-        random_state=42,
-    )
-    boot_mean = np.mean(boot_result.bootstrap_distribution.mean())
-    boot_se = boot_result.standard_error
-    boot_ci_low = boot_result.confidence_interval.low
-    boot_ci_high = boot_result.confidence_interval.high
+    print(f"Mean: {lds_mean:.2f} ({lds_ci:.2f})")
+    print(f"Confidence interval: ({lds_mean - lds_ci:.2f}, {lds_mean + lds_ci:.2f})")
 
-    print(f"Mean: {boot_mean:.2f}")
-    print(f"Standard error: {boot_se:.2f}")
-    print(f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})")
+    if args.bootstrapped:
 
-    coeff = np.array(data_attr_list).flatten()
+        def my_lds(idx):
+            boot_masks = test_masks[idx, :]
+            lds_list = []
+            for i in range(num_targets):
+                boot_targets = test_targets[idx, i]
+                lds_list.append(
+                    spearmanr(boot_masks @ data_attr_list[i], boot_targets).statistic
+                    * 100
+                )
+            return np.mean(lds_list)
 
-    plt.figure(figsize=(20, 10))
-    bin_edges = np.histogram_bin_edges(coeff, bins="auto")
-    sns.histplot(coeff, bins=bin_edges, alpha=0.5)
+        boot_result = bootstrap(
+            data=(list(range(len(test_targets))),),
+            statistic=my_lds,
+            n_resamples=args.num_bootstrap_iters,
+            random_state=42,
+        )
+        boot_mean = np.mean(boot_result.bootstrap_distribution.mean())
+        boot_se = boot_result.standard_error
+        boot_ci_low = boot_result.confidence_interval.low
+        boot_ci_high = boot_result.confidence_interval.high
 
-    plt.xlabel("Shapley Value")
-    plt.ylabel("Frequency")
-    plt.title(
-        f"{args.dataset} with {args.method}\n"
-        f"Mean: {boot_mean:.3f};"
-        f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
-        f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
-    )
+        print(f"Mean: {boot_mean:.2f}")
+        print(f"Standard error: {boot_se:.2f}")
+        print(f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})")
 
-    result_path = f"results/lds/{args.dataset}/{args.method}/"
+        coeff = np.array(data_attr_list).flatten()
 
-    os.makedirs(result_path, exist_ok=True)
-    plt.savefig(os.path.join(result_path, f"{args.model_behavior_key}.png"))
+        plt.figure(figsize=(20, 10))
+        bin_edges = np.histogram_bin_edges(coeff, bins="auto")
+        sns.histplot(coeff, bins=bin_edges, alpha=0.5)
+
+        plt.xlabel("Shapley Value")
+        plt.ylabel("Frequency")
+        plt.title(
+            f"{args.dataset} with {args.method}\n"
+            f"Mean: {boot_mean:.3f};"
+            f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
+            f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
+        )
+
+        result_path = f"results/lds/{args.dataset}/{args.method}/"
+
+        os.makedirs(result_path, exist_ok=True)
+        plt.savefig(os.path.join(result_path, f"{args.model_behavior_key}.png"))
 
 
 if __name__ == "__main__":

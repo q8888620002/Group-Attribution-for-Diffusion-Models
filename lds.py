@@ -157,7 +157,7 @@ def evaluate_lds(attrs_all, test_data_list, num_model_behaviors):
         model_behavior_lds_list = []
         for k in range(num_model_behaviors):
             model_behavior_lds_list.append(
-                spearmanr(x_test @ attrs_all[ k], y_test[:, k]).statistic * 100
+                spearmanr(x_test @ attrs_all[k], y_test[:, k]).statistic * 100
             )
         lds_list.append(np.mean(model_behavior_lds_list))
     lds_mean = np.mean(lds_list)
@@ -273,24 +273,27 @@ def main(args):
                 "datamodel",
                 f"retrain_global_behavior_seed{seed}.jsonl",
             )
-            for seed in [43, 44]
+            for seed in [42, 43, 44]
         ]
     elif args.dataset == "celeba":
         test_db_list = [
-             os.path.join(
+            os.path.join(
                 "/gscratch/aims/mingyulu/results_ming",
                 args.dataset,
                 "datamodel",
-                f"diversity_datamodel_0_5.jsonl",
+                f"diversity_datamodel_"
+                f"{str(args.datamodel_alpha).replace('.', '_')}"
+                f"_seed{seed}.jsonl",
             )
+            for seed in [42, 43, 44]
         ]
     else:
         raise ValueError
-    print(f"Loading testing data from {args.test_db}\n")
 
     test_data_list = []
 
     for db_path in test_db_list:
+        print(f"Loading testing data from {db_path}")
 
         test_masks, test_targets, test_seeds = collect_data(
             db_path,
@@ -477,7 +480,9 @@ def main(args):
             boot_ci_high = boot_result.confidence_interval.high
 
         print(f"Mean: {lds_mean:.2f} ({lds_ci:.2f})")
-        print(f"Confidence interval: ({lds_ci:.2f})")
+        print(
+            f"Confidence interval: ({lds_mean - lds_ci:.2f}, {lds_mean + lds_ci:.2f})"
+        )
 
         # coeff = np.array(data_attr_list).flatten()
 
