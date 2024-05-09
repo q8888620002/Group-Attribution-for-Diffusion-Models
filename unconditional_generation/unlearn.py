@@ -143,7 +143,7 @@ def parse_args():
         "--batch_size",
         type=int,
         help="batch size for computation",
-        default=128,
+        default=32,
     )
     parser.add_argument(
         "--n_samples", type=int, default=10240, help="number of generated samples"
@@ -227,12 +227,6 @@ def parse_args():
         help="experiment name to record in the database file",
         default=None,
         required=True,
-    )
-    parser.add_argument(
-        "--n_local_samples",
-        type=int,
-        help="number of generated samples for computing local model behaviors",
-        default=100,
     )
     parser.add_argument(
         "--n_noises",
@@ -697,6 +691,9 @@ def main(args):
             nrow=int(math.sqrt(config["n_samples"])),
         )
         print(f"Save test images, steps_{training_steps:0>8}.png, in {sample_outdir}.")
+
+        behavior_start_time = time.time()
+
         if args.model_behavior == "global":
 
             print(f"Generating {args.n_samples}...")
@@ -719,7 +716,7 @@ def main(args):
                 )
                 info_dict["entropy"] = entropy
                 info_dict["cluster_count"] = cluster_count
-                info_dict["cluster_proportions"]=cluster_proportions
+                info_dict["cluster_proportions"] = cluster_proportions
                 info_dict["remaining_idx"] = remaining_idx
                 info_dict["removed_idx"] = removed_idx
             else:
@@ -783,15 +780,13 @@ def main(args):
                 """Generate numpy images from a pipeline."""
                 pipeline = pipeline.to(device)
                 images = pipeline(
-                    generator=torch.Generator().manual_seed(
-                        random_seed
-                    ),
+                    generator=torch.Generator().manual_seed(random_seed),
                     output_type="numpy",
                     **pipeline_kwargs,
                 ).images
                 return images
 
-            for random_seed in tqdm(range(args.n_local_samples)):
+            for random_seed in tqdm(range(args.n_samples)):
                 info_prefix = f"generated_image_{random_seed}"
                 full_image = generate_local_images(
                     pipeline=full_pipeline,
@@ -870,10 +865,10 @@ def main(args):
                 avg_total_loss += total_loss
                 info_dict[f"{info_prefix}_diffusion_loss"] = f"{total_loss:.8e}"
 
-            avg_mse_val /= args.n_local_samples
-            avg_nrmse_val /= args.n_local_samples
-            avg_ssim_val /= args.n_local_samples
-            avg_total_loss /= args.n_local_samples
+            avg_mse_val /= args.n_samples
+            avg_nrmse_val /= args.n_samples
+            avg_ssim_val /= args.n_samples
+            avg_total_loss /= args.n_samples
 
             info_dict["avg_mse"] = f"{avg_mse_val:.8e}"
             info_dict["avg_nrmse"] = f"{avg_nrmse_val:.8e}"
@@ -885,6 +880,7 @@ def main(args):
         info_dict["remaining_idx"] = remaining_idx.tolist()
         info_dict["removed_idx"] = removed_idx.tolist()
         info_dict["device"] = str(args.device)
+        info_dict["total_sampling_time"] = time.time() - behavior_start_time
 
         with open(args.db, "a+") as f:
             f.write(json.dumps(info_dict) + "\n")
