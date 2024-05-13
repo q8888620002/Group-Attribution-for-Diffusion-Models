@@ -166,7 +166,7 @@ def parse_args():
     parser.add_argument(
         "--train_batch_size",
         type=int,
-        default=32,
+        default=16,
         help="Batch size (per device) for the training dataloader.",
     )
     parser.add_argument(
@@ -315,96 +315,133 @@ def main():
         if "lora_layer" in name:
             param.requires_grad_(True)
 
-    # Get the training dataset.
-    data_files = {}
-    if args.train_data_dir is not None:
-        data_files["train"] = os.path.join(args.train_data_dir, "**")
-    dataset = load_dataset(
-        "imagefolder",
-        data_files=data_files,
-        cache_dir=args.cache_dir,
-    )
-    # See more about loading custom images at
-    # https://huggingface.co/docs/datasets/v2.4.0/en/image_load#imagefolder
-
-    if args.cls is not None and args.cls_key is not None:
-        cls_idx = np.where(np.array(dataset["train"][args.cls_key]) == args.cls)[0]
-        dataset["train"] = dataset["train"].select(cls_idx)
-        if "artbench" in args.dataset:
-            assert dataset["train"].num_rows == 5000
-
-    # Preprocessing the datasets.
-    # We need to tokenize inputs and targets.
-    column_names = dataset["train"].column_names
-
-    # 6. Get the column names for input/target.
-    image_column, caption_column = column_names[0], column_names[1]
-
-    # Preprocessing the datasets.
-    # We need to tokenize input captions and transform the images.
-    def tokenize_captions(examples, is_train=True):
-        captions = []
-        for caption in examples[caption_column]:
-            if isinstance(caption, str):
-                captions.append(caption)
-            elif isinstance(caption, (list, np.ndarray)):
-                # take a random caption if there are multiple
-                captions.append(random.choice(caption) if is_train else caption[0])
-            else:
-                raise ValueError(
-                    f"Caption column `{caption_column}` should contain either strings or lists of strings."
-                )
-        inputs = tokenizer(
-            captions,
-            max_length=tokenizer.model_max_length,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt",
+    if args.source == "train":
+        # Get the training dataset.
+        data_files = {}
+        if args.train_data_dir is not None:
+            data_files["train"] = os.path.join(args.train_data_dir, "**")
+        dataset = load_dataset(
+            "imagefolder",
+            data_files=data_files,
+            cache_dir=args.cache_dir,
         )
-        return inputs.input_ids
+        # See more about loading custom images at
+        # https://huggingface.co/docs/datasets/v2.4.0/en/image_load#imagefolder
 
-    # Preprocessing the datasets.
-    train_transforms = transforms.Compose(
-        [
-            transforms.Resize(
-                args.resolution, interpolation=transforms.InterpolationMode.BILINEAR
-            ),
-            transforms.CenterCrop(args.resolution)
-            if args.center_crop
-            else transforms.RandomCrop(args.resolution),
-            transforms.RandomHorizontalFlip()
-            if args.random_flip
-            else transforms.Lambda(lambda x: x),
-            transforms.ToTensor(),
-            transforms.Normalize([0.5], [0.5]),
-        ]
-    )
+        if args.cls is not None and args.cls_key is not None:
+            cls_idx = np.where(np.array(dataset["train"][args.cls_key]) == args.cls)[0]
+            dataset["train"] = dataset["train"].select(cls_idx)
+            if "artbench" in args.dataset:
+                assert dataset["train"].num_rows == 5000
 
-    def preprocess_train(examples):
-        images = [image.convert("RGB") for image in examples[image_column]]
-        examples["pixel_values"] = [train_transforms(image) for image in images]
-        examples["input_ids"] = tokenize_captions(examples)
-        return examples
+        # Preprocessing the datasets.
+        # We need to tokenize inputs and targets.
+        column_names = dataset["train"].column_names
+
+        # 6. Get the column names for input/target.
+        image_column, caption_column = column_names[0], column_names[1]
+
+        # Preprocessing the datasets.
+        # We need to tokenize input captions and transform the images.
+        def tokenize_captions(examples, is_train=True):
+            captions = []
+            for caption in examples[caption_column]:
+                if isinstance(caption, str):
+                    captions.append(caption)
+                elif isinstance(caption, (list, np.ndarray)):
+                    # take a random caption if there are multiple
+                    captions.append(random.choice(caption) if is_train else caption[0])
+                else:
+                    raise ValueError(
+                        f"Caption column `{caption_column}` should contain either strings or lists of strings."
+                    )
+            inputs = tokenizer(
+                captions,
+                max_length=tokenizer.model_max_length,
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt",
+            )
+            return inputs.input_ids
+
+        # Preprocessing the datasets.
+        train_transforms = transforms.Compose(
+            [
+                transforms.Resize(
+                    args.resolution, interpolation=transforms.InterpolationMode.BILINEAR
+                ),
+                transforms.CenterCrop(args.resolution)
+                if args.center_crop
+                else transforms.RandomCrop(args.resolution),
+                transforms.RandomHorizontalFlip()
+                if args.random_flip
+                else transforms.Lambda(lambda x: x),
+                transforms.ToTensor(),
+                transforms.Normalize([0.5], [0.5]),
+            ]
+        )
+
+        def preprocess_train(examples):
+            images = [image.convert("RGB") for image in examples[image_column]]
+            examples["pixel_values"] = [train_transforms(image) for image in images]
+            examples["input_ids"] = tokenize_captions(examples)
+            return examples
 
 
-    # Set the training transforms
-    train_dataset = dataset["train"].with_transform(preprocess_train)
+        # Set the training transforms
+        train_dataset = dataset["train"].with_transform(preprocess_train)
 
-    def collate_fn(examples):
-        pixel_values = torch.stack([example["pixel_values"] for example in examples])
-        pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
-        input_ids = torch.stack([example["input_ids"] for example in examples])
-        return {"pixel_values": pixel_values, "input_ids": input_ids}
+        def collate_fn(examples):
+            pixel_values = torch.stack([example["pixel_values"] for example in examples])
+            pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
+            input_ids = torch.stack([example["input_ids"] for example in examples])
+            return {"pixel_values": pixel_values, "input_ids": input_ids}
 
-    # DataLoaders creation:
-    train_dataloader = torch.utils.data.DataLoader(
-        train_dataset,
-        shuffle=False,
-        collate_fn=collate_fn,
-        batch_size=args.train_batch_size,
-        num_workers=args.dataloader_num_workers,
-        pin_memory=True,
-    )
+        # DataLoaders creation:
+        train_dataloader = torch.utils.data.DataLoader(
+            train_dataset,
+            shuffle=False,  # Do not turn on shuffle to keep the group mapping intact!
+            collate_fn=collate_fn,
+            batch_size=args.train_batch_size,
+            num_workers=args.dataloader_num_workers,
+            pin_memory=True,
+        )
+
+        # Get training data latents and text encoder hidden states.
+        all_latents, all_encoder_hidden_states = [], []
+        for batch in train_dataloader:
+            for key in batch.keys():
+                batch[key] = batch[key].to("cuda")
+
+            with torch.no_grad():
+                latents = vae.encode(batch["pixel_values"].to(dtype=weight_dtype)).latent_dist.mode()
+                latents = latents * vae.config.scaling_factor
+                encoder_hidden_states = text_encoder(batch["input_ids"])[0]
+            all_latents.append(latents.detach().cpu())
+            all_encoder_hidden_states.append(encoder_hidden_states.detach().cpu())
+        all_latents = torch.cat(all_latents)
+        all_encoder_hidden_states = torch.cat(all_encoder_hidden_states)
+
+        dataloader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(all_latents, all_encoder_hidden_states),
+            shuffle=False,  # Do not turn on shuffle to keep the group mapping intact!
+            batch_size=args.train_batch_size,
+            num_workers=args.dataloader_num_workers,
+            pin_memory=True,
+        )
+
+        group_df = pd.DataFrame(
+            {
+                "index": [i for i in range(dataset["train"].num_rows)],
+                "artist": dataset["train"]["artist"],
+                "filename": dataset["train"]["filename"],
+            }
+        )
+        group_df.to_csv(os.path.join(args.output_dir, "group.csv"), index=False)
+
+    else:
+        raise NotImplementedError
+
     unet.eval()
 
     projector = CudaProjector(
@@ -576,15 +613,10 @@ def main():
     ft_compute_sample_grad = vmap(ft_compute_grad, in_dims=(None, None, 0, 0, 0, 0,))
 
     all_embs = []
-    for step, batch in tqdm(enumerate(train_dataloader)):
-        for key in batch.keys():
-            batch[key] = batch[key].to("cuda")
-        
-        with torch.no_grad():
-            latents = vae.encode(batch["pixel_values"].to(dtype=weight_dtype)).latent_dist.mode()
-            latents = latents * vae.config.scaling_factor
-            encoder_hidden_states = text_encoder(batch["input_ids"])[0]
-            
+    for (latents, encoder_hidden_states) in tqdm(dataloader):
+        latents = latents.to("cuda")
+        encoder_hidden_states = encoder_hidden_states.to("cuda")
+
         bsz = latents.shape[0]
         selected_timesteps = range(0, 1000, 1000 // args.num_timesteps)
 
