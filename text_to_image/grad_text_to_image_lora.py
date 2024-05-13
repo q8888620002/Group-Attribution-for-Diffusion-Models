@@ -98,7 +98,7 @@ def parse_args():
         "--source",
         type=str,
         default="train",
-        choices=["train", "generated"],
+        choices=["train", "generated", "generated_journey"],
         help="source of data for computing gradients",
     )
     parser.add_argument(
@@ -138,6 +138,18 @@ def parse_args():
     )
     parser.add_argument(
         "--seed", type=int, default=42, help="A seed for reproducible training."
+    )
+    parser.add_argument(
+        "--num_images", type=int, default=50, help="number of generated images",
+    )
+    parser.add_argument(
+        "--generation_seed", type=int, default=42, help="seed for image generation",
+    )
+    parser.add_argument(
+        "--num_journey_points",
+        type=int,
+        default=50,
+        help="number of time points selected for Journey-TRAK",
     )
     parser.add_argument(
         "--resolution",
@@ -422,14 +434,6 @@ def main():
         all_latents = torch.cat(all_latents)
         all_encoder_hidden_states = torch.cat(all_encoder_hidden_states)
 
-        dataloader = torch.utils.data.DataLoader(
-            torch.utils.data.TensorDataset(all_latents, all_encoder_hidden_states),
-            shuffle=False,  # Do not turn on shuffle to keep the group mapping intact!
-            batch_size=args.train_batch_size,
-            num_workers=args.dataloader_num_workers,
-            pin_memory=True,
-        )
-
         group_df = pd.DataFrame(
             {
                 "index": [i for i in range(dataset["train"].num_rows)],
@@ -438,9 +442,100 @@ def main():
             }
         )
         group_df.to_csv(os.path.join(args.output_dir, "group.csv"), index=False)
-
     else:
-        raise NotImplementedError
+        if "artbench" in args.dataset:
+            prompt_dict = PromptConfig.artbench_config
+        else:
+            raise NotImplementedError
+        assert args.cls is not None
+        prompt = prompt_dict[args.cls]
+        input_ids = tokenizer(
+            [prompt],
+            max_length=tokenizer.model_max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt",
+        ).input_ids
+        with torch.no_grad():
+            encoder_hidden_states = text_encoder(input_ids.to("cuda"))[0]
+        
+        pipeline = DiffusionPipeline.from_pretrained(
+            args.pretrained_model_name_or_path,
+            revision=args.revision,
+            variant=args.variant,
+        )
+        pipeline.safety_checker = None
+        pipeline.requires_safety_checker = False
+        pipeline.set_progress_bar_config(disable=True)
+        pipeline = pipeline.to("cuda")
+
+        weight_name = "pytorch_lora_weights"
+        if args.lora_steps is not None:
+            weight_name += f"_{args.lora_steps}"
+        weight_name += ".safetensors"
+        pipeline.unet.load_attn_procs(args.lora_dir, weight_name=weight_name)
+        weight_path = os.path.join(args.lora_dir, weight_name)
+        print(f"LoRA weights loaded onto the pipeline from {weight_path}")
+
+        generator = torch.Generator(device="cuda")
+        generator = generator.manual_seed(args.generation_seed)
+
+        all_step_idx, all_latents, all_generated_image_idx = [], [], []
+        print("Obtaining latents for generated images...")
+        for i in tqdm(range(args.num_images)):
+            step_idx_list, latents_list = [], []
+            def extract_latents(step_idx, t, latents):
+                step_idx_list.append(step_idx)
+                latents_list.append(latents.detach().cpu())
+
+            _ = pipeline(
+                prompt,
+                num_inference_steps=100,
+                generator=generator,
+                height=args.resolution,
+                width=args.resolution,
+                callback=extract_latents,
+                callback_steps=1,
+            ).images[0]
+            generated_image_idx_list = [i] * len(step_idx_list)
+            
+            if args.source == "generated":
+                # Collect only the final latent variable.
+                all_step_idx.append(step_idx_list[-1])
+                all_latents.append(latents_list[-1])
+                all_generated_image_idx.append(generated_image_idx_list[-1])
+
+            elif args.source == "generated_journey":
+                num_inference_steps = len(step_idx_list)
+                for j in np.arange(
+                    start=1,
+                    stop=num_inference_steps,
+                    step=num_inference_steps // args.num_journey_points,
+                ):
+                    all_step_idx.append(step_idx_list[j])
+                    all_latents.append(latents_list[j])
+                    all_generated_image_idx.append(generated_image_idx_list[j])
+            else:
+                raise NotImplementedError
+        
+        group_df = pd.DataFrame(
+            {"generated_image_idx": all_generated_image_idx, "step_idx": all_step_idx}
+        )
+        group_df.to_csv(os.path.join(args.output_dir, "group.csv"), index=True)
+
+        all_latents = torch.cat(all_latents).to(weight_dtype)
+        all_encoder_hidden_states = []
+        for _ in range(all_latents.size(0)):
+            all_encoder_hidden_states.append(encoder_hidden_states.detach().cpu().clone())
+        all_encoder_hidden_states = torch.cat(all_encoder_hidden_states)
+    
+    dataloader = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(all_latents, all_encoder_hidden_states),
+        shuffle=False,  # Do not turn on shuffle to keep the group mapping intact!
+        batch_size=args.train_batch_size,
+        num_workers=args.dataloader_num_workers,
+        pin_memory=True,
+    )
 
     unet.eval()
 
