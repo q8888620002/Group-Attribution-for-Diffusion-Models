@@ -257,7 +257,7 @@ def main(args):
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
         example_inputs = {
-            "sample": torch.randn(1, 3, 256, 256).to(device),
+            "sample": torch.randn(1, 3, 64, 64).to(device),
             "timestep": torch.ones((1,)).long().to(device),
         }
     elif args.dataset == "mnist":
@@ -328,14 +328,21 @@ def main(args):
                 num_workers=1,
                 pin_memory=True,
             )
-
-        save_dir = os.path.join(
-            args.outdir,
-            args.dataset,
-            "d_trak",
-            removal_dir,
-            f"train_f={args.model_behavior}_t={args.t_strategy}_k={args.k_partition}_d={args.projector_dim}",
-        )
+            save_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "d_trak",
+                removal_dir,
+                f"train_f={args.model_behavior}_t={args.t_strategy}_k={args.k_partition}_d={args.projector_dim}",
+            )
+        else:
+            save_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "d_trak",
+                removal_dir,
+                f"gen_f={args.model_behavior}_t={args.t_strategy}_k={args.k_partition}_d={args.projector_dim}",
+            )
 
     else:
 
@@ -395,6 +402,7 @@ def main(args):
         pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256")
         pipeline.unet = model
 
+        pipeline.scheduler.set_timesteps(config["scheduler_config"]["num_train_timesteps"])
         vqvae = pipeline.vqvae
         pipeline.vqvae.config.scaling_factor = 1
         vqvae.requires_grad_(False)
@@ -433,17 +441,14 @@ def main(args):
         generated_samples = []
 
         for random_seed in tqdm(range(args.n_samples)):
-
+            noise_latents = []
             noise_generator = torch.Generator(device=args.device).manual_seed(
                 random_seed
             )
 
             with torch.no_grad():
-                if args.dataset == "celeba":
-                    example_image = vqvae.encode(example_inputs["sample"], False)[0]
-                    example_image = example_image * vqvae.config.scaling_factor
-                else:
-                    example_image = example_inputs["sample"]
+
+                example_image = example_inputs["sample"]
 
                 noises = torch.randn(
                     example_image.shape,
@@ -452,35 +457,26 @@ def main(args):
                 )
                 input = noises
 
-                for t in range(0, 1000, 50):
+                for t in range(0, 1000, 1000 // args.k_partition):
                     noisy_residual = pipeline.unet(input, t).sample
                     previous_noisy_image = pipeline.scheduler.step(
                         noisy_residual, t, input
                     ).prev_sample
                     input = previous_noisy_image
+                    noise_latents.append(input.squeeze(0).detach().cpu())
+                noise_latents = torch.stack(noise_latents)
 
-                    image = (input / 2 + 0.5).clamp(0, 1).squeeze()
-                    image = (
-                        (image.permute(1, 2, 0) * 255)
-                        .round()
-                        .to(torch.uint8)
-                        .cpu()
-                        .numpy()
-                    )
-                    generated_samples.append(image)
+            generated_samples.append(noise_latents)
+        generated_samples = torch.stack(generated_samples)
 
-        generated_samples = np.stack(generated_samples)
-
-        generated_samples = generated_samples.float() / 255.0
-        normalize = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        generated_samples = [normalize(tensor) for tensor in generated_samples]
-
-        images_dataset = TensorDataset(generated_samples)
+        bogus_labels = torch.zeros(args.n_samples, dtype=torch.int)
+        images_dataset = TensorDataset(generated_samples, transform=None, label=bogus_labels)
 
         remaining_dataloader = DataLoader(
             images_dataset,
             batch_size=config["batch_size"],
             num_workers=1,
+            pin_memory=True
         )
 
     dstore_keys = np.memmap(
@@ -695,8 +691,10 @@ def main(args):
         image = image.to(device)
         bsz = image.shape[0]
 
-        if args.dataset == "celeba":
-            if args.sample_dir is None:  # Compute TRAK with pre-computed embeddings.
+        if args.dataset == "celeba" and not args.calculate_gen_grad:
+            if (
+                args.sample_dir is None
+            ):  # Compute TRAK with pre-computed embeddings.
                 imageid = batch[2]
                 image = torch.stack(
                     [vqvae_latent_dict[imageid[i]] for i in range(len(image))]
@@ -704,8 +702,6 @@ def main(args):
             else:  # Directly encode the images if there's no precomputation
                 image = vqvae.encode(image, False)[0]
             image = image * vqvae.config.scaling_factor
-
-        noise = torch.randn_like(image).to(device)
 
         if args.t_strategy == "uniform":
             selected_timesteps = range(0, 1000, 1000 // args.k_partition)
@@ -718,8 +714,15 @@ def main(args):
             timesteps = timesteps.long()
             seed_everything(args.opt_seed * 1000 + t)  # !!!!
 
-            noise = torch.randn_like(image)
-            noisy_latents = pipeline_scheduler.add_noise(image, noise, timesteps)
+            if args.calculate_gen_grad:
+                dim = image.shape[-1]
+                channel_size = image.shape[2]
+                noise = torch.randn((bsz, channel_size, dim, dim)).to(device)
+                noisy_latents = image[:, index_t, :, :, :]
+
+            else:
+                noise = torch.randn_like(image)
+                noisy_latents = pipeline_scheduler.add_noise(image, noise, timesteps)
 
             # Get the target for loss depending on the prediction type
             if pipeline_scheduler.config.prediction_type == "epsilon":
