@@ -218,10 +218,11 @@ class ImageDataset(Dataset):
 class TensorDataset(Dataset):
     """Wraps tensor data for easy dataset operations."""
 
-    def __init__(self, data, transform=None):
+    def __init__(self, data, transform=None, label=None):
         """Initializes dataset with data tensor."""
         self.data = data
         self.transform = transform
+        self.label = label
 
         if self.transform is not None:
             self.data = self.transform(self.data)
@@ -232,6 +233,8 @@ class TensorDataset(Dataset):
 
     def __getitem__(self, idx):
         """Retrieves sample at index `idx`."""
+        if self.label is not None:
+            return self.data[idx], self.label[idx]
         return self.data[idx]
 
 
