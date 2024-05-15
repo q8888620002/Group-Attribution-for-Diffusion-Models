@@ -93,7 +93,7 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
             mode="r",
             shape=(len(dataset), args.projector_dim),
         )
-
+        
         if os.path.isfile(kernel_path):
             # Check if the kernel file exists
             print("Kernel file exists. Loading...")

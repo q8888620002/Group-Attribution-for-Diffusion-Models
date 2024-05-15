@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import time 
 
 from lightning.pytorch import seed_everything
 
@@ -188,7 +189,7 @@ def main(args):
         ema_model.copy_to(model.parameters())
 
     pipeline, vqvae, vqvae_latent_dict = build_pipeline(args, model)
-
+    behavior_start_time = time.time()
     generated_samples = generate_images(args, pipeline)
     (
         entropy,
@@ -224,6 +225,7 @@ def main(args):
     info_dict["cluster_proportions"]=cluster_proportions
     info_dict["remaining_idx"] = remaining_idx
     info_dict["removed_idx"] = removed_idx
+    info_dict["total_sampling_time"] = time.time() - behavior_start_time
 
     with open(args.db, "a+") as f:
         f.write(json.dumps(info_dict) + "\n")

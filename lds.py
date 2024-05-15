@@ -192,6 +192,8 @@ def collect_data(
     remaining_masks = []
     model_behaviors = []
     removal_seeds = []
+    training_time = []
+    sampling_time = []
 
     with open(db, "r") as handle:
         for line in handle:
@@ -237,16 +239,19 @@ def collect_data(
                 # avoid duplicated records
 
                 if seed not in removal_seeds:
-                    # if method == "gd":
-                    #     if record["trained_steps"] == 4000:
-                    #         remaining_masks.append(remaining_mask)
-                    #         model_behaviors.append(model_behavior)
-                    #         removal_seeds.append(seed)
-                    # else:
-                    remaining_masks.append(remaining_mask)
-                    model_behaviors.append(model_behavior)
-                    removal_seeds.append(seed)
-
+                    if record["method"] == "gd":
+                        if int(record["gd_steps"]) == 1000:
+                            remaining_masks.append(remaining_mask)
+                            model_behaviors.append(model_behavior)
+                            removal_seeds.append(seed)
+                            training_time.append(float(record["total_steps_time"]))
+                            sampling_time.append(float(record["total_sampling_time"]))
+                    else:
+                        remaining_masks.append(remaining_mask)
+                        model_behaviors.append(model_behavior)
+                        removal_seeds.append(seed)
+    if len(training_time)!= 0 and len(sampling_time) != 0 :
+        print(np.median(training_time), np.median(sampling_time))
     remaining_masks = np.stack(remaining_masks)
     model_behaviors = np.stack(model_behaviors)
     removal_seeds = np.array(removal_seeds)
@@ -256,6 +261,25 @@ def collect_data(
 
 def main(args):
     """Main function."""
+
+    # Extract subsets for estimating data attribution scores.
+    print(f"Loading training data from {args.train_db}")
+
+    train_condition_dict = {
+        "dataset": args.dataset,
+        "removal_dist": args.removal_dist,
+        "method": args.method,
+        "exp_name": args.train_exp_name,
+    }
+    train_masks, train_targets, train_seeds = collect_data(
+        args.train_db,
+        train_condition_dict,
+        args.dataset,
+        args.model_behavior_key,
+        args.n_samples,
+        args.by_class,
+    )
+
     # Extract subsets for LDS test evaluation.
     test_condition_dict = {
         "exp_name": args.test_exp_name,
@@ -304,24 +328,6 @@ def main(args):
             args.by_class,
         )
         test_data_list.append((test_masks, test_targets))
-
-    # Extract subsets for estimating data attribution scores.
-    print(f"Loading training data from {args.train_db}")
-
-    train_condition_dict = {
-        "dataset": args.dataset,
-        "removal_dist": args.removal_dist,
-        "method": args.method,
-        "exp_name": args.train_exp_name,
-    }
-    train_masks, train_targets, train_seeds = collect_data(
-        args.train_db,
-        train_condition_dict,
-        args.dataset,
-        args.model_behavior_key,
-        args.n_samples,
-        args.by_class,
-    )
 
     _, null_targets, _ = collect_data(
         args.null_db,
@@ -442,7 +448,6 @@ def main(args):
                 raise ValueError(
                     (f"Removal distribution: {args.removal_dist} does not exist.")
                 )
-            # print(np.argsort(-coeff.flatten())[:5])
             data_attr_list.append(coeff)
 
         # Calculate LDS for different training subsets.
@@ -483,6 +488,7 @@ def main(args):
         print(
             f"Confidence interval: ({lds_mean - lds_ci:.2f}, {lds_mean + lds_ci:.2f})"
         )
+    print(np.argsort(-coeff.flatten())[:9])
 
         # coeff = np.array(data_attr_list).flatten()
 

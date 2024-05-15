@@ -65,7 +65,7 @@ def main(args):
 
     training_time = []
 
-    for seed in range(args.subset_size):
+    for seed in range(1000, args.subset_size):
 
         removal_dir = "full"
         if args.excluded_class is not None:

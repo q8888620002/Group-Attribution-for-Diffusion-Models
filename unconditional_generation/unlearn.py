@@ -99,7 +99,7 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["iu", "ga", "gd"],
+        choices=["iu", "ga", "gd", "gd_u"],
     )
     parser.add_argument(
         "--iu_ratio", type=float, help="ratio for purturbing model weights", default=1.0
@@ -473,7 +473,7 @@ def main(args):
         model = apply_perturb(model, args.iu_ratio * delta_w)
         ema_model.step(model.parameters())
 
-    elif args.method == "gd":
+    elif args.method in ["gd", "gd_u"]:
         param_update_steps = 0
 
         progress_bar = tqdm(
@@ -717,8 +717,6 @@ def main(args):
                 info_dict["entropy"] = entropy
                 info_dict["cluster_count"] = cluster_count
                 info_dict["cluster_proportions"] = cluster_proportions
-                info_dict["remaining_idx"] = remaining_idx
-                info_dict["removed_idx"] = removed_idx
             else:
                 images_dataset = TensorDataset(generated_samples)
 

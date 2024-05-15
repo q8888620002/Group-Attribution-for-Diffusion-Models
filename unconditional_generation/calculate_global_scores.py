@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import time
 
 from lightning.pytorch import seed_everything
 
@@ -177,6 +178,7 @@ def main(args):
 
         pipeline, vqvae, vqvae_latent_dict = build_pipeline(args, model)
 
+        behavior_start_time = time.time()
         generated_samples = generate_images(args, pipeline)
 
         images_dataset = TensorDataset(generated_samples)
@@ -329,6 +331,7 @@ def main(args):
             info_dict["avg_precision"] = avg_precision_value
             info_dict["avg_recall"] = avg_recall_value
 
+    info_dict["total_sampling_time"] = time.time() - behavior_start_time
     info_dict["sample_dir"] = args.sample_dir
     info_dict["remaining_idx"] = remaining_idx
     info_dict["removed_idx"] = removed_idx
