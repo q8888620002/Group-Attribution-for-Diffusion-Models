@@ -20,12 +20,6 @@ def parse_args():
         default="artbench_post_impressionism",
     )
     parser.add_argument(
-        "--seed",
-        type=int,
-        help="random seed for model optimization (e.g., weight initialization)",
-        default=42,
-    )
-    parser.add_argument(
         "--removal_unit",
         type=str,
         help="unit of data for removal",
@@ -40,16 +34,11 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
-        "--removal_rank_proportion",
-        type=float,
-        help="proportion of top ranked units to remove",
-        default=0.1,
-    )
-    parser.add_argument(
-        "--num_images",
-        type=int,
-        help="number of generated images for local model behaviors",
-        default=5,
+        "--rank_method",
+        type=str,
+        choices=["max_pixel_similarity", "avg_aesthetic_score"],
+        default=None,
+        required=True,
     )
     args = parser.parse_args()
     return args
@@ -63,54 +52,47 @@ def main(args):
             DATASET_DIR, "artbench-10-imagefolder-split", "train"
         )
         training_config["train_data_dir"] = train_data_dir
-        training_config["output_dir"] = os.path.join(OUTDIR, f"seed{args.seed}")
-        training_config["seed"] = args.seed
         training_config["method"] = "retrain"
         training_config["removal_unit"] = args.removal_unit
-        training_config["removal_rank_proportion"] = args.removal_rank_proportion
     else:
         raise ValueError("--dataset should be one of ['artbench_post_impressionism']")
 
-    # Set up coutput directories and files.
-    exp_name = os.path.join(
-        args.dataset,
-        f"counterfactual_top_{args.removal_rank_proportion}",
-        f"seed{args.seed}",
-    )
+    rank_method = f"{args.removal_unit}_rank_{args.rank_method}"
     command_outdir = os.path.join(
         os.getcwd(),
         "text_to_image",
         "experiments",
         "commands",
         "counterfactual",
-        exp_name,
+        rank_method,
     )
     os.makedirs(command_outdir, exist_ok=True)
     command_file = os.path.join(command_outdir, "command.txt")
 
-    logdir = os.path.join(LOGDIR, "counterfactual", exp_name)
-    os.makedirs(logdir, exist_ok=True)
-
-    rank_method_list = ["max_pixel_similarity", "max_clip_similarity"]
-    prefix_list = [f"all_generated_images_{args.removal_unit}_rank"]
-    for i in range(args.num_images):
-        prefix_list.append(f"generated_image_{i}_{args.removal_unit}_rank")
-
     num_jobs = 0
     with open(command_file, "w") as handle:
-        command = ""
-        for rank_method in rank_method_list:
-            for prefix in prefix_list:
+        for removal_rank_proportion in [0.05, 0.1, 0.25, 0.4]:
+            for seed in [42, 43, 44, 45, 46]:
+                output_dir = os.path.join(OUTDIR, f"seed{seed}")
+
+                command = ""
                 command += "accelerate launch"
                 command += " --gpu_ids=0"
                 command += " --mixed_precision={}".format("fp16")
                 command += " text_to_image/train_text_to_image_lora.py"
+
                 for key, val in training_config.items():
                     command += " " + format_config_arg(key, val)
+
+                command += " --output_dir={}".format(output_dir)
                 removal_rank_file = os.path.join(
-                    args.removal_rank_dir, f"{prefix}_{rank_method}.npy"
+                    args.removal_rank_dir, f"all_generated_images_{rank_method}.npy"
                 )
                 command += " --removal_rank_file={}".format(removal_rank_file)
+                command += " --seed={}".format(seed)
+                command += " --removal_rank_proportion={}".format(
+                    removal_rank_proportion
+                )
 
                 handle.write(command + "\n")
                 command = ""
@@ -122,7 +104,10 @@ def main(args):
         os.getcwd(), "text_to_image", "experiments", "counterfactual.job"
     )
     array = f"1-{num_jobs}" if num_jobs > 1 else "1"
-    job_name = "train-" + exp_name.replace("/", "-")
+    job_name = f"counterfactual-{rank_method}"
+
+    logdir = os.path.join(LOGDIR, "counterfactual", rank_method)
+    os.makedirs(logdir, exist_ok=True)
     output = os.path.join(logdir, "run-%A-%a.out")
     update_job_file(
         job_file=job_file,
