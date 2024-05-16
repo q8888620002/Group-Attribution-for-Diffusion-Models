@@ -10,7 +10,6 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
-import wandb  # wandb for monitoring loss https://wandb.ai/
 from accelerate import Accelerator
 from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader, Subset
@@ -200,7 +199,7 @@ def parse_args():
         action="store_true",
         default=False,
         help="Whether to save the null model",
-    )    
+    )
     return parser.parse_args()
 
 
@@ -236,7 +235,9 @@ def main(args):
 
     removal_dir = "full"
     if args.excluded_class is not None:
-        removal_dir = f"excluded_{args.excluded_class}"
+        excluded_class = [int(k) for k in args.excluded_class.split(",")]
+        excluded_class.sort()
+        removal_dir = f"excluded_{excluded_class}"
     if args.removal_dist is not None:
         removal_dir = f"{args.removal_dist}/{args.removal_dist}"
         if args.removal_dist == "datamodel":
@@ -302,8 +303,8 @@ def main(args):
         remaining_idx, removed_idx = removed_idx, remaining_idx
 
     # Save the removed and remaining indices for reproducibility.
-    np.save( os.path.join(model_outdir, "remaining_idx.npy"), remaining_idx)
-    np.save( os.path.join(model_outdir, "removed_idx.npy"), removed_idx)              
+    np.save(os.path.join(model_outdir, "remaining_idx.npy"), remaining_idx)
+    np.save(os.path.join(model_outdir, "removed_idx.npy"), removed_idx)
 
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
@@ -525,7 +526,7 @@ def main(args):
                 os.path.join(vqvae_latent_dir, "vqvae_output.pt"),
             )
             pipeline.to(device)
-            
+
             accelerator.print(
                 "VQVAE output saved. Set precompute_state=reuse to unload VQVAE model."
             )
@@ -629,7 +630,7 @@ def main(args):
         pipeline_scheduler,
         lr_scheduler,
     )
-    
+
     if args.save_null_model and accelerator.is_main_process:
         torch.save(
             {
@@ -641,9 +642,7 @@ def main(args):
                 "removed_idx": torch.from_numpy(removed_idx),
                 "total_steps_time": total_steps_time,
             },
-            os.path.join(
-                model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"
-            ),
+            os.path.join(model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"),
         )
         print(f"Checkpoint saved at step {param_update_steps}")
 

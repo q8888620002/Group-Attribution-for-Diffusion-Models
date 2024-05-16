@@ -240,7 +240,7 @@ def collect_data(
 
                 if seed not in removal_seeds:
                     if record["method"] == "gd":
-                        if int(record["gd_steps"]) == 1000:
+                        if int(record["gd_steps"]) == 500:
                             remaining_masks.append(remaining_mask)
                             model_behaviors.append(model_behavior)
                             removal_seeds.append(seed)
@@ -488,7 +488,7 @@ def main(args):
         print(
             f"Confidence interval: ({lds_mean - lds_ci:.2f}, {lds_mean + lds_ci:.2f})"
         )
-    print(np.argsort(-coeff.flatten())[:9])
+    print(np.argsort(-coeff.flatten())[:15])
 
         # coeff = np.array(data_attr_list).flatten()
 

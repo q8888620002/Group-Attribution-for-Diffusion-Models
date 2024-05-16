@@ -103,7 +103,7 @@ class CIFAR100_original(CIFAR100):
             i for i, target in enumerate(self.targets) if target in self.classes_to_keep
         ]
         self.data = self.data[filtered_indices]
-        
+
         # reset class label
 
         self.targets = [
@@ -349,6 +349,13 @@ def create_dataset(
         )
     return dataset
 
+def removed_by_classes(index_to_class, remaining_idx):
+    """Function that maps data index to subgroup index"""
+    remaining_classes = set(index_to_class[idx] for idx in remaining_idx)
+    all_classes = set(index_to_class.values())
+    removed_classes = all_classes - remaining_classes
+
+    return np.array(list(remaining_classes)), np.array(list(removed_classes))
 
 def remove_data_by_class(
     dataset: torch.utils.data.Dataset, excluded_class: list
@@ -367,7 +374,10 @@ def remove_data_by_class(
         A numpy array with the remaining indices, and another numpy array with the
         indices corresponding to the removed data.
     """
-    removed_idx = [i for i, (_, label) in enumerate(dataset) if label in excluded_class]
+    unique_values = sorted(set(data[1] for data in dataset))
+    value_to_number = {value: i for i, value in enumerate(unique_values)}
+
+    removed_idx = [i for i, batch in enumerate(dataset) if value_to_number[batch[1]] in excluded_class]
     removed_idx = np.array(removed_idx)
     remaining_idx = np.setdiff1d(np.arange(len(dataset)), removed_idx)
     return remaining_idx, removed_idx

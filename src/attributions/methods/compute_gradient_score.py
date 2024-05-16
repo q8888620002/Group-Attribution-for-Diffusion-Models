@@ -129,7 +129,7 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
         coeff = scores
 
     if args.by_class:
-        coeff = aggregate_by_class(coeff, dataset)
+        coeff = aggregate_by_class(coeff, dataset, args.by)
     else:
         coeff = scores
 

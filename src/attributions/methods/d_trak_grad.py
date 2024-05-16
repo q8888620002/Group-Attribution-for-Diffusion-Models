@@ -322,7 +322,7 @@ def main(args):
     if args.sample_dir is None:
         if not args.calculate_gen_grad:
             n_samples = len(train_dataset)
-            
+
             remaining_dataloader = DataLoader(
                 Subset(train_dataset, remaining_idx),
                 batch_size=config["batch_size"],
@@ -452,25 +452,24 @@ def main(args):
             )
 
             with torch.no_grad():
-
-                example_image = example_inputs["sample"]
-
                 noises = torch.randn(
-                    example_image.shape,
+                    example_inputs["sample"].shape,
                     generator=noise_generator,
                     device=args.device,
                 )
                 input = noises
 
-                for t in range(0, 1000, 1000 // args.k_partition):
+                for t in range(0, 1000):
+                    if t in [i for i in range(0,1000, 1000 // args.k_partition)]:
+                        noise_latents.append(input.squeeze(0).detach().cpu())
+
                     noisy_residual = pipeline.unet(input, t).sample
                     previous_noisy_image = pipeline.scheduler.step(
                         noisy_residual, t, input
                     ).prev_sample
                     input = previous_noisy_image
-                    noise_latents.append(input.squeeze(0).detach().cpu())
-                noise_latents = torch.stack(noise_latents)
 
+                noise_latents = torch.stack(noise_latents)
             generated_samples.append(noise_latents)
         generated_samples = torch.stack(generated_samples)
 
@@ -485,7 +484,6 @@ def main(args):
             num_workers=1,
             pin_memory=True,
         )
-
 
     dstore_keys = np.memmap(
         save_dir,
