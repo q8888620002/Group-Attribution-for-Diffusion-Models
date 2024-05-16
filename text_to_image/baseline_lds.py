@@ -163,7 +163,19 @@ def main(args):
         "max_clip_similarity",
     ]
     if "aesthetic_score" in args.model_behavior_key:
-        baseline_list.extend(["avg_aesthetic_score", "max_aesthetic_score"])
+        baseline_list.extend(
+            [
+                "avg_grad_sim",
+                "max_grad_sim",
+                "avg_aesthetic_score",
+                "max_aesthetic_score",
+                "relative_influence",
+                "renorm_influence",
+                "trak",
+                "journey_trak",
+                "dtrak",
+            ]
+        )
     baseline_list = [f"{args.group}_{baseline}" for baseline in baseline_list]
 
     for baseline in baseline_list:
