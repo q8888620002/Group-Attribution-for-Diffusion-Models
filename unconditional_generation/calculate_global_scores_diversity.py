@@ -3,7 +3,7 @@
 import argparse
 import json
 import os
-import time 
+import time
 
 from lightning.pytorch import seed_everything
 
@@ -169,7 +169,9 @@ def main(args):
 
     removal_dir = "full"
     if args.excluded_class is not None:
-        removal_dir = f"excluded_{args.excluded_class}"
+        excluded_class = [int(k) for k in args.excluded_class.split(",")]
+        excluded_class.sort()
+        removal_dir = f"excluded_{excluded_class}"
     if args.removal_dist is not None:
         removal_dir = f"{args.removal_dist}/{args.removal_dist}"
         if args.removal_dist == "datamodel":
@@ -222,7 +224,7 @@ def main(args):
 
     info_dict["sample_dir"] = args.sample_dir
     info_dict["cluster_count"] = cluster_count
-    info_dict["cluster_proportions"]=cluster_proportions
+    info_dict["cluster_proportions"] = cluster_proportions
     info_dict["remaining_idx"] = remaining_idx
     info_dict["removed_idx"] = removed_idx
     info_dict["total_sampling_time"] = time.time() - behavior_start_time
@@ -231,22 +233,34 @@ def main(args):
         f.write(json.dumps(info_dict) + "\n")
     print(f"Results saved to the database at {args.db}")
 
-    os.makedirs(args.db.replace(".jsonl",""), exist_ok=True)
+    os.makedirs(args.db.replace(".jsonl", ""), exist_ok=True)
     # print(args.db.replace(".jsonl","."))
-    
-    sample_fig.savefig(os.path.join(args.db.replace(".jsonl",""), os.path.join(
+
+    sample_fig.savefig(
+        os.path.join(
+            args.db.replace(".jsonl", ""),
+            os.path.join(
                 args.dataset,
                 args.method,
                 "models",
                 removal_dir,
-            ).replace("/", "_")+"_sample.jpg"))
-    
-    hist_fig.savefig(os.path.join(args.db.replace(".jsonl",""), os.path.join(
+            ).replace("/", "_")
+            + "_sample.jpg",
+        )
+    )
+
+    hist_fig.savefig(
+        os.path.join(
+            args.db.replace(".jsonl", ""),
+            os.path.join(
                 args.dataset,
                 args.method,
                 "models",
                 removal_dir,
-            ).replace("/", "_")+"_hist.jpg"))    
+            ).replace("/", "_")
+            + "_hist.jpg",
+        )
+    )
 
 
 if __name__ == "__main__":

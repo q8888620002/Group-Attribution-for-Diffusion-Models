@@ -450,7 +450,7 @@ def main(args):
     ), "number of target should match number of samples in sample_dir."
 
     data_attr_list = coeff
-    print(np.argsort(-coeff.flatten())[:9])
+    print(np.argsort(-coeff.flatten())[:15])
 
     lds_mean, lds_ci = evaluate_lds(data_attr_list, test_data_list, num_targets)
 
