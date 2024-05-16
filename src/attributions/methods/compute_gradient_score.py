@@ -24,23 +24,27 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
 
     if args.gradient_type == "journey_trak":
         val_grad_path = os.path.join(
-            args.sample_dir,
+            constants.OUTDIR,
+            args.dataset,
             "d_trak",
-            "reference_f=loss_t=cumulative",
+            "full",
+            f"gen_f=loss_t=uniform_k={args.k_partition}_d={args.projector_dim}",
         )
     else:
         val_grad_path = os.path.join(
             args.sample_dir,
             "d_trak",
-            f"reference_f={model_behavior}_t={t_strategy}",
+            f"reference_f={model_behavior}_t={t_strategy}_k={args.k_partition}_d={args.projector_dim}",
         )
     print(f"Loading pre-calculated grads for validation set from {val_grad_path}...")
+
+    n_val_samples =  args.sample_size if args.gradient_type == "journey_trak" else len(sample_dataset)
 
     val_phi = np.memmap(
         val_grad_path,
         dtype=np.float32,
         mode="r",
-        shape=(len(sample_dataset), args.projector_dim),
+        shape=(n_val_samples, args.projector_dim),
     )
     val_phi = val_phi[: args.sample_size]
 
@@ -57,7 +61,7 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
                 args.dataset,
                 "d_track",
                 removal_dir,
-                f"train_f={args.trak_behavior}_t={args.t_strategy}",
+                f"train_f={args.trak_behavior}_t={args.t_strategy}_k={args.k_partition}_d={args.projector_dim}",
             )
             train_phi = np.memmap(
                 train_grad_path,
@@ -81,7 +85,7 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
             f"train_f={model_behavior}_t={t_strategy}",
         )
         kernel_path = os.path.join(
-            train_grad_dir, f"kernel_train_f={model_behavior}_t={t_strategy}.npy"
+            train_grad_dir, f"kernel_train_f={model_behavior}_t={t_strategy}_k={args.k_partition}_d={args.projector_dim}.npy"
         )
 
         print(
@@ -93,7 +97,7 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
             mode="r",
             shape=(len(dataset), args.projector_dim),
         )
-        
+
         if os.path.isfile(kernel_path):
             # Check if the kernel file exists
             print("Kernel file exists. Loading...")
@@ -110,9 +114,9 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
             scores = np.dot(val_phi, train_phi.T)
         else:
             if args.gradient_type == "relative_if":
-                magnitude = np.linalg.norm((train_phi @ kernel).T)
+                magnitude = np.linalg.norm((train_phi @ kernel).T, axis=0)
             elif args.gradient_type == "renormalized_if":
-                magnitude = np.linalg.norm(train_phi)
+                magnitude = np.linalg.norm(train_phi.T, axis=0)
             else:
                 magnitude = 1.0
 
@@ -125,8 +129,8 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
         coeff = scores
 
     if args.by_class:
-        coeff = -aggregate_by_class(coeff, dataset)
+        coeff = aggregate_by_class(coeff, dataset)
     else:
-        coeff = -scores
+        coeff = scores
 
     return coeff

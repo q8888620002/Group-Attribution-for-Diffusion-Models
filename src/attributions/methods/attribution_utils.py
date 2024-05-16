@@ -11,6 +11,72 @@ from tqdm import tqdm
 from src.datasets import ImageDataset, create_dataset
 
 
+
+def aggregate_by_class(scores, dataset, by="mean"):
+    """
+    Compute mean scores by classes and return group-based means.
+
+    :param scores: sample-based coefficients
+    :param dataset:
+        dataset, each entry should be a tuple or list with the label as the last element
+    :return: Numpy array with mean scores, indexed by label.
+    """
+    if scores.ndim == 1:
+        scores = scores.reshape(1, -1)
+
+    n, _ = scores.shape
+
+
+    unique_values = sorted(set(data[1] for data in dataset))
+    value_to_number = {value: i  for i, value in enumerate(unique_values)}
+    labels = np.array([value_to_number[entry[1]] for entry in dataset])
+    num_labels = len(np.unique(labels))
+
+    result = np.zeros((n, num_labels))
+
+    for i in range(num_labels):
+        # Create a mask for columns corresponding to the current label
+        label_mask = labels == i
+        # Average scores across groups
+        if by == "mean":
+            result[:, i] = np.divide(
+                scores[:, label_mask].sum(axis=1), np.sum(label_mask)
+            )
+        elif by == "max":
+            result[:, i] = np.max(scores[:, label_mask])
+
+    return result
+
+
+def process_images_np(file_list, max_size=None):
+    """Function to load and process images into numpy"""
+
+    valid_extensions = {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
+    images = []
+    filtered_files = [
+        file for file in file_list if file.split(".")[-1].lower() in valid_extensions
+    ]
+
+    if max_size is not None:
+        filtered_files = filtered_files[:max_size]
+
+    for filename in tqdm(filtered_files):
+        try:
+            image = Image.open(filename).convert("RGB")
+            image = np.array(image).astype(np.float32)
+
+            # Convert PIL Image to NumPy array and scale from 0 to 1
+            image_np = np.array(image, dtype=np.float32) / 255.0
+
+            # Normalize: shift and scale the image to have pixel values in range [-1, 1]
+            image_np = (image_np - 0.5) / 0.5
+
+            images.append(image_np)
+        except Exception as e:
+            print(f"Failed to process {filename}: {e}")
+
+    return np.stack(images) if images else np.array([])
+
 class CLIPScore:
     """Class for initializing CLIP model and calculating clip score."""
 
@@ -95,72 +161,6 @@ class CLIPScore:
             coeff = aggregate_by_class(coeff, dataset, by)
 
         return coeff
-
-
-def aggregate_by_class(scores, dataset, by="mean"):
-    """
-    Compute mean scores by classes and return group-based means.
-
-    :param scores: sample-based coefficients
-    :param dataset:
-        dataset, each entry should be a tuple or list with the label as the last element
-    :return: Numpy array with mean scores, indexed by label.
-    """
-    if scores.ndim == 1:
-        scores = scores.reshape(1, -1)
-
-    n, _ = scores.shape
-
-
-    unique_values = sorted(set(data[1] for data in dataset))
-    value_to_number = {value: i  for i, value in enumerate(unique_values)}
-    labels = np.array([value_to_number[entry[1]] for entry in dataset])
-    num_labels = len(np.unique(labels))
-
-    result = np.zeros((n, num_labels))
-
-    for i in range(num_labels):
-        # Create a mask for columns corresponding to the current label
-        label_mask = labels == i
-        # Average scores across groups
-        if by == "mean":
-            result[:, i] = np.divide(
-                scores[:, label_mask].sum(axis=1), np.sum(label_mask)
-            )
-        elif by == "max":
-            result[:, i] = np.max(scores[:, label_mask])
-
-    return result
-
-
-def process_images_np(file_list, max_size=None):
-    """Function to load and process images into numpy"""
-
-    valid_extensions = {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
-    images = []
-    filtered_files = [
-        file for file in file_list if file.split(".")[-1].lower() in valid_extensions
-    ]
-
-    if max_size is not None:
-        filtered_files = filtered_files[:max_size]
-
-    for filename in tqdm(filtered_files):
-        try:
-            image = Image.open(filename).convert("RGB")
-            image = np.array(image).astype(np.float32)
-
-            # Convert PIL Image to NumPy array and scale from 0 to 1
-            image_np = np.array(image, dtype=np.float32) / 255.0
-
-            # Normalize: shift and scale the image to have pixel values in range [-1, 1]
-            image_np = (image_np - 0.5) / 0.5
-
-            images.append(image_np)
-        except Exception as e:
-            print(f"Failed to process {filename}: {e}")
-
-    return np.stack(images) if images else np.array([])
 
 
 def pixel_distance(

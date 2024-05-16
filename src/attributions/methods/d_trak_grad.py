@@ -321,6 +321,8 @@ def main(args):
 
     if args.sample_dir is None:
         if not args.calculate_gen_grad:
+            n_samples = len(train_dataset)
+            
             remaining_dataloader = DataLoader(
                 Subset(train_dataset, remaining_idx),
                 batch_size=config["batch_size"],
@@ -328,6 +330,7 @@ def main(args):
                 num_workers=1,
                 pin_memory=True,
             )
+
             save_dir = os.path.join(
                 args.outdir,
                 args.dataset,
@@ -355,8 +358,7 @@ def main(args):
             ]
         )
         sample_dataset = ImageDataset(args.sample_dir, preprocess)
-        remaining_idx = np.arange(len(sample_dataset))
-
+        n_samples = len(sample_dataset)
         remaining_dataloader = DataLoader(
             sample_dataset,
             batch_size=config["batch_size"],
@@ -402,7 +404,9 @@ def main(args):
         pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256")
         pipeline.unet = model
 
-        pipeline.scheduler.set_timesteps(config["scheduler_config"]["num_train_timesteps"])
+        pipeline.scheduler.set_timesteps(
+            config["scheduler_config"]["num_train_timesteps"]
+        )
         vqvae = pipeline.vqvae
         pipeline.vqvae.config.scaling_factor = 1
         vqvae.requires_grad_(False)
@@ -439,8 +443,9 @@ def main(args):
     if args.calculate_gen_grad:
         # Generate samples for Journey TRAK
         generated_samples = []
+        n_samples = args.n_samples
 
-        for random_seed in tqdm(range(args.n_samples)):
+        for random_seed in tqdm(range(n_samples)):
             noise_latents = []
             noise_generator = torch.Generator(device=args.device).manual_seed(
                 random_seed
@@ -469,21 +474,24 @@ def main(args):
             generated_samples.append(noise_latents)
         generated_samples = torch.stack(generated_samples)
 
-        bogus_labels = torch.zeros(args.n_samples, dtype=torch.int)
-        images_dataset = TensorDataset(generated_samples, transform=None, label=bogus_labels)
+        bogus_labels = torch.zeros(n_samples, dtype=torch.int)
+        images_dataset = TensorDataset(
+            generated_samples, transform=None, label=bogus_labels
+        )
 
         remaining_dataloader = DataLoader(
             images_dataset,
             batch_size=config["batch_size"],
             num_workers=1,
-            pin_memory=True
+            pin_memory=True,
         )
+
 
     dstore_keys = np.memmap(
         save_dir,
         dtype=np.float32,
         mode="w+",
-        shape=(len(remaining_idx), args.projector_dim),
+        shape=(n_samples, args.projector_dim),
     )
 
     # Initialize random matrix projector from trak
@@ -692,9 +700,7 @@ def main(args):
         bsz = image.shape[0]
 
         if args.dataset == "celeba" and not args.calculate_gen_grad:
-            if (
-                args.sample_dir is None
-            ):  # Compute TRAK with pre-computed embeddings.
+            if args.sample_dir is None:  # Compute TRAK with pre-computed embeddings.
                 imageid = batch[2]
                 image = torch.stack(
                     [vqvae_latent_dict[imageid[i]] for i in range(len(image))]
@@ -715,11 +721,8 @@ def main(args):
             seed_everything(args.opt_seed * 1000 + t)  # !!!!
 
             if args.calculate_gen_grad:
-                dim = image.shape[-1]
-                channel_size = image.shape[2]
-                noise = torch.randn((bsz, channel_size, dim, dim)).to(device)
                 noisy_latents = image[:, index_t, :, :, :]
-
+                noise = torch.randn_like(noisy_latents)
             else:
                 noise = torch.randn_like(image)
                 noisy_latents = pipeline_scheduler.add_noise(image, noise, timesteps)

@@ -164,6 +164,18 @@ def parse_args():
         default=1024,
         help="Dimension for TRAK projector",
     )
+    parser.add_argument(
+        "--t_strategy",
+        type=str,
+        choices=["uniform", "cumulative"],
+        help="strategy for sampling time steps",
+    )
+    parser.add_argument(
+        "--k_partition",
+        type=int,
+        default=None,
+        help="Partition for embeddings across time steps.",
+    )
     # file path for local model behavior, e.g. pixel_distance, clip score
     parser.add_argument(
         "--by",
