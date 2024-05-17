@@ -120,7 +120,15 @@ def main(args):
     )  # num_images x proj_dim
     journey_grads = torch.load(
         os.path.join(
-            args.gradient_dir, "generated_journey", f"emb_f=loss_{grad_file_suffix}"
+            args.gradient_dir,
+            "generated_journey",
+            (
+                "emb_f=loss"
+                + "_num_journey_points=50"
+                + "_num_journey_noises=1"
+                + f"_proj_dim={args.proj_dim}"
+                + ".pt"
+            ),
         )
     ).to(
         "cuda"
