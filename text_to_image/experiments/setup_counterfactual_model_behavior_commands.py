@@ -77,8 +77,8 @@ def main(args):
         LOGDIR, args.dataset, "counterfactual_model_behaviors", rank_method
     )
     os.makedirs(ckpt_dir, exist_ok=True)
-    image_parent_dir = os.path.join(OUTDIR, args.dataset, "counterfactual", "images")
-    os.makedirs(image_parent_dir, exist_ok=True)
+    img_parent_dir = os.path.join(OUTDIR, args.dataset, "counterfactual", "images")
+    os.makedirs(img_parent_dir, exist_ok=True)
 
     command_outdir = os.path.join(
         os.getcwd(),
@@ -114,8 +114,8 @@ def main(args):
                         f"top_{removal_rank_proportion}_opt_seed={opt_seed}.pt",
                     )
                     command += " --ckpt_path={}".format(ckpt_path)
-                    command += " --image_dir={}".format(
-                        os.path.join(image_parent_dir, exp_name)
+                    command += " --img_dir={}".format(
+                        os.path.join(img_parent_dir, exp_name)
                     )
                     lora_dir = os.path.join(
                         OUTDIR,
