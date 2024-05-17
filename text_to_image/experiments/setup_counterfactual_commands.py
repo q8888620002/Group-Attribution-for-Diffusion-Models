@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument(
         "--rank_method",
         type=str,
-        choices=["max_pixel_similarity", "avg_aesthetic_score"],
+        choices=["max_pixel_similarity", "avg_aesthetic_score", "dtrak"],
         default=None,
         required=True,
     )
@@ -74,48 +74,60 @@ def main(args):
         for removal_rank_proportion in [0.05, 0.1, 0.25, 0.4]:
             for seed in [42, 43, 44, 45, 46]:
                 output_dir = os.path.join(OUTDIR, f"seed{seed}")
-
-                command = ""
-                command += "accelerate launch"
-                command += " --gpu_ids=0"
-                command += " --mixed_precision={}".format("fp16")
-                command += " text_to_image/train_text_to_image_lora.py"
-
-                for key, val in training_config.items():
-                    command += " " + format_config_arg(key, val)
-
-                command += " --output_dir={}".format(output_dir)
-                removal_rank_file = os.path.join(
-                    args.removal_rank_dir, f"all_generated_images_{rank_method}.npy"
+                model_file = os.path.join(
+                    output_dir,
+                    args.dataset,
+                    "retrain",
+                    "models",
+                    f"counterfactual_top_{removal_rank_proportion}",
+                    f"all_generated_images_{rank_method}",
+                    "pytorch_lora_weights.safetensors",
                 )
-                command += " --removal_rank_file={}".format(removal_rank_file)
-                command += " --seed={}".format(seed)
-                command += " --removal_rank_proportion={}".format(
-                    removal_rank_proportion
-                )
+                if not os.path.exists(model_file):
+                    command = ""
+                    command += "accelerate launch"
+                    command += " --gpu_ids=0"
+                    command += " --mixed_precision={}".format("fp16")
+                    command += " text_to_image/train_text_to_image_lora.py"
 
-                handle.write(command + "\n")
-                command = ""
-                num_jobs += 1
-    print(f"Commands saved to {command_file}")
+                    for key, val in training_config.items():
+                        command += " " + format_config_arg(key, val)
 
-    # Update the SLURM job submission file.
-    job_file = os.path.join(
-        os.getcwd(), "text_to_image", "experiments", "counterfactual.job"
-    )
-    array = f"1-{num_jobs}" if num_jobs > 1 else "1"
-    job_name = f"counterfactual-{rank_method}"
+                    command += " --output_dir={}".format(output_dir)
+                    removal_rank_file = os.path.join(
+                        args.removal_rank_dir, f"all_generated_images_{rank_method}.npy"
+                    )
+                    command += " --removal_rank_file={}".format(removal_rank_file)
+                    command += " --seed={}".format(seed)
+                    command += " --removal_rank_proportion={}".format(
+                        removal_rank_proportion
+                    )
 
-    logdir = os.path.join(LOGDIR, "counterfactual", rank_method)
-    os.makedirs(logdir, exist_ok=True)
-    output = os.path.join(logdir, "run-%A-%a.out")
-    update_job_file(
-        job_file=job_file,
-        job_name=job_name,
-        output=output,
-        array=array,
-        command_file=command_file,
-    )
+                    handle.write(command + "\n")
+                    command = ""
+                    num_jobs += 1
+    if num_jobs == 0:
+        print("All jobs have been completed!")
+    else:
+        print(f"Commands saved to {command_file}")
+
+        # Update the SLURM job submission file.
+        job_file = os.path.join(
+            os.getcwd(), "text_to_image", "experiments", "counterfactual.job"
+        )
+        array = f"1-{num_jobs}" if num_jobs > 1 else "1"
+        job_name = f"counterfactual-{rank_method}"
+
+        logdir = os.path.join(LOGDIR, "counterfactual", rank_method)
+        os.makedirs(logdir, exist_ok=True)
+        output = os.path.join(logdir, "run-%A-%a.out")
+        update_job_file(
+            job_file=job_file,
+            job_name=job_name,
+            output=output,
+            array=array,
+            command_file=command_file,
+        )
 
 
 if __name__ == "__main__":
