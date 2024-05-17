@@ -445,6 +445,9 @@ def main(args):
         generated_samples = []
         n_samples = args.n_samples
 
+        pipeline.scheduler.num_train_steps = 1000
+        pipeline.scheduler.num_inference_steps = 100
+
         for random_seed in tqdm(range(n_samples)):
             noise_latents = []
             noise_generator = torch.Generator(device=args.device).manual_seed(
@@ -458,18 +461,19 @@ def main(args):
                     device=args.device,
                 )
                 input = noises
+                noise_latents.append(input.squeeze(0).detach().cpu())
 
-                for t in range(0, 1000):
-                    if t in [i for i in range(0,1000, 1000 // args.k_partition)]:
-                        noise_latents.append(input.squeeze(0).detach().cpu())
+                for t in range(1000, 0, 1000 // args.k_partition):
 
                     noisy_residual = pipeline.unet(input, t).sample
                     previous_noisy_image = pipeline.scheduler.step(
                         noisy_residual, t, input
                     ).prev_sample
                     input = previous_noisy_image
+                    noise_latents.append(input.squeeze(0).detach().cpu())
 
-                noise_latents = torch.stack(noise_latents)
+                noise_latents = torch.stack(noise_latents[::-1]) #  flip the order so noise_latents[0] gives us the final image
+
             generated_samples.append(noise_latents)
         generated_samples = torch.stack(generated_samples)
 
