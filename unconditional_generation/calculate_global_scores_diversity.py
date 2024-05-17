@@ -171,7 +171,9 @@ def main(args):
     if args.excluded_class is not None:
         excluded_class = [int(k) for k in args.excluded_class.split(",")]
         excluded_class.sort()
-        removal_dir = f"excluded_{excluded_class}"
+        excluded_class_str = ",".join(map(str, excluded_class))
+
+        removal_dir = f"excluded_{excluded_class_str}"
     if args.removal_dist is not None:
         removal_dir = f"{args.removal_dist}/{args.removal_dist}"
         if args.removal_dist == "datamodel":
