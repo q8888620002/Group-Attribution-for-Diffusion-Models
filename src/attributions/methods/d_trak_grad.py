@@ -461,22 +461,19 @@ def main(args):
                     device=args.device,
                 )
                 input = noises
-                noise_latents.append(input.squeeze(0).detach().cpu())
 
-                for t in range(1000, 0, 1000 // args.k_partition):
+                for t in range(999, -1, -1000 // args.k_partition):
+                    noise_latents.append(input.squeeze(0).detach().cpu())
 
                     noisy_residual = pipeline.unet(input, t).sample
                     previous_noisy_image = pipeline.scheduler.step(
                         noisy_residual, t, input
                     ).prev_sample
                     input = previous_noisy_image
-                    noise_latents.append(input.squeeze(0).detach().cpu())
 
                 noise_latents = torch.stack(noise_latents[::-1]) #  flip the order so noise_latents[0] gives us the final image
-
             generated_samples.append(noise_latents)
         generated_samples = torch.stack(generated_samples)
-
         bogus_labels = torch.zeros(n_samples, dtype=torch.int)
         images_dataset = TensorDataset(
             generated_samples, transform=None, label=bogus_labels
