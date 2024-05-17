@@ -152,6 +152,12 @@ def parse_args():
         help="number of time points selected for Journey-TRAK",
     )
     parser.add_argument(
+        "--num_journey_noises",
+        type=int,
+        default=1,
+        help="number of noises to sample for intermediate latent at each time step",
+    )
+    parser.add_argument(
         "--resolution",
         type=int,
         default=256,
@@ -480,12 +486,13 @@ def main():
         generator = torch.Generator(device="cuda")
         generator = generator.manual_seed(args.generation_seed)
 
-        all_step_idx, all_latents, all_generated_image_idx = [], [], []
+        all_step_idx, all_t, all_latents, all_generated_image_idx = [], [], [], []
         print("Obtaining latents for generated images...")
         for i in tqdm(range(args.num_images)):
-            step_idx_list, latents_list = [], []
+            step_idx_list, t_list, latents_list = [], [], []
             def extract_latents(step_idx, t, latents):
                 step_idx_list.append(step_idx)
+                t_list.append(t.detach().cpu())
                 latents_list.append(latents.detach().cpu())
 
             _ = pipeline(
@@ -502,6 +509,7 @@ def main():
             if args.source == "generated":
                 # Collect only the final latent variable.
                 all_step_idx.append(step_idx_list[-1])
+                all_t.append(t_list[-1])
                 all_latents.append(latents_list[-1])
                 all_generated_image_idx.append(generated_image_idx_list[-1])
 
@@ -513,6 +521,7 @@ def main():
                     step=num_inference_steps // args.num_journey_points,
                 ):
                     all_step_idx.append(step_idx_list[j])
+                    all_t.append(t_list[j])
                     all_latents.append(latents_list[j])
                     all_generated_image_idx.append(generated_image_idx_list[j])
             else:
@@ -524,18 +533,28 @@ def main():
         group_df.to_csv(os.path.join(args.output_dir, "group.csv"), index=True)
 
         all_latents = torch.cat(all_latents).to(weight_dtype)
+        all_t = torch.stack(all_t)
         all_encoder_hidden_states = []
         for _ in range(all_latents.size(0)):
             all_encoder_hidden_states.append(encoder_hidden_states.detach().cpu().clone())
         all_encoder_hidden_states = torch.cat(all_encoder_hidden_states)
     
-    dataloader = torch.utils.data.DataLoader(
-        torch.utils.data.TensorDataset(all_latents, all_encoder_hidden_states),
-        shuffle=False,  # Do not turn on shuffle to keep the group mapping intact!
-        batch_size=args.train_batch_size,
-        num_workers=args.dataloader_num_workers,
-        pin_memory=True,
-    )
+    if args.source == "generated_journey":
+        dataloader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(all_latents, all_t, all_encoder_hidden_states),
+            shuffle=False,  # Do not turn on shuffle to keep the group mapping intact!
+            batch_size=args.train_batch_size,
+            num_workers=args.dataloader_num_workers,
+            pin_memory=True,
+        )
+    else:
+        dataloader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(all_latents, all_encoder_hidden_states),
+            shuffle=False,  # Do not turn on shuffle to keep the group mapping intact!
+            batch_size=args.train_batch_size,
+            num_workers=args.dataloader_num_workers,
+            pin_memory=True,
+        )
 
     unet.eval()
 
@@ -707,53 +726,96 @@ def main():
     ft_compute_grad = grad(compute_f)
     ft_compute_sample_grad = vmap(ft_compute_grad, in_dims=(None, None, 0, 0, 0, 0,))
 
-    all_embs = []
-    for (latents, encoder_hidden_states) in tqdm(dataloader):
-        latents = latents.to("cuda")
-        encoder_hidden_states = encoder_hidden_states.to("cuda")
+    if args.source == "generated_journey":
+        all_embs = []
+        for (latents, timesteps, encoder_hidden_states) in tqdm(dataloader):
+            latents = latents.to("cuda")
+            timesteps = timesteps.to("cuda")
+            encoder_hidden_states = encoder_hidden_states.to("cuda")
 
-        bsz = latents.shape[0]
-        selected_timesteps = range(0, 1000, 1000 // args.num_timesteps)
+            for index_noise in range(args.num_journey_noises):    
+                noise = torch.randn_like(latents)
+                noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-        for index_t, t in enumerate(selected_timesteps):
-            timesteps = torch.tensor([t]*bsz, device=latents.device)
-            timesteps = timesteps.long()
-                    
-            noise = torch.randn_like(latents)
-            noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+                # Get the target for loss depending on the prediction type
+                if noise_scheduler.config.prediction_type == "epsilon":
+                    target = noise
+                elif noise_scheduler.config.prediction_type == "v_prediction":
+                    target = noise_scheduler.get_velocity(latents, noise, timesteps)
+                else:
+                    raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+                
+                ft_per_sample_grads = ft_compute_sample_grad(
+                    params,
+                    buffers,
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states,
+                    target,
+                )
 
-            # Get the target for loss depending on the prediction type
-            if noise_scheduler.config.prediction_type == "epsilon":
-                target = noise
-            elif noise_scheduler.config.prediction_type == "v_prediction":
-                target = noise_scheduler.get_velocity(latents, noise, timesteps)
-            else:
-                raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
-            
-            ft_per_sample_grads = ft_compute_sample_grad(
-                params,
-                buffers,
-                noisy_latents,
-                timesteps,
-                encoder_hidden_states,
-                target,
-            )
+                ft_per_sample_grads = vectorize_and_ignore_buffers(
+                    list(ft_per_sample_grads.values())
+                )
+                if index_noise == 0:
+                    emb = ft_per_sample_grads
+                else:
+                    emb += ft_per_sample_grads
+            emb = emb / args.num_journey_noises
+            emb = projector.project(emb, model_id=0)
+            all_embs.append(emb.detach().cpu())
 
-            ft_per_sample_grads = vectorize_and_ignore_buffers(
-                list(ft_per_sample_grads.values())
-            )  
-            
-            if index_t==0:
-                emb = ft_per_sample_grads
-            else:
-                emb += ft_per_sample_grads
-        emb = emb / args.num_timesteps
-        emb = projector.project(emb, model_id=0)
-        all_embs.append(emb.detach().cpu())
+        all_embs = torch.cat(all_embs)
+        output_filename = f"emb_f={args.f}_num_journey_points={args.num_journey_points}_num_journey_noises={args.num_journey_noises}_proj_dim={args.proj_dim}.pt"
+        torch.save(all_embs, os.path.join(args.output_dir, output_filename))
+    else:
+        all_embs = []
+        for (latents, encoder_hidden_states) in tqdm(dataloader):
+            latents = latents.to("cuda")
+            encoder_hidden_states = encoder_hidden_states.to("cuda")
 
-    all_embs = torch.cat(all_embs)
-    output_filename = f"emb_f={args.f}_num_timesteps={args.num_timesteps}_proj_dim={args.proj_dim}.pt"
-    torch.save(all_embs, os.path.join(args.output_dir, output_filename))
+            bsz = latents.shape[0]
+            selected_timesteps = range(0, 1000, 1000 // args.num_timesteps)
+
+            for index_t, t in enumerate(selected_timesteps):
+                timesteps = torch.tensor([t]*bsz, device=latents.device)
+                timesteps = timesteps.long()
+                        
+                noise = torch.randn_like(latents)
+                noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
+
+                # Get the target for loss depending on the prediction type
+                if noise_scheduler.config.prediction_type == "epsilon":
+                    target = noise
+                elif noise_scheduler.config.prediction_type == "v_prediction":
+                    target = noise_scheduler.get_velocity(latents, noise, timesteps)
+                else:
+                    raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+                
+                ft_per_sample_grads = ft_compute_sample_grad(
+                    params,
+                    buffers,
+                    noisy_latents,
+                    timesteps,
+                    encoder_hidden_states,
+                    target,
+                )
+
+                ft_per_sample_grads = vectorize_and_ignore_buffers(
+                    list(ft_per_sample_grads.values())
+                )  
+                
+                if index_t==0:
+                    emb = ft_per_sample_grads
+                else:
+                    emb += ft_per_sample_grads
+            emb = emb / args.num_timesteps
+            emb = projector.project(emb, model_id=0)
+            all_embs.append(emb.detach().cpu())
+
+        all_embs = torch.cat(all_embs)
+        output_filename = f"emb_f={args.f}_num_timesteps={args.num_timesteps}_proj_dim={args.proj_dim}.pt"
+        torch.save(all_embs, os.path.join(args.output_dir, output_filename))
 
 
 if __name__ == "__main__":
