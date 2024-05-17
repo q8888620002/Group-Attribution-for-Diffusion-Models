@@ -155,8 +155,7 @@ def main(args):
     relative_influence = relative_influence.mean(dim=0).cpu().numpy()
     sample_output_dict["relative_influence"] = relative_influence
 
-    renorm_influence = influence.T / gen_grads.norm(dim=-1)
-    renorm_influence = renorm_influence.T
+    renorm_influence = influence / train_grads.norm(dim=-1)
     renorm_influence = renorm_influence.mean(dim=0).cpu().numpy()
     sample_output_dict["renorm_influence"] = renorm_influence
 
