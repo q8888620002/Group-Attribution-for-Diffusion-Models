@@ -180,8 +180,8 @@ def collect_data(
     """Collect data for fitting and evaluating data attribution scores."""
     dataset = create_dataset(dataset_name=dataset_name, train=True)
 
-    unique_values = sorted(set(data[1] for data in dataset))
-    value_to_number = {value: i for i, value in enumerate(unique_values)}
+    unique_labels = sorted(set(data[1] for data in dataset))
+    value_to_number = {label: i for i, label in enumerate(unique_labels)}
 
     index_to_class = {i: value_to_number[data[1]] for i, data in enumerate(dataset)}
     # else:
@@ -240,7 +240,7 @@ def collect_data(
 
                 if seed not in removal_seeds:
                     if record["method"] == "gd":
-                        if int(record["gd_steps"]) == 500:
+                        if int(record["gd_steps"]) == 1000:
                             remaining_masks.append(remaining_mask)
                             model_behaviors.append(model_behavior)
                             removal_seeds.append(seed)
@@ -390,7 +390,7 @@ def main(args):
 
     start = train_masks.shape[-1]
 
-    step = 100 if args.max_train_size > 100 else 10
+    step = 50 if args.max_train_size > 100 else 10
 
     subset_sizes = [start] + list(range(step, args.max_train_size + 1, step))
 
@@ -488,7 +488,7 @@ def main(args):
         print(
             f"Confidence interval: ({lds_mean - lds_ci:.2f}, {lds_mean + lds_ci:.2f})"
         )
-    print(np.argsort(-coeff.flatten())[:15])
+    print(np.argsort(-coeff.flatten())[:30])
 
         # coeff = np.array(data_attr_list).flatten()
 
