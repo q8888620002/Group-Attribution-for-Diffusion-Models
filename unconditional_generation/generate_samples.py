@@ -180,10 +180,11 @@ def main(args):
             args.outdir,
             args.dataset,
             args.method,
-            str(args.trained_steps),
             "ema_generated_samples" if args.use_ema else "generated_samples",
             removal_dir,
+            f"steps={str(args.trained_steps)}"
         )
+    
     os.makedirs(sample_outdir, exist_ok=True)
 
     # Load the trained U-Net model or U-Net EMA.

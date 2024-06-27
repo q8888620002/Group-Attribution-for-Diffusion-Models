@@ -10,9 +10,7 @@ import json
 import os
 import random
 
-import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 from scipy.stats import bootstrap, spearmanr
 from sklearn.linear_model import RidgeCV
 from tqdm import tqdm
@@ -202,7 +200,6 @@ def collect_data(
             keep = all(
                 [record[key] == condition_dict[key] for key in condition_dict.keys()]
             )
-
             if keep:
                 seed = int(record["removal_seed"])
                 # method = record["method"]
@@ -243,15 +240,18 @@ def collect_data(
                         if int(record["gd_steps"]) == 1000:
                             remaining_masks.append(remaining_mask)
                             model_behaviors.append(model_behavior)
-                            removal_seeds.append(seed)
                             training_time.append(float(record["total_steps_time"]))
                             sampling_time.append(float(record["total_sampling_time"]))
                     else:
                         remaining_masks.append(remaining_mask)
                         model_behaviors.append(model_behavior)
+
+                    if record["removal_dist"] not in ["loo", "add_one_in"]:
                         removal_seeds.append(seed)
-    if len(training_time)!= 0 and len(sampling_time) != 0 :
+
+    if len(training_time) != 0 and len(sampling_time) != 0:
         print(np.median(training_time), np.median(sampling_time))
+
     remaining_masks = np.stack(remaining_masks)
     model_behaviors = np.stack(model_behaviors)
     removal_seeds = np.array(removal_seeds)
@@ -279,7 +279,6 @@ def main(args):
         args.n_samples,
         args.by_class,
     )
-
     # Extract subsets for LDS test evaluation.
     test_condition_dict = {
         "exp_name": args.test_exp_name,
@@ -415,7 +414,6 @@ def main(args):
                 coeff = datamodel.coef_
 
             elif args.removal_dist == "shapley":
-
                 coeff = data_shapley(
                     train_masks_fold.shape[-1],
                     train_masks_fold,
@@ -423,26 +421,16 @@ def main(args):
                     full_targets.flatten()[i],
                     null_targets.flatten()[i],
                 )
-            elif args.method == "loo":
-
-                loo_condition_dict = {
-                    "exp_name": args.test_exp_name,
-                    "dataset": args.dataset,
-                    "method": "loo",
-                }
-
-                loo_masks, loo_targets, _ = collect_data(
-                    args.loo_db,
-                    loo_condition_dict,
-                    args.dataset,
-                    args.model_behavior_key,
-                    args.n_samples,
-                    args.by_class,
+            elif args.removal_dist == "loo":
+                coeff = np.sum(
+                    np.multiply(1.0 - train_masks, full_targets - train_targets[:, i]),
+                    axis=0,
                 )
 
-                coeff = np.zeros((num_targets, len(loo_masks.shape[-1])))
-
-                coeff[i, :] = np.mutiply(full_targets - loo_targets, loo_masks)
+            elif args.removal_dist == "add_one_in":
+                coeff = np.sum(
+                    np.multiply(train_masks, train_targets[:, i] - null_targets), axis=0
+                )
 
             else:
                 raise ValueError(
@@ -490,29 +478,29 @@ def main(args):
         )
     print(np.argsort(-coeff.flatten())[:30])
 
-        # coeff = np.array(data_attr_list).flatten()
+    # coeff = np.array(data_attr_list).flatten()
 
-        # plt.figure(figsize=(20, 10))
-        # bin_edges = np.histogram_bin_edges(coeff, bins="auto")
-        # sns.histplot(coeff, bins=bin_edges, alpha=0.5)
+    # plt.figure(figsize=(20, 10))
+    # bin_edges = np.histogram_bin_edges(coeff, bins="auto")
+    # sns.histplot(coeff, bins=bin_edges, alpha=0.5)
 
-        # plt.xlabel("Shapley Value")
-        # plt.ylabel("Frequency")
-        # plt.title(
-        #     f"{args.dataset} with {len(train_masks_fold)} training set\n"
-        #     f"Mean: {boot_mean:.3f};"
-        #     f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
-        #     f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
-        # )
+    # plt.xlabel("Shapley Value")
+    # plt.ylabel("Frequency")
+    # plt.title(
+    #     f"{args.dataset} with {len(train_masks_fold)} training set\n"
+    #     f"Mean: {boot_mean:.3f};"
+    #     f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
+    #     f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
+    # )
 
-        # result_path = f"results/lds/{args.dataset}/{args.method}/"
+    # result_path = f"results/lds/{args.dataset}/{args.method}/"
 
-        # os.makedirs(result_path, exist_ok=True)
-        # plt.savefig(
-        #     os.path.join(
-        #         result_path, f"{args.model_behavior_key}_{len(train_masks_fold)}.png"
-        #     )
-        # )
+    # os.makedirs(result_path, exist_ok=True)
+    # plt.savefig(
+    #     os.path.join(
+    #         result_path, f"{args.model_behavior_key}_{len(train_masks_fold)}.png"
+    #     )
+    # )
 
 
 if __name__ == "__main__":
