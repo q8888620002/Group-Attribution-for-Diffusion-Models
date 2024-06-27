@@ -295,7 +295,7 @@ def collect_data(
 
                 if seed not in removal_seeds:
                     if method == "gd":
-                        if record["trained_steps"] == 4000:
+                        if record["trained_steps"] == 2000:
                             # Only extract record when trained steps == 4000 for gd.
                             remaining_masks.append(remaining_mask)
                             model_behaviors.append(model_behavior)

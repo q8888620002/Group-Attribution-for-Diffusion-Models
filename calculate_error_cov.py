@@ -288,8 +288,8 @@ def main(args):
             full_targets.flatten()[0],
             null_targets.flatten()[0],
         )
-
-        conv_errors[n ,subset_idx] = np.mean(np.sqrt((coeff - oracle_coeff) ** 2))
+        np.set_printoptions(suppress=True)
+        conv_errors[subset_idx] = (n, np.mean(np.sqrt((coeff - oracle_coeff) ** 2)))
 
     print(conv_errors)
 
