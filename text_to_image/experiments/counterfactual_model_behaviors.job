@@ -1,0 +1,22 @@
+#!/bin/bash
+
+#SBATCH --job-name=PLACEHOLDER
+#SBATCH --account=aims
+#SBATCH --partition=ckpt
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=1
+#SBATCH --gpus=1
+#SBATCH --constraint=[a40|a100]
+#SBATCH --time=9:30:00
+#SBATCH --mem=32G
+#SBATCH --export=all
+#SBATCH --output=PLACEHOLDER/run-%A-%a.out
+#SBATCH --requeue
+#SBATCH --array=1
+#SBATCH --open-mode=append
+
+PARAMS_FILE="PLACEHOLDER"
+PARAMS="$(tail -n +${SLURM_ARRAY_TASK_ID} ${PARAMS_FILE} | head -n 1)"
+
+~/launch-container-ro.sh ./run.sh $PARAMS
