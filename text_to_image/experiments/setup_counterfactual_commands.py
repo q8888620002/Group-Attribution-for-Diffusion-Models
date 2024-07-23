@@ -36,7 +36,12 @@ def parse_args():
     parser.add_argument(
         "--rank_method",
         type=str,
-        choices=["max_pixel_similarity", "avg_aesthetic_score", "dtrak"],
+        choices=[
+            "max_pixel_similarity",
+            "avg_aesthetic_score",
+            "dtrak",
+            "sparse_gd_shapley_fit_size=1000",
+        ],
         default=None,
         required=True,
     )
@@ -71,7 +76,7 @@ def main(args):
 
     num_jobs = 0
     with open(command_file, "w") as handle:
-        for removal_rank_proportion in [0.05, 0.1, 0.25, 0.4]:
+        for removal_rank_proportion in [0.02, 0.04, 0.06, 0.08]:
             for seed in [42, 43, 44, 45, 46]:
                 output_dir = os.path.join(OUTDIR, f"seed{seed}")
                 model_file = os.path.join(
