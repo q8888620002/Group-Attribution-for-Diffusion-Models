@@ -1,4 +1,4 @@
-"""Evaluate data attributions using the linear datamodel score (LDS)."""
+"""Evaluate MSE of Shapley values against a pseudo ground truth."""
 
 import argparse
 import math
@@ -16,7 +16,7 @@ from src.utils import print_args
 def parse_args():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description="evaluate Shapley values using the linear model score"
+        description="evaluate MSE of Shapley values against a pseudo ground truth"
     )
     parser.add_argument(
         "--dataset",
@@ -215,8 +215,6 @@ def main(args):
     fit_df = fit_df.sort_values(by="subset_seed")
 
     # Evaluate Shapley values with varying fitting sizes.
-    baseline_lds_mean_list, baseline_lds_ci_list = [], []
-    lds_mean_list, lds_ci_list = [], []
     fit_size_list = []
     for baseline_fit_size in args.fit_size:
         baseline_x_fit, baseline_y_fit = collect_data(
@@ -258,26 +256,12 @@ def main(args):
             attrs_all.append(attrs)
         baseline_attrs_all = np.stack(baseline_attrs_all, axis=1)
         attrs_all = np.stack(attrs_all, axis=1)
-
-        baseline_lds_mean, baseline_lds_ci = evaluate_lds(
-            attrs_all=baseline_attrs_all,
-            test_data_list=test_data_list,
-            num_model_behaviors=num_model_behaviors,
-        )
-        baseline_lds_mean_list.append(baseline_lds_mean)
-        baseline_lds_ci_list.append(baseline_lds_ci)
-
-        lds_mean, lds_ci = evaluate_lds(
-            attrs_all=attrs_all,
-            test_data_list=test_data_list,
-            num_model_behaviors=num_model_behaviors,
-        )
-        lds_mean_list.append(lds_mean)
-        lds_ci_list.append(lds_ci)
-
+        assert num_model_behaviors == 1
+        baseline_attrs_all = baseline_attrs_all.flatten()
+        attrs_all = attrs_all.flatten()
+        mse = ((baseline_attrs_all - attrs_all) ** 2).mean()
         print(f"Baseline fit size: {baseline_fit_size}, fit size: {fit_size}")
-        print(f"\tBaseline LDS: {baseline_lds_mean:.2f} ({baseline_lds_ci:.2f})")
-        print(f"\tLDS: {lds_mean:.2f} ({lds_ci:.2f})")
+        print(f"MSE: {mse:.5f}")
 
 
 if __name__ == "__main__":

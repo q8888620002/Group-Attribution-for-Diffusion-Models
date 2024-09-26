@@ -657,7 +657,7 @@ class LoraSparseUnlearningConfig:
             OUTDIR,
             "seed42",
             "artbench_post_impressionism",
-            "pruned_ft_ratio=0.9_lr=1e-06",
+            "pruned_ft_ratio=0.5_lr=3e-05",
             "models",
             "full",
         ),

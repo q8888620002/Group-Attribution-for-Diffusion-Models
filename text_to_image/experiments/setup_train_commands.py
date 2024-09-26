@@ -36,7 +36,7 @@ def parse_args():
         "--removal_dist",
         type=str,
         help="distribution for removing data",
-        choices=["shapley", "datamodel"],
+        choices=["shapley", "datamodel", "loo", "aoi"],
         default=None,
     )
     parser.add_argument(
@@ -86,6 +86,11 @@ def main(args):
         training_config["removal_unit"] = args.removal_unit
         if args.removal_dist == "datamodel":
             training_config["datamodel_alpha"] = args.datamodel_alpha
+
+        if args.removal_unit == "artist":
+            num_groups = 258
+        else:
+            num_groups = 5000
     else:
         raise ValueError("--dataset should be one of ['artbench_post_impressionism']")
 
@@ -123,6 +128,29 @@ def main(args):
         with open(command_file, "w") as handle:
             handle.write(command + "\n")
             num_jobs += 1
+    elif args.removal_dist in ["loo", "aoi"]:
+        assert num_groups % args.num_subsets_per_job == 0
+        with open(command_file, "w") as handle:
+            command = ""
+            for i in range(num_groups):
+                command += "accelerate launch"
+                command += " --gpu_ids=0"
+                command += " --mixed_precision={}".format("fp16")
+                command += " text_to_image/train_text_to_image_lora.py"
+                for key, val in training_config.items():
+                    command += " " + format_config_arg(key, val)
+
+                if args.removal_dist == "loo":
+                    command += f" --loo_idx={i}"
+                else:
+                    command += f" --aoi_idx={i}"
+
+                if (i + 1) % args.num_subsets_per_job == 0:
+                    handle.write(command + "\n")
+                    command = ""
+                    num_jobs += 1
+                else:
+                    command += " ; "
     else:
         assert args.num_removal_subsets % args.num_subsets_per_job == 0
         with open(command_file, "w") as handle:
