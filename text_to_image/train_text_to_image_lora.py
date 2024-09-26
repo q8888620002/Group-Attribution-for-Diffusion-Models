@@ -57,7 +57,13 @@ from tqdm.auto import tqdm
 from transformers import CLIPTextModel, CLIPTokenizer
 
 import time
-from src.datasets import remove_data_by_shapley, remove_data_by_uniform, remove_data_by_datamodel
+from src.datasets import (
+    remove_data_by_shapley,
+    remove_data_by_uniform,
+    remove_data_by_datamodel,
+    remove_data_by_loo,
+    remove_data_for_aoi,
+)
 from src.ddpm_config import PromptConfig, LoraUnlearningConfig, LoraSparseUnlearningConfig
 from src.utils import fix_get_processor
 
@@ -491,13 +497,25 @@ def parse_args():
         "--removal_dist",
         type=str,
         help="distribution for removing data",
-        choices=["uniform", "shapley", "datamodel"],
+        choices=["uniform", "shapley", "datamodel", "loo", "aoi"],
         default=None,
     )
     parser.add_argument(
         "--datamodel_alpha",
         type=float,
         help="alpha value for the datamodel removal distribution",
+        default=None,
+    )
+    parser.add_argument(
+        "--loo_idx",
+        type=int,
+        help="index to remove for the leave-one-out distribution",
+        default=None,
+    )
+    parser.add_argument(
+        "--aoi_idx",
+        type=int,
+        help="index to add for the add-one-in distribution",
         default=None,
     )
     parser.add_argument(
@@ -562,7 +580,12 @@ def main():
             removal_dir_dist += f"_alpha={args.datamodel_alpha}"
         
         removal_dir = f"{args.removal_unit}_{removal_dir_dist}"
-        removal_dir += f"/{removal_dir_dist}_seed={args.removal_seed}"
+        if args.removal_dist == "loo":
+            removal_dir += f"/{removal_dir_dist}_idx={args.loo_idx}"
+        elif args.removal_dist == "aoi":
+            removal_dir += f"/{removal_dir_dist}_idx={args.aoi_idx}"
+        else:
+            removal_dir += f"/{removal_dir_dist}_seed={args.removal_seed}"
     
     if args.removal_rank_file is not None:
         assert args.removal_rank_proportion is not None
@@ -933,9 +956,19 @@ def main():
                     seed=args.removal_seed,
                     alpha=args.datamodel_alpha,
                 )
+            elif args.removal_dist == "loo":
+                remaining_idx, removed_idx = remove_data_by_loo(
+                    dataset=removal_unit_df,
+                    loo_idx=args.loo_idx,
+                )
+            elif args.removal_dist == "aoi":
+                remaining_idx, removed_idx = remove_data_for_aoi(
+                    dataset=removal_unit_df,
+                    aoi_idx=args.aoi_idx,
+                )
             else:
                 raise ValueError(
-                    f"--removal_dist={args.removal_dist} has to be ['shapley', 'uniform']"
+                    f"--removal_dist={args.removal_dist} has to be ['shapley', 'uniform', 'datamodel', 'loo', 'aoi']"
                 )
             removal_idx_df = pd.concat(
                 [
