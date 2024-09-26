@@ -506,6 +506,26 @@ def remove_data_by_shapley(
         return remaining_idx, removed_idx
 
 
+def remove_data_by_loo(
+    dataset: torch.utils.data.Dataset, loo_idx: int
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Split dataset indices into leave-one-out remaining and removed indices."""
+    dataset_size = len(dataset)
+    removed_idx = np.array([loo_idx])
+    remaining_idx = np.array([i for i in range(dataset_size) if i != loo_idx])
+    return remaining_idx, removed_idx
+
+
+def remove_data_for_aoi(
+    dataset: torch.utils.data.Dataset, aoi_idx: int
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Split dataset indices into add-one-in remaining and removed indices."""
+    dataset_size = len(dataset)
+    remaining_idx = np.array([aoi_idx])
+    removed_idx = np.array([i for i in range(dataset_size) if i != aoi_idx])
+    return remaining_idx, removed_idx
+
+
 def removed_by_classes(dataset: torch.utils.data.Dataset, seed: int = 0):
     """Function that return remained and removed classes."""
     # Find all possible classes in the dataset
