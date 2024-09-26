@@ -9,7 +9,6 @@ import pandas as pd
 from scipy.stats import spearmanr
 
 from src.attributions.methods.datashapley import data_shapley
-from src.constants import OUTDIR
 from src.ddpm_config import DatasetStats
 from src.utils import print_args
 
@@ -151,7 +150,7 @@ def main(args):
         num_groups = dataset_stats["num_groups"]
         test_db_list = [
             os.path.join(
-                OUTDIR,
+                "/gscratch/aims/diffusion-attr",
                 f"seed{seed}",
                 args.dataset,
                 f"retrain_artist_datamodel_alpha={args.datamodel_alpha}.jsonl",
