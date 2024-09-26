@@ -50,7 +50,7 @@ def parse_args():
         "--removal_dist",
         type=str,
         help="distribution for removing data",
-        choices=["shapley"],
+        choices=["shapley", "loo", "aoi"],
         default="shapley",
     )
     parser.add_argument(
@@ -95,6 +95,12 @@ def main(args):
         )
         model_behavior_config["seed"] = args.model_behavior_seed
         model_behavior_config["num_images"] = args.num_images
+
+        if args.removal_dist in ["loo", "aoi"]:
+            if args.removal_unit == "artist":
+                args.num_removal_subsets = 258
+            else:
+                args.num_removal_subsets = 5000
     else:
         raise ValueError("--dataset should be one of ['artbench_post_impressionism']")
 
@@ -124,20 +130,27 @@ def main(args):
         db_dir, f"{args.method}_{args.removal_unit}_{args.removal_dist}.jsonl"
     )
 
-    removal_seed_list = [i for i in range(args.num_removal_subsets)]
+    idx_list = [i for i in range(args.num_removal_subsets)]
     if os.path.exists(db):
         df = pd.read_json(db, lines=True)
-        df["removal_seed"] = (
-            df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
-        )
-        existing_removal_seed_list = df["removal_seed"].tolist()
-        removal_seed_list = set(removal_seed_list) - set(existing_removal_seed_list)
-        removal_seed_list = sorted(list(removal_seed_list))
-        if len(removal_seed_list) == 0:
+        if args.removal_dist == "shapley":
+            df["removal_seed"] = (
+                df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
+            )
+            existing_idx_list = df["removal_seed"].tolist()
+        else:
+            df["group_idx"] = (
+                df["exp_name"].str.split("idx_", expand=True)[1].astype(int)
+            )
+            existing_idx_list = df["group_idx"].tolist()
+
+        idx_list = set(idx_list) - set(existing_idx_list)
+        idx_list = sorted(list(idx_list))
+        if len(idx_list) == 0:
             print("Model behaviors have already been computed for all subsets!")
-        elif 0 < len(removal_seed_list) < args.num_removal_subsets:
-            print(f"Only {len(removal_seed_list)} subsets are missing model behaviors")
-    assert len(removal_seed_list) % args.num_subsets_per_job == 0
+        elif 0 < len(idx_list) < args.num_removal_subsets:
+            print(f"Only {len(idx_list)} subsets are missing model behaviors")
+    assert len(idx_list) % args.num_subsets_per_job == 0
 
     ckpt_dir = os.path.join(
         LOGDIR, f"seed{args.seed}", args.dataset, "model_behaviors", "unlearn", exp_name
@@ -147,37 +160,54 @@ def main(args):
     num_jobs = 0
     with open(command_file, "w") as handle:
         command = ""
-        for i, removal_seed in enumerate(removal_seed_list):
+        for i, idx in enumerate(idx_list):
             command += "accelerate launch"
             command += " --gpu_ids=0"
             command += " --mixed_precision={}".format("fp16")
             command += " text_to_image/train_text_to_image_lora.py"
             for key, val in training_config.items():
                 command += " " + format_config_arg(key, val)
-            command += f" --removal_seed={removal_seed}"
+            if args.removal_dist == "shapley":
+                command += f" --removal_seed={idx}"
+            elif args.removal_dist == "loo":
+                command += f" --loo_idx={idx}"
+            else:
+                command += f" --aoi_idx={idx}"
 
             command += " ; "
 
             command += "python text_to_image/compute_model_behaviors.py"
             for key, val in model_behavior_config.items():
                 command += " " + format_config_arg(key, val)
-            ckpt_path = os.path.join(
-                ckpt_dir, f"{args.removal_dist}_seed_{removal_seed}.pt"
-            )
-            lora_dir = os.path.join(
-                TMP_OUTDIR,
-                f"seed{args.seed}",
-                args.dataset,
-                args.method,
-                "models",
-                f"{args.removal_unit}_{args.removal_dist}",
-                f"{args.removal_dist}_seed={removal_seed}",
-            )
+
+            if args.removal_dist == "shapley":
+                ckpt_path = os.path.join(ckpt_dir, f"{args.removal_dist}_seed_{idx}.pt")
+                lora_dir = os.path.join(
+                    TMP_OUTDIR,
+                    f"seed{args.seed}",
+                    args.dataset,
+                    args.method,
+                    "models",
+                    f"{args.removal_unit}_{args.removal_dist}",
+                    f"{args.removal_dist}_seed={idx}",
+                )
+                idx_exp_name = os.path.join(exp_name, f"{args.removal_dist}_seed_{idx}")
+            else:
+                ckpt_path = os.path.join(ckpt_dir, f"{args.removal_dist}_idx_{idx}.pt")
+                lora_dir = os.path.join(
+                    TMP_OUTDIR,
+                    f"seed{args.seed}",
+                    args.dataset,
+                    args.method,
+                    "models",
+                    f"{args.removal_unit}_{args.removal_dist}",
+                    f"{args.removal_dist}_idx={idx}",
+                )
+                idx_exp_name = os.path.join(exp_name, f"{args.removal_dist}_idx_{idx}")
+
             command += " --ckpt_path={}".format(ckpt_path)
             command += " --db={}".format(db)
-            command += " --exp_name={}".format(
-                os.path.join(exp_name, f"{args.removal_dist}_seed_{removal_seed}")
-            )
+            command += " --exp_name={}".format(idx_exp_name)
             command += " --lora_dir={}".format(lora_dir)
 
             if (i + 1) % args.num_subsets_per_job == 0:

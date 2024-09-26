@@ -50,6 +50,8 @@ def parse_args():
             "artist_datamodel_alpha=0.25",
             "artist_datamodel_alpha=0.5",
             "artist_datamodel_alpha=0.75",
+            "artist_loo",
+            "artist_aoi",
         ],
         default=None,
         help="removal method for [retrain]",
@@ -108,6 +110,10 @@ def main(args):
         config["seed"] = args.model_behavior_seed
         config["num_images"] = args.num_images
         num_update_steps_per_epoch = 79
+        if "artist" in args.removal_method:
+            num_groups = 258
+        else:
+            num_groups = 5000
     else:
         raise ValueError
 
@@ -207,6 +213,57 @@ def main(args):
                             num_jobs += 1
                         else:
                             command += " ; "
+
+    elif "loo" in args.removal_method or "aoi" in args.removal_method:
+        removal_dist = "_".join(args.removal_method.split("_")[1:])
+        ckpt_dir = os.path.join(ckpt_dir, args.removal_method)
+        os.makedirs(ckpt_dir, exist_ok=True)
+
+        group_idx_list = [i for i in range(num_groups)]
+        db = os.path.join(db_dir, f"{args.method}_{args.removal_method}.jsonl")
+        if os.path.exists(db):
+            df = pd.read_json(db, lines=True)
+            df["group_idx"] = (
+                df["exp_name"].str.split("idx_", expand=True)[1].astype(int)
+            )
+            existing_group_idx_list = df["group_idx"].tolist()
+            group_idx_list = set(group_idx_list) - set(existing_group_idx_list)
+            group_idx_list = sorted(list(group_idx_list))
+            if len(group_idx_list) == 0:
+                print("Model behaviors have already been computed for all subsets!")
+            elif 0 < len(group_idx_list) < num_groups:
+                print(f"Only {len(group_idx_list)} subsets are missing model behaviors")
+        assert len(group_idx_list) % args.num_executions_per_job == 0
+
+        with open(command_file, "w") as handle:
+            command = ""
+            for i, group_idx in enumerate(group_idx_list):
+                command += "python text_to_image/compute_model_behaviors.py"
+                for key, val in config.items():
+                    command += " " + format_config_arg(key, val)
+                ckpt_path = os.path.join(ckpt_dir, f"{removal_dist}_idx_{group_idx}.pt")
+                lora_dir = os.path.join(
+                    OUTDIR,
+                    f"seed{args.opt_seed}",
+                    args.dataset,
+                    args.method,
+                    "models",
+                    args.removal_method,
+                    f"{removal_dist}_idx={group_idx}",
+                )
+                command += " --ckpt_path={}".format(ckpt_path)
+                command += " --db={}".format(db)
+                command += " --exp_name={}".format(
+                    os.path.join(exp_name, f"{removal_dist}_idx_{group_idx}")
+                )
+                command += " --lora_dir={}".format(lora_dir)
+
+                if (i + 1) % args.num_executions_per_job == 0:
+                    handle.write(command + "\n")
+                    command = ""
+                    num_jobs += 1
+                else:
+                    command += " ; "
 
     elif args.removal_method is not None:
         removal_dist = "_".join(args.removal_method.split("_")[1:])
