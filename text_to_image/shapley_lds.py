@@ -62,11 +62,6 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
-        "--outfile",
-        type=str,
-        help="output file path for saving the LDS results",
-    )
-    parser.add_argument(
         "--test_size",
         type=int,
         help="number of subsets used for evaluating data attributions",
@@ -90,6 +85,18 @@ def parse_args():
         "--n_samples",
         type=int,
         help="number of generated images to consider for local model behaviors",
+        default=None,
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        help="directory to save the Shapley values",
+        default=None,
+    )
+    parser.add_argument(
+        "--outfile_prefix",
+        type=str,
+        help="output file prefix for saving the Shapley values",
         default=None,
     )
     return parser.parse_args()
@@ -246,7 +253,7 @@ def main(args):
                 v0=v0,
                 v1=v1,
             )
-            baseline_attrs_all.append(baseline_attrs)
+            baseline_attrs_all.append(baseline_attrs.flatten())
 
             attrs = data_shapley(
                 dataset_size=x_fit.shape[-1],
@@ -255,7 +262,7 @@ def main(args):
                 v0=v0,
                 v1=v1,
             )
-            attrs_all.append(attrs)
+            attrs_all.append(attrs.flatten())
         baseline_attrs_all = np.stack(baseline_attrs_all, axis=1)
         attrs_all = np.stack(attrs_all, axis=1)
 
@@ -278,6 +285,17 @@ def main(args):
         print(f"Baseline fit size: {baseline_fit_size}, fit size: {fit_size}")
         print(f"\tBaseline LDS: {baseline_lds_mean:.2f} ({baseline_lds_ci:.2f})")
         print(f"\tLDS: {lds_mean:.2f} ({lds_ci:.2f})")
+
+        if args.output_dir is not None:
+            outfile = f"artist_{args.outfile_prefix}_fit_size={fit_size}.npy"
+            with open(os.path.join(args.output_dir, outfile), "wb") as handle:
+                np.save(handle, attrs_all)
+
+            global_rank = np.argsort(-attrs_all.mean(axis=-1), kind="stable")
+            rank_file = "all_generated_images_artist_rank"
+            rank_file += f"_{args.outfile_prefix}_fit_size={fit_size}.npy"
+            with open(os.path.join(args.output_dir, rank_file), "wb") as handle:
+                np.save(handle, global_rank)
 
 
 if __name__ == "__main__":
