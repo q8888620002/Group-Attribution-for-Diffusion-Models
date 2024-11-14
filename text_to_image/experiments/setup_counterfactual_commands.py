@@ -45,6 +45,13 @@ def parse_args():
         default=None,
         required=True,
     )
+    parser.add_argument(
+        "--removal_order",
+        type=str,
+        choices=["top", "bottom"],
+        default="top",
+        help="whether to remove from the top or the bottom of the rank file",
+    )
     args = parser.parse_args()
     return args
 
@@ -68,7 +75,7 @@ def main(args):
         "text_to_image",
         "experiments",
         "commands",
-        "counterfactual",
+        f"counterfactual_{args.removal_order}",
         rank_method,
     )
     os.makedirs(command_outdir, exist_ok=True)
@@ -76,15 +83,15 @@ def main(args):
 
     num_jobs = 0
     with open(command_file, "w") as handle:
-        for removal_rank_proportion in [0.02, 0.04, 0.06, 0.08]:
-            for seed in [42, 43, 44, 45, 46]:
+        for removal_rank_proportion in [0.4]:
+            for seed in [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]:
                 output_dir = os.path.join(OUTDIR, f"seed{seed}")
                 model_file = os.path.join(
                     output_dir,
                     args.dataset,
                     "retrain",
                     "models",
-                    f"counterfactual_top_{removal_rank_proportion}",
+                    f"counterfactual_{args.removal_order}_{removal_rank_proportion}",
                     f"all_generated_images_{rank_method}",
                     "pytorch_lora_weights.safetensors",
                 )
@@ -104,9 +111,14 @@ def main(args):
                     )
                     command += " --removal_rank_file={}".format(removal_rank_file)
                     command += " --seed={}".format(seed)
-                    command += " --removal_rank_proportion={}".format(
-                        removal_rank_proportion
-                    )
+                    if args.removal_order == "top":
+                        command += " --removal_rank_proportion={}".format(
+                            removal_rank_proportion
+                        )
+                    else:
+                        command += " --removal_bottom_proportion={}".format(
+                            removal_rank_proportion
+                        )
 
                     handle.write(command + "\n")
                     command = ""
@@ -121,9 +133,11 @@ def main(args):
             os.getcwd(), "text_to_image", "experiments", "counterfactual.job"
         )
         array = f"1-{num_jobs}" if num_jobs > 1 else "1"
-        job_name = f"counterfactual-{rank_method}"
+        job_name = f"counterfactual-{args.removal_order}-{rank_method}"
 
-        logdir = os.path.join(LOGDIR, "counterfactual", rank_method)
+        logdir = os.path.join(
+            LOGDIR, f"counterfactual_{args.removal_order}", rank_method
+        )
         os.makedirs(logdir, exist_ok=True)
         output = os.path.join(logdir, "run-%A-%a.out")
         update_job_file(
