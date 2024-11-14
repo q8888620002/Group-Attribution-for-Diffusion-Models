@@ -50,7 +50,7 @@ def parse_args():
         "--removal_dist",
         type=str,
         help="distribution for removing data",
-        choices=["shapley", "loo", "aoi"],
+        choices=["shapley", "loo", "aoi", "uniform"],
         default="shapley",
     )
     parser.add_argument(
@@ -133,7 +133,7 @@ def main(args):
     idx_list = [i for i in range(args.num_removal_subsets)]
     if os.path.exists(db):
         df = pd.read_json(db, lines=True)
-        if args.removal_dist == "shapley":
+        if args.removal_dist in ["shapley", "uniform"]:
             df["removal_seed"] = (
                 df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
             )
@@ -167,7 +167,7 @@ def main(args):
             command += " text_to_image/train_text_to_image_lora.py"
             for key, val in training_config.items():
                 command += " " + format_config_arg(key, val)
-            if args.removal_dist == "shapley":
+            if args.removal_dist in ["shapley", "uniform"]:
                 command += f" --removal_seed={idx}"
             elif args.removal_dist == "loo":
                 command += f" --loo_idx={idx}"
@@ -180,7 +180,7 @@ def main(args):
             for key, val in model_behavior_config.items():
                 command += " " + format_config_arg(key, val)
 
-            if args.removal_dist == "shapley":
+            if args.removal_dist in ["shapley", "uniform"]:
                 ckpt_path = os.path.join(ckpt_dir, f"{args.removal_dist}_seed_{idx}.pt")
                 lora_dir = os.path.join(
                     TMP_OUTDIR,

@@ -36,7 +36,7 @@ def parse_args():
         "--removal_dist",
         type=str,
         help="distribution for removing data",
-        choices=["shapley", "datamodel", "loo", "aoi"],
+        choices=["shapley", "datamodel", "loo", "aoi", "uniform"],
         default=None,
     )
     parser.add_argument(

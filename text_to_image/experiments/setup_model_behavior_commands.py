@@ -46,6 +46,7 @@ def parse_args():
         choices=[
             "full",
             "artist_shapley",
+            "artist_uniform",
             "artist_datamodel_alpha=0.1",
             "artist_datamodel_alpha=0.25",
             "artist_datamodel_alpha=0.5",
