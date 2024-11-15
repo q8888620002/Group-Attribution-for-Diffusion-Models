@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument(
         "--method",
         type=str,
-        choices=["retrain"],
+        choices=["retrain", "sparse_gd", "gd"],
         default="retrain",
         help="training or unlearning method",
     )
@@ -49,7 +49,7 @@ def parse_args():
         "--num_removal_subsets",
         type=int,
         help="number of removal subsets to run",
-        default=500,
+        default=1000,
     )
     parser.add_argument(
         "--num_subsets_per_job",
@@ -62,7 +62,7 @@ def parse_args():
         type=str,
         help="unit of data for removal",
         choices=["artist", "filename"],
-        default=None,
+        default="artist",
     )
     args = parser.parse_args()
     return args
@@ -93,6 +93,10 @@ def main(args):
             num_groups = 5000
     else:
         raise ValueError("--dataset should be one of ['artbench_post_impressionism']")
+
+    if args.method in ["sparse_gd", "gd"]:
+        training_config["checkpointing_steps"] = 100
+        training_config["checkpoint_attn_procs"] = True
 
     # Set up coutput directories and files.
     removal_dist_name = "full"
