@@ -4,6 +4,7 @@ import os
 import numpy as np
 import torch
 
+import time
 import src.constants as constants
 from src.attributions.methods.attribution_utils import aggregate_by_class
 from src.datasets import ImageDataset, create_dataset
@@ -82,7 +83,7 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
         train_grad_dir = os.path.join(constants.OUTDIR, args.dataset, "d_trak", "full")
         train_grad_path = os.path.join(
             train_grad_dir,
-            f"train_f={model_behavior}_t={t_strategy}",
+            f"train_f={model_behavior}_t={t_strategy}_k={args.k_partition}_d={args.projector_dim}",
         )
         kernel_path = os.path.join(
             train_grad_dir, f"kernel_train_f={model_behavior}_t={t_strategy}_k={args.k_partition}_d={args.projector_dim}.npy"
@@ -103,10 +104,12 @@ def compute_gradient_scores(args, retraining=False, training_seeds=None):
             print("Kernel file exists. Loading...")
             kernel = np.load(kernel_path)
         else:
+            starttime = time.time()
             kernel = train_phi.T @ train_phi
             kernel = kernel + 5e-1 * np.eye(kernel.shape[0])
             kernel = np.linalg.inv(kernel)
             np.save(kernel_path, kernel)
+            print(time.time() - starttime)
 
         if args.gradient_type == "vanilla_gradient":
             train_phi = train_phi / np.linalg.norm(train_phi, axis=1, keepdims=True)

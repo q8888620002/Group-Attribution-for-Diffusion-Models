@@ -1,6 +1,7 @@
 """Class for TRAK score calculation."""
 import argparse
 import os
+import time
 
 import numpy as np
 import torch
@@ -250,6 +251,12 @@ def main(args):
         }
     elif args.dataset == "cifar100_f":
         config = {**DDPMConfig.cifar100_f_config}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 32, 32).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
+    elif args.dataset == "cifar100_new":
+        config = {**DDPMConfig.cifar100_config}
         example_inputs = {
             "sample": torch.randn(1, 3, 32, 32).to(device),
             "timestep": torch.ones((1,)).long().to(device),
@@ -509,7 +516,7 @@ def main(args):
     buffers = {
         k: v.detach() for k, v in model.named_buffers() if v.requires_grad is True
     }
-
+    starttime = time.time()
     if args.model_behavior == "mean-squared-l2-norm":
         print(args.model_behavior)
 
@@ -786,6 +793,7 @@ def main(args):
         print(f"{step} / {len(remaining_dataloader)}, {t}")
         print(step * config["batch_size"], step * config["batch_size"] + bsz)
 
+    print("total_time", time.time() - starttime)
 
 if __name__ == "__main__":
     args = parse_args()

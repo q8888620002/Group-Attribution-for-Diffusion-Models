@@ -240,8 +240,8 @@ def collect_data(
                         if int(record["gd_steps"]) == 1000:
                             remaining_masks.append(remaining_mask)
                             model_behaviors.append(model_behavior)
-                            training_time.append(float(record["total_steps_time"]))
-                            sampling_time.append(float(record["total_sampling_time"]))
+                        # training_time.append(float(record["total_steps_time"]))
+                        # sampling_time.append(float(record["total_sampling_time"]))
                     else:
                         remaining_masks.append(remaining_mask)
                         model_behaviors.append(model_behavior)
@@ -309,6 +309,16 @@ def main(args):
                 f"_seed{seed}.jsonl",
             )
             for seed in [42, 43, 44]
+        ]
+    elif args.dataset == "cifar100_new":
+        test_db_list = [
+            os.path.join(
+                "/gscratch/aims/mingyulu/results_ming",
+                args.dataset,
+                "datamodel",
+                f"global_behavior_seed{seed}.jsonl",
+            )
+            for seed in [42,43,44]
         ]
     else:
         raise ValueError
@@ -476,7 +486,11 @@ def main(args):
         print(
             f"Confidence interval: ({lds_mean - lds_ci:.2f}, {lds_mean + lds_ci:.2f})"
         )
-    print(np.argsort(-coeff.flatten())[:30])
+    dataset = create_dataset(dataset_name=args.dataset, train=True)
+
+    unique_labels = sorted(set(data[1] for data in dataset))
+    value_to_number = {i: label for i, label in enumerate(unique_labels)}
+    print([value_to_number[i] for i in np.argsort(-coeff.flatten())][:30])
 
     # coeff = np.array(data_attr_list).flatten()
 
