@@ -16,6 +16,7 @@ from sklearn.linear_model import RidgeCV
 from tqdm import tqdm
 
 import src.constants as constants
+from src.attributions.methods.databanzhaf import data_banzhaf
 from src.attributions.methods.datashapley import data_shapley
 from src.datasets import create_dataset, remove_data_by_shapley
 from src.utils import print_args
@@ -145,6 +146,12 @@ def parse_args():
         help="number of bootstrapped iterations",
         default=100,
     )
+    parser.add_argument(
+        "--gd_steps",
+        type=int,
+        help="number of bootstrapped iterations",
+        default=1000,
+    )
     return parser.parse_args()
 
 
@@ -236,12 +243,12 @@ def collect_data(
                 # avoid duplicated records
 
                 if seed not in removal_seeds:
-                    if record["method"] == "gd":
-                        if int(record["gd_steps"]) == 1000:
+                    if record["method"] in ["gd", "lora", "gd_u", "lora_u"]:
+                        if int(record["gd_steps"]) == args.gd_steps:
                             remaining_masks.append(remaining_mask)
                             model_behaviors.append(model_behavior)
-                        # training_time.append(float(record["total_steps_time"]))
-                        # sampling_time.append(float(record["total_sampling_time"]))
+                            training_time.append(float(record["total_steps_time"]))
+                            sampling_time.append(float(record["total_sampling_time"]))
                     else:
                         remaining_masks.append(remaining_mask)
                         model_behaviors.append(model_behavior)
@@ -309,16 +316,6 @@ def main(args):
                 f"_seed{seed}.jsonl",
             )
             for seed in [42, 43, 44]
-        ]
-    elif args.dataset == "cifar100_new":
-        test_db_list = [
-            os.path.join(
-                "/gscratch/aims/mingyulu/results_ming",
-                args.dataset,
-                "datamodel",
-                f"global_behavior_seed{seed}.jsonl",
-            )
-            for seed in [42,43,44]
         ]
     else:
         raise ValueError
@@ -399,7 +396,7 @@ def main(args):
 
     start = train_masks.shape[-1]
 
-    step = 50 if args.max_train_size > 100 else 10
+    step = 100 if args.max_train_size > 100 else 10
 
     subset_sizes = [start] + list(range(step, args.max_train_size + 1, step))
 
@@ -430,6 +427,11 @@ def main(args):
                     train_targets_fold[:, i],
                     full_targets.flatten()[i],
                     null_targets.flatten()[i],
+                )
+            elif args.removal_dist == "uniform":
+                coeff = data_banzhaf(
+                    train_masks_fold,
+                    train_targets_fold[:, i],
                 )
             elif args.removal_dist == "loo":
                 coeff = np.sum(
@@ -486,35 +488,6 @@ def main(args):
         print(
             f"Confidence interval: ({lds_mean - lds_ci:.2f}, {lds_mean + lds_ci:.2f})"
         )
-    dataset = create_dataset(dataset_name=args.dataset, train=True)
-
-    unique_labels = sorted(set(data[1] for data in dataset))
-    value_to_number = {i: label for i, label in enumerate(unique_labels)}
-    print([value_to_number[i] for i in np.argsort(-coeff.flatten())][:30])
-
-    # coeff = np.array(data_attr_list).flatten()
-
-    # plt.figure(figsize=(20, 10))
-    # bin_edges = np.histogram_bin_edges(coeff, bins="auto")
-    # sns.histplot(coeff, bins=bin_edges, alpha=0.5)
-
-    # plt.xlabel("Shapley Value")
-    # plt.ylabel("Frequency")
-    # plt.title(
-    #     f"{args.dataset} with {len(train_masks_fold)} training set\n"
-    #     f"Mean: {boot_mean:.3f};"
-    #     f"Confidence interval: ({boot_ci_low:.2f}, {boot_ci_high:.2f})\n"
-    #     f"Max coeff: {np.max(coeff):.3f}; Min coeff: {np.min(coeff):.3f}"
-    # )
-
-    # result_path = f"results/lds/{args.dataset}/{args.method}/"
-
-    # os.makedirs(result_path, exist_ok=True)
-    # plt.savefig(
-    #     os.path.join(
-    #         result_path, f"{args.model_behavior_key}_{len(train_masks_fold)}.png"
-    #     )
-    # )
 
 
 if __name__ == "__main__":
