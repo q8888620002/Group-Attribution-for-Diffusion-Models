@@ -189,7 +189,7 @@ def collect_data(
 
                 if seed not in removal_seeds:
                     if record["method"] == "gd":
-                        if int(record["gd_steps"]) == 1000:
+                        if int(record["gd_steps"]) == 500:
                             remaining_masks.append(remaining_mask)
                             model_behaviors.append(model_behavior)
                             removal_seeds.append(seed)
@@ -225,6 +225,7 @@ def main(args):
         args.n_samples,
         args.by_class,
     )
+    print("loading full and null data.")
     _, null_targets, _ = collect_data(
         args.null_db,
         {"dataset": args.dataset, "method": "retrain"},
@@ -247,8 +248,10 @@ def main(args):
         "dataset": args.dataset,
         "removal_dist": "shapley",
         "method": "retrain",
-        "exp_name": "retrain_vs_train",
+        "exp_name": f"{args.test_exp_name}",
     }
+    print("loading retraining data...")
+
     test_masks, test_targets, train_seeds = collect_data(
         args.test_db,
         test_condition_dict,

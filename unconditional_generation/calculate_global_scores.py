@@ -4,11 +4,24 @@ import json
 import os
 import time
 
+import numpy as np
+import torch
 from lightning.pytorch import seed_everything
+from PIL import Image
+from skimage.metrics import normalized_root_mse, structural_similarity
+from torch.utils.data import DataLoader, Subset
 
 import src.constants as constants
 from src.attributions.global_scores import fid_score, inception_score, precision_recall
-from src.datasets import ImageDataset, TensorDataset
+from src.datasets import (
+    ImageDataset,
+    TensorDataset,
+    create_dataset,
+    remove_data_by_class,
+    remove_data_by_datamodel,
+    remove_data_by_shapley,
+    remove_data_by_uniform,
+)
 from src.diffusion_utils import build_pipeline, generate_images, load_ckpt_model
 from src.utils import print_args
 
@@ -165,6 +178,65 @@ def main(args):
             if args.removal_dist == "datamodel":
                 removal_dir += f"_alpha={args.datamodel_alpha}"
             removal_dir += f"_seed={args.removal_seed}"
+
+        # Loading training images
+
+        train_dataset = create_dataset(dataset_name=args.dataset, train=True)
+        if args.excluded_class is not None:
+            excluded_class = [int(k) for k in args.excluded_class.split(",")]
+            remaining_idx, removed_idx = remove_data_by_class(
+                train_dataset, excluded_class=excluded_class
+            )
+        elif args.removal_dist is not None:
+            if args.removal_dist == "uniform":
+                remaining_idx, removed_idx = remove_data_by_uniform(
+                    train_dataset, seed=args.removal_seed
+                )
+            elif args.removal_dist == "datamodel":
+                if args.dataset in ["cifar100", "cifar100_f", "celeba"]:
+                    remaining_idx, removed_idx = remove_data_by_datamodel(
+                        train_dataset,
+                        alpha=args.datamodel_alpha,
+                        seed=args.removal_seed,
+                        by_class=True,
+                    )
+                else:
+                    remaining_idx, removed_idx = remove_data_by_datamodel(
+                        train_dataset,
+                        alpha=args.datamodel_alpha,
+                        seed=args.removal_seed,
+                    )
+            elif args.removal_dist == "shapley":
+                if args.dataset in ["cifar100", "cifar100_f", "celeba"]:
+                    remaining_idx, removed_idx = remove_data_by_shapley(
+                        train_dataset, seed=args.removal_seed, by_class=True
+                    )
+                else:
+                    remaining_idx, removed_idx = remove_data_by_shapley(
+                        train_dataset, seed=args.removal_seed
+                    )
+            else:
+                raise NotImplementedError
+        else:
+            remaining_idx = np.arange(len(train_dataset))
+            removed_idx = np.array([], dtype=int)
+
+        if len(remaining_idx) < args.batch_size:
+            remaining_dataloader = DataLoader(
+                Subset(train_dataset, remaining_idx),
+                batch_size=len(remaining_idx),
+                shuffle=False,
+                num_workers=1,
+                pin_memory=True,
+            )
+        else:
+            remaining_dataloader = DataLoader(
+                Subset(train_dataset, remaining_idx),
+                batch_size=args.batch_size,
+                shuffle=False,
+                num_workers=1,
+                pin_memory=True,
+            )
         model_loaddir = os.path.join(
             args.outdir,
             args.dataset,
@@ -218,6 +290,72 @@ def main(args):
         info_dict["recall"] = recall
         info_dict["is"] = is_value
 
+        # best_match_indices = [-1] * len(
+        #     images_dataset
+        # )  # Store indices of training images with highest SSIM
+        # memorization_results = {i: 0 for i in range(args.n_samples)}
+
+        # starttime = time.time()
+        # sample_idx = 0
+
+        # for batch_idx, batch_imgs in enumerate(remaining_dataloader):
+        #     batch_imgs = batch_imgs[0].numpy().astype(np.float32)
+        #     batch_imgs_flipped = np.flip(batch_imgs, axis=3)
+
+        #     for idx, gen_image in enumerate(images_dataset):
+        #         gen_image = gen_image.numpy().astype(np.float32)
+
+        #         ssim_vals_original = [
+        #             structural_similarity(
+        #                 gen_image, train_img, channel_axis=0, data_range=1.0
+        #             )
+        #             for train_img in batch_imgs
+        #         ]
+        #         ssim_vals_flipped = [
+        #             structural_similarity(
+        #                 gen_image, train_img_flipped, channel_axis=0, data_range=1.0
+        #             )
+        #             for train_img_flipped in batch_imgs_flipped
+        #         ]
+
+        #         max_ssim_vals = np.maximum(ssim_vals_original, ssim_vals_flipped)
+        #         max_idx = np.argmax(max_ssim_vals)
+        #         best_ssim = max_ssim_vals[max_idx]
+
+        #         if best_ssim > memorization_results[idx]:
+        #             memorization_results[idx] = best_ssim
+        #             best_match_indices[idx] = (
+        #                 max_idx + sample_idx
+        #             )  # Calculate global index of the training image
+
+        #     sample_idx += len(batch_imgs)
+
+        # print(f"calculation time: {time.time() - starttime}.")
+        # output_folder = 'results/cifar100'  # Set the appropriate path
+        # for idx, gen_image in enumerate(images_dataset):
+        #     gen_image = gen_image.numpy().astype(np.float32)
+
+        #     best_match_idx = best_match_indices[idx]
+        #     if best_match_idx != -1:
+        #         best_training_img = remaining_dataloader.dataset[best_match_idx][0].numpy()  # Access the corresponding best match image
+
+        #         # Convert arrays to images
+        #         gen_img = Image.fromarray(np.rollaxis((gen_image * 255).astype(np.uint8), 0,3),'RGB')
+        #         train_img = Image.fromarray(np.rollaxis((best_training_img * 255).astype(np.uint8), 0,3), 'RGB')
+
+        #         total_width = gen_img.width + train_img.width
+        #         max_height = max(gen_img.height, train_img.height)
+        #         combined_img = Image.new('RGB', (total_width, max_height))
+        #         combined_img.paste(gen_img, (0, 0))
+        #         combined_img.paste(train_img, (gen_img.width, 0))
+
+        #         # Save the combined image
+        #         combined_img.save(f"{output_folder}/{idx}_combined_image.png")
+
+        # info_dict["mem_results"] = sum(
+        #     1 for value in memorization_results.values() if value > 0.6
+        # ) / len(memorization_results)
+        # info_dict["num_classes"] = len(remaining_idx) // 500
     else:
         # Check if subdirectories exist for conditional image generation.
         subdir_list = [

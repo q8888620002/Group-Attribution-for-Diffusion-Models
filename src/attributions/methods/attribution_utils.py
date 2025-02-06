@@ -156,7 +156,7 @@ class CLIPScore:
         else:
             coeff = similarity
 
-        if dataset_name in ["cifar100", "cifar100_f", "celeba"]:
+        if dataset_name in ["cifar100", "cifar100_f", "celeba", "cifar100_new"]:
             dataset = create_dataset(dataset_name=dataset_name, train=True)
             coeff = aggregate_by_class(coeff, dataset, by)
 
@@ -208,7 +208,7 @@ def pixel_distance(
     else:
         coeff = similarities
 
-    if dataset_name in ["cifar100", "cifar100_f", "celeba"]:
+    if dataset_name in ["cifar100", "cifar100_f", "celeba","cifar100_new"]:
         dataset = create_dataset(dataset_name=dataset_name, train=True)
         # coeff = mean_scores_by_class(coeff, dataset)
 

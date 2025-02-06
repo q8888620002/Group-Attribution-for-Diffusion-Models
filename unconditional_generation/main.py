@@ -9,6 +9,8 @@ import time
 
 import numpy as np
 import torch
+
+
 import torch.nn as nn
 from accelerate import Accelerator
 from lightning.pytorch import seed_everything
@@ -59,8 +61,8 @@ def parse_args():
     )
     parser.add_argument(
         "--excluded_class",
-        help='Classes to be excluded, e.g. "1, 2, 3, etc" ',
-        type=str,
+        type=int,
+        help="dataset class to exclude for class-wise data removal",
         default=None,
     )
     parser.add_argument(
@@ -235,10 +237,7 @@ def main(args):
 
     removal_dir = "full"
     if args.excluded_class is not None:
-        excluded_class = [int(k) for k in args.excluded_class.split(",")]
-        excluded_class.sort()
-        excluded_class_str = ",".join(map(str, excluded_class))
-        removal_dir = f"excluded_{excluded_class_str}"
+        removal_dir = f"excluded_{args.excluded_class}"
     if args.removal_dist is not None:
         removal_dir = f"{args.removal_dist}/{args.removal_dist}"
         if args.removal_dist == "datamodel":
@@ -263,14 +262,13 @@ def main(args):
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
     if args.excluded_class is not None:
-        excluded_class = [int(k) for k in args.excluded_class.split(",")]
         remaining_idx, removed_idx = remove_data_by_class(
-            train_dataset, excluded_class=excluded_class
+            train_dataset, excluded_class=args.excluded_class
         )
     elif args.removal_dist is not None:
         if args.removal_dist == "uniform":
             remaining_idx, removed_idx = remove_data_by_uniform(
-                train_dataset, seed=args.removal_seed
+                train_dataset, seed=args.removal_seed, by_class=True
             )
         elif args.removal_dist == "datamodel":
             if args.dataset in ["cifar100", "cifar100_f", "celeba"]:
@@ -315,7 +313,7 @@ def main(args):
 
     # Load full model instead of state_dict for pruned model.
     # if method is retrain.
-    if args.method not in ["retrain", "gd_u"]:
+    if args.method != "retrain":
         # Load pruned model
         pruned_model_path = os.path.join(
             args.outdir,
@@ -329,7 +327,9 @@ def main(args):
             ),
             f"ckpt_steps_{0:0>8}.pt",
         )
-        pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
+        pruned_model_ckpt = torch.load(
+            pruned_model_path, map_location="cpu"
+        )
         model = pruned_model_ckpt["unet"]
         accelerator.print(f"Pruned U-Net resumed from {pruned_model_path}")
     else:
@@ -435,7 +435,8 @@ def main(args):
             f"Batch size is {config['batch_size']} "
             f"and number of processes is {accelerator.state.num_processes}",
             f"Batch size will be divided by number of processes."
-            f"Per process batch size is {config['batch_size'] // accelerator.state.num_processes}",
+            "Per process batch size is "
+            f"{config['batch_size'] // accelerator.state.num_processes}",
         )
 
     num_workers = 4 if torch.get_num_threads() >= 4 else torch.get_num_threads()
@@ -526,7 +527,6 @@ def main(args):
                 vqvae_latent_dict,
                 os.path.join(vqvae_latent_dir, "vqvae_output.pt"),
             )
-            pipeline.to(device)
 
             accelerator.print(
                 "VQVAE output saved. Set precompute_state=reuse to unload VQVAE model."
@@ -546,6 +546,7 @@ def main(args):
                     "vqvae_output.pt",
                 ),
                 map_location="cpu",
+                weights_only=True,
             )
 
         captioner = None

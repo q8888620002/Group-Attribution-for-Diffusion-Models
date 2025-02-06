@@ -295,11 +295,11 @@ def collect_data(
 
                 if seed not in removal_seeds:
                     if method == "gd":
-                        if record["trained_steps"] == 2000:
+                        # if record["trained_steps"] == 500:
                             # Only extract record when trained steps == 4000 for gd.
-                            remaining_masks.append(remaining_mask)
-                            model_behaviors.append(model_behavior)
-                            removal_seeds.append(seed)
+                        remaining_masks.append(remaining_mask)
+                        model_behaviors.append(model_behavior)
+                        removal_seeds.append(seed)
                     else:
                         remaining_masks.append(remaining_mask)
                         model_behaviors.append(model_behavior)
@@ -330,6 +330,16 @@ def main(args):
                 args.dataset,
                 "datamodel",
                 f"retrain_global_behavior_seed{seed}.jsonl",
+            )
+            for seed in [42, 43, 44]
+        ]
+    elif args.dataset == "cifar100_new":
+        test_db_list = [
+            os.path.join(
+                "/gscratch/aims/mingyulu/results_ming",
+                args.dataset,
+                "datamodel",
+                f"global_behavior_seed{seed}.jsonl",
             )
             for seed in [42, 43, 44]
         ]
@@ -450,12 +460,19 @@ def main(args):
     ), "number of target should match number of samples in sample_dir."
 
     data_attr_list = coeff
-    print(np.argsort(-coeff.flatten())[:30])
 
     lds_mean, lds_ci = evaluate_lds(data_attr_list, test_data_list, num_targets)
 
     print(f"Mean: {lds_mean:.2f} ({lds_ci:.2f})")
     print(f"Confidence interval: ({lds_mean - lds_ci:.2f}, {lds_mean + lds_ci:.2f})")
+
+    dataset = create_dataset(dataset_name=args.dataset, train=True)
+
+    unique_labels = sorted(set(data[1] for data in dataset))
+    value_to_number = {i: label for i, label in enumerate(unique_labels)}
+    print([value_to_number[i] for i in np.argsort(-coeff.flatten())][:30])
+
+    print(np.argsort(-coeff.flatten())[:30])
 
     if args.bootstrapped:
 

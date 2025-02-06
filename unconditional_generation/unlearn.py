@@ -13,7 +13,9 @@ import json
 import math
 import os
 import time
+from copy import deepcopy
 
+import bitsandbytes as bnb
 import numpy as np
 import torch
 import torch.nn as nn
@@ -27,6 +29,7 @@ from skimage.metrics import (
 from torch.utils.data import DataLoader, Subset
 from torchvision.utils import save_image
 from tqdm import tqdm
+from transformers.trainer_pt_utils import get_parameter_names
 
 import src.constants as constants
 from diffusers.optimization import get_scheduler
@@ -80,7 +83,7 @@ def parse_args():
         "--removal_dist",
         type=str,
         help="distribution for removing data",
-        choices=["uniform", "datamodel", "shapley"],
+        choices=["uniform", "datamodel", "shapley", "loo", "add_one_in"],
         default=None,
     )
     parser.add_argument(
@@ -99,16 +102,22 @@ def parse_args():
         "--method",
         type=str,
         help="training or unlearning method",
-        choices=["iu", "ga", "gd", "gd_u"],
+        choices=constants.METHOD,
     )
     parser.add_argument(
-        "--iu_ratio", type=float, help="ratio for purturbing model weights", default=1.0
+        "--iu_ratio", type=float, help="ratio for purturbing model weights", default=0.5
     )
     parser.add_argument(
-        "--ga_ratio", type=float, help="ratio for unlearning steps", default=2.0
+        "--ga_ratio", type=float, help="ratio for unlearning steps", default=1.0
     )
     parser.add_argument(
         "--gd_steps", type=int, help="ratio for unlearning steps", default=4000
+    )
+    parser.add_argument(
+        "--lora_rank", type=int, help="rank of matrix for LORA", default=16
+    )
+    parser.add_argument(
+        "--lora_dropout", type=float, help="rank of matrix for LORA", default=0.05
     )
     parser.add_argument(
         "--opt_seed",
@@ -246,6 +255,12 @@ def parse_args():
         default=1000,
         help="number of diffusion steps during training",
     )
+    parser.add_argument(
+        "--pruned",
+        help="whether to used pruned model",
+        default=False,
+        action="store_true",
+    )
     return parser.parse_args()
 
 
@@ -287,7 +302,7 @@ def main(args):
         excluded_class.sort()
         excluded_class_str = ",".join(map(str, excluded_class))
         removal_dir = f"excluded_{excluded_class_str}"
-    if args.removal_dist is not None:
+    elif args.removal_dist is not None:
         removal_dir = f"{args.removal_dist}/{args.removal_dist}"
         if args.removal_dist == "datamodel":
             removal_dir += f"_alpha={args.datamodel_alpha}"
@@ -302,15 +317,11 @@ def main(args):
         os.makedirs(sample_outdir, exist_ok=True)
 
     train_dataset = create_dataset(dataset_name=args.dataset, train=True)
-    if args.excluded_class is not None:
-        excluded_class = [int(k) for k in args.excluded_class.split(",")]
-        remaining_idx, removed_idx = remove_data_by_class(
-            train_dataset, excluded_class=excluded_class
-        )
-    elif args.removal_dist is not None:
+
+    if args.removal_dist is not None:
         if args.removal_dist == "uniform":
             remaining_idx, removed_idx = remove_data_by_uniform(
-                train_dataset, seed=args.removal_seed
+                train_dataset, seed=args.removal_seed, by_class=True
             )
         elif args.removal_dist == "datamodel":
             remaining_idx, removed_idx = remove_data_by_datamodel(
@@ -327,8 +338,19 @@ def main(args):
                 remaining_idx, removed_idx = remove_data_by_shapley(
                     train_dataset, seed=args.removal_seed
                 )
+        elif args.removal_dist in ["loo", "add_one_in"]:
+            excluded_class = [int(k) for k in args.excluded_class.split(",")]
+            remaining_idx, removed_idx = remove_data_by_class(
+                train_dataset, excluded_class=excluded_class
+            )
         else:
-            raise NotImplementedError
+            if args.excluded_class is not None:
+                excluded_class = [int(k) for k in args.excluded_class.split(",")]
+                remaining_idx, removed_idx = remove_data_by_class(
+                    train_dataset, excluded_class=excluded_class
+                )
+            else:
+                raise NotImplementedError
     else:
         remaining_idx = np.arange(len(train_dataset))
         removed_idx = np.array([], dtype=int)
@@ -339,7 +361,6 @@ def main(args):
     # Load model structure depending on unlearning methods.
 
     args.trained_steps = get_max_steps(args.load)
-
     model, ema_model, _, _ = load_ckpt_model(args, args.load)
 
     model.to(device)
@@ -377,36 +398,83 @@ def main(args):
 
         if args.method == "ga":
             optimizer_kwargs["lr"] = 1e-5
-        optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
-            model.parameters(), **optimizer_kwargs
-        )
-    else:
-        # https://huggingface.co/docs/transformers/v4.20.1/en/perf_train_gpu_one#8bit-adam
-        import bitsandbytes as bnb
-        from transformers.trainer_pt_utils import get_parameter_names
+            optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
+                model.parameters(), **optimizer_kwargs
+            )
+        elif args.method in ["lora", "lora_u"]:
+            from peft import LoraConfig, get_peft_model
+            from peft.optimizers import create_loraplus_optimizer
 
-        decay_parameters = get_parameter_names(model, [nn.LayerNorm])
-        decay_parameters = [name for name in decay_parameters if "bias" not in name]
-        optimizer_grouped_parameters = [
-            {
-                "params": [
-                    p for n, p in model.named_parameters() if n in decay_parameters
-                ],
-                "weight_decay": config["optimizer_config"]["kwargs"]["weight_decay"],
-            },
-            {
-                "params": [
-                    p for n, p in model.named_parameters() if n not in decay_parameters
-                ],
-                "weight_decay": 0.0,
-            },
-        ]
-        optimizer_kwargs = config["optimizer_config"]["kwargs"]
-        del optimizer_kwargs["weight_decay"]
-        optimizer = bnb.optim.Adam8bit(
-            optimizer_grouped_parameters,
-            **optimizer_kwargs,
-        )
+            # Initialize LORA adapter
+
+            lora_config = LoraConfig(
+                r=args.lora_rank,
+                target_modules=["to_q", "to_v", "to_k"],
+                lora_alpha=32,
+                lora_dropout=args.lora_dropout,
+            )
+            model = get_peft_model(model, lora_config)
+            optimizer = create_loraplus_optimizer(
+                model=model,
+                optimizer_cls=getattr(
+                    torch.optim, config["optimizer_config"]["class_name"]
+                ),
+                lr=config["optimizer_config"]["kwargs"]["lr"],
+                loraplus_lr_ratio=16,
+            )
+        else:
+            optimizer = getattr(torch.optim, config["optimizer_config"]["class_name"])(
+                model.parameters(), **optimizer_kwargs
+            )
+    else:
+
+        if args.method  in ["lora", "lora_u"]:
+            from peft import LoraConfig, get_peft_model
+            from peft.optimizers import create_loraplus_optimizer
+
+            # Initialize LORA adapter
+
+            lora_config = LoraConfig(
+                r=args.lora_rank,
+                target_modules=["to_q", "to_v", "to_k"],
+                lora_alpha=32,
+                lora_dropout=args.lora_dropout,
+            )
+            model = get_peft_model(model, lora_config)
+            optimizer = create_loraplus_optimizer(
+                model=model,
+                optimizer_cls=bnb.optim.Adam8bit,
+                lr=config["optimizer_config"]["kwargs"]["lr"],
+                loraplus_lr_ratio=16,
+            )
+
+        else:
+            decay_parameters = get_parameter_names(model, [nn.LayerNorm])
+            decay_parameters = [name for name in decay_parameters if "bias" not in name]
+            optimizer_grouped_parameters = [
+                {
+                    "params": [
+                        p for n, p in model.named_parameters() if n in decay_parameters
+                    ],
+                    "weight_decay": config["optimizer_config"]["kwargs"][
+                        "weight_decay"
+                    ],
+                },
+                {
+                    "params": [
+                        p
+                        for n, p in model.named_parameters()
+                        if n not in decay_parameters
+                    ],
+                    "weight_decay": 0.0,
+                },
+            ]
+            optimizer_kwargs = config["optimizer_config"]["kwargs"]
+            del optimizer_kwargs["weight_decay"]
+            optimizer = bnb.optim.Adam8bit(
+                optimizer_grouped_parameters,
+                **optimizer_kwargs,
+            )
 
     lr_scheduler_kwargs = config["lr_scheduler_config"]["kwargs"]
     lr_scheduler = get_scheduler(
@@ -438,7 +506,7 @@ def main(args):
 
     unlearn_start_time = time.time()
 
-    if args.method == "iu":
+    if args.method in ["iu", "iu_u"]:
         model.eval()
         vqvae_latent_dict = (
             None
@@ -477,7 +545,7 @@ def main(args):
         model = apply_perturb(model, args.iu_ratio * delta_w)
         ema_model.step(model.parameters())
 
-    elif args.method in ["gd", "gd_u"]:
+    elif args.method in ["gd", "gd_u", "lora", "lora_u"]:
         param_update_steps = 0
 
         progress_bar = tqdm(
@@ -546,7 +614,6 @@ def main(args):
                         eps = model(noisy_images, timesteps).sample
 
                     loss = loss_fn(eps, noise)
-
                     accelerator.backward(loss)
                     if accelerator.sync_gradients:
                         # Clip the gradients when the gradients are synced. This has to
@@ -559,7 +626,15 @@ def main(args):
                     if accelerator.sync_gradients:
                         # Update the EMA model when the gradients are synced
                         # (that is, when model parameters are updated).
-                        ema_model.step(model.parameters())
+                        if args.method in ["lora", "lora_u"]:
+                            # Merge LORA to the base model
+                            merged_model = deepcopy(model)
+                            merged_model.merge_and_unload()
+                            ema_model.step(merged_model.parameters())
+                            del merged_model
+                        else:
+                            ema_model.step(model.parameters())
+
                         param_update_steps += 1
                         progress_bar.update(1)
 
@@ -568,7 +643,7 @@ def main(args):
 
         model = accelerator.unwrap_model(model).eval()
 
-    elif args.method == "ga":
+    elif args.method in ["ga", "ga_u" ] :
 
         training_steps = int(training_steps // args.ga_ratio)
         param_update_steps = 0
@@ -670,10 +745,15 @@ def main(args):
     total_steps_time = time.time() - unlearn_start_time
     # The EMA is used for inference.
 
+    if args.method in ["lora", "lora_u"]:
+        model = model.merge_and_unload()
+
     ema_model.store(model.parameters())
     ema_model.copy_to(model.parameters())
     pipeline.unet = model
 
+    if args.dataset == "celeba":
+        pipeline.vqvae = vqvae
     # Calculate global model score.
     # This is done only once for the main process.
 

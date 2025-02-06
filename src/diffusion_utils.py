@@ -126,6 +126,8 @@ def load_ckpt_model(args, model_loaddir):
         config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "cifar100":
         config = {**DDPMConfig.cifar100_config}
+    elif args.dataset == "cifar100_new":
+        config = {**DDPMConfig.cifar100_config}
     elif args.dataset == "cifar100_f":
         config = {**DDPMConfig.cifar100_f_config}
     elif args.dataset == "celeba":

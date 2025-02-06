@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import numpy as np 
 
 import torch
 from lightning.pytorch import seed_everything
@@ -9,14 +10,21 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 import diffusers
+from torch.utils.data import DataLoader, Subset
+
 import src.constants as constants
 from diffusers import DDIMPipeline, DDIMScheduler, DiffusionPipeline
 from diffusers.training_utils import EMAModel
-from src.datasets import create_dataset
+from src.datasets import create_dataset, remove_data_by_shapley
 from src.ddpm_config import DDPMConfig
 from src.diffusion_utils import ImagenetteCaptioner
 from src.utils import get_max_steps
 
+from skimage.metrics import (
+    mean_squared_error,
+    normalized_root_mse,
+    structural_similarity,
+)
 
 def parse_args():
     """Parse command line arguments."""
@@ -184,7 +192,45 @@ def main(args):
             removal_dir,
             f"steps={str(args.trained_steps)}"
         )
-    
+
+    train_dataset = create_dataset(dataset_name=args.dataset, train=True)
+    if args.excluded_class is not None:
+        excluded_class = [int(k) for k in args.excluded_class.split(",")]
+        remaining_idx, removed_idx = remove_data_by_class(
+            train_dataset, excluded_class=excluded_class
+        )
+    elif args.removal_dist is not None:
+        if args.removal_dist == "uniform":
+            remaining_idx, removed_idx = remove_data_by_uniform(
+                train_dataset, seed=args.removal_seed
+            )
+        elif args.removal_dist == "datamodel":
+            if args.dataset in ["cifar100", "cifar100_f", "celeba"]:
+                remaining_idx, removed_idx = remove_data_by_datamodel(
+                    train_dataset,
+                    alpha=args.datamodel_alpha,
+                    seed=args.removal_seed,
+                    by_class=True,
+                )
+            else:
+                remaining_idx, removed_idx = remove_data_by_datamodel(
+                    train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed
+                )
+        elif args.removal_dist == "shapley":
+            if args.dataset in ["cifar100", "cifar100_f", "celeba"]:
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed, by_class=True
+                )
+            else:
+                remaining_idx, removed_idx = remove_data_by_shapley(
+                    train_dataset, seed=args.removal_seed
+                )
+        else:
+            raise NotImplementedError
+    else:
+        remaining_idx = np.arange(len(train_dataset))
+        removed_idx = np.array([], dtype=int)
+
     os.makedirs(sample_outdir, exist_ok=True)
 
     # Load the trained U-Net model or U-Net EMA.
@@ -310,6 +356,9 @@ def main(args):
                         counter += 1
             print(f"Generated {counter} samples and saved to {synset_sample_outdir}")
 
+        # ssim_val = structural_similarity(
+        #     im1=full_image[0], im2=removal_image[0], channel_axis=-1, data_range=1
+        # )
 
 if __name__ == "__main__":
     args = parse_args()
