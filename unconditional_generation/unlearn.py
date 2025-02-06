@@ -428,7 +428,7 @@ def main(args):
             )
     else:
 
-        if args.method  in ["lora", "lora_u"]:
+        if args.method in ["lora", "lora_u"]:
             from peft import LoraConfig, get_peft_model
             from peft.optimizers import create_loraplus_optimizer
 
@@ -643,7 +643,7 @@ def main(args):
 
         model = accelerator.unwrap_model(model).eval()
 
-    elif args.method in ["ga", "ga_u" ] :
+    elif args.method in ["ga", "ga_u"]:
 
         training_steps = int(training_steps // args.ga_ratio)
         param_update_steps = 0

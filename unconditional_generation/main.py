@@ -9,8 +9,6 @@ import time
 
 import numpy as np
 import torch
-
-
 import torch.nn as nn
 from accelerate import Accelerator
 from lightning.pytorch import seed_everything
@@ -327,9 +325,7 @@ def main(args):
             ),
             f"ckpt_steps_{0:0>8}.pt",
         )
-        pruned_model_ckpt = torch.load(
-            pruned_model_path, map_location="cpu"
-        )
+        pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
         model = pruned_model_ckpt["unet"]
         accelerator.print(f"Pruned U-Net resumed from {pruned_model_path}")
     else:
