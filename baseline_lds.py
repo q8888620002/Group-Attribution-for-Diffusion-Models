@@ -296,7 +296,7 @@ def collect_data(
                 if seed not in removal_seeds:
                     if method == "gd":
                         # if record["trained_steps"] == 500:
-                            # Only extract record when trained steps == 4000 for gd.
+                        # Only extract record when trained steps == 4000 for gd.
                         remaining_masks.append(remaining_mask)
                         model_behaviors.append(model_behavior)
                         removal_seeds.append(seed)
@@ -333,16 +333,6 @@ def main(args):
             )
             for seed in [42, 43, 44]
         ]
-    elif args.dataset == "cifar100_new":
-        test_db_list = [
-            os.path.join(
-                "/gscratch/aims/mingyulu/results_ming",
-                args.dataset,
-                "datamodel",
-                f"global_behavior_seed{seed}.jsonl",
-            )
-            for seed in [42, 43, 44]
-        ]
     elif args.dataset == "celeba":
         test_db_list = [
             os.path.join(
@@ -351,7 +341,7 @@ def main(args):
                 "datamodel",
                 f"diversity_datamodel_"
                 f"{str(args.datamodel_alpha).replace('.', '_')}"
-                f"_seed{seed}.jsonl"
+                f"_seed{seed}.jsonl",
             )
             for seed in [42, 43, 44]
         ]
@@ -415,6 +405,12 @@ def main(args):
             args.sample_dir,
             args.training_dir,
         )
+
+        # print(np.argsort(coeff.flatten())[: int(len(coeff)* 0.05)])
+        # print(np.argsort(coeff.flatten())[:int(len(coeff)* 0.1)])
+        # print(np.argsort(coeff.flatten())[:int(len(coeff)* 0.2)])
+        # print(np.argsort(coeff.flatten())[:int(len(coeff)* 0.3)])
+        # print(np.argsort(coeff.flatten())[:int(len(coeff)* 0.4)])
     elif args.method == "loo":
         loo_condition_dict = {
             "exp_name": args.train_exp_name,
@@ -465,14 +461,6 @@ def main(args):
 
     print(f"Mean: {lds_mean:.2f} ({lds_ci:.2f})")
     print(f"Confidence interval: ({lds_mean - lds_ci:.2f}, {lds_mean + lds_ci:.2f})")
-
-    dataset = create_dataset(dataset_name=args.dataset, train=True)
-
-    unique_labels = sorted(set(data[1] for data in dataset))
-    value_to_number = {i: label for i, label in enumerate(unique_labels)}
-    print([value_to_number[i] for i in np.argsort(-coeff.flatten())][:30])
-
-    print(np.argsort(-coeff.flatten())[:30])
 
     if args.bootstrapped:
 
