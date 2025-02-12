@@ -7,7 +7,8 @@ As diffusion models are deployed in real-world settings, and their performance i
 
 ![alt text](concept_fig.jpg)
 
-### Quickstart - Install Required Packages
+## Setup
+### Install Required Packages
 Set up a virtual environment with Python 3.11.5.
 Before starting, ensure all required packages are installed:
 ```bash
@@ -32,10 +33,8 @@ cd data_attribution
 export PYTHONPATH="$PYTHONPATH:$PWD"
 ```
 
-## Directory Structure
-
+### Directory Structure
 ```plaintext
-.
 ├── src/  # Files for common Python functions and classes.
 │   ├── ddpm_config.py
 │   ├── utils.py
