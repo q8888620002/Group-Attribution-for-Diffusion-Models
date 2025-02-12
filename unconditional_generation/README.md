@@ -130,7 +130,7 @@ python unlearn.py
 --model_behavior [global]
 ```
 
-### 4. Linear datamodel score (LDS) computation
+### 3. Linear datamodel score (LDS) computation
 
 *Note that the testing set are behavior of retraining models from datamodel distribution by following step 1. 
 
