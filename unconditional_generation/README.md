@@ -1,9 +1,9 @@
-# Data Attribution via Sparsified Unlearning
+# Data Attribution via Sparsified Fine-tuning
 
 This README provides instructions for training **unconditional** diffusion models, including methods such as retraining (exact unlearning) and **sparsified unlearning**.
 
 ## Training a Diffusion Model from Scratch with a removal distribution
-To train an diffusion model, execute the following command:
+To train a diffusion model, execute the following command:
 
 ```bash
 python main.py
@@ -67,26 +67,23 @@ python prune.py
 ```
 *Note that the pruned needs to be fine-tuned (retrained).
 
-## Training a Unlearned Model from a full model with a removal distribution
+## For a full or fine-tuned pruned model to unlearn a removal distribution with gradient descent
 To unlearn a full model and compute its model behavior, execute the following command:
 
 ```bash
 python unlearn.py
 
 --load [full_model_path] \
---dataset [cifar, celeba ] \
 --db [path_to_saved_results] \
+--dataset [cifar, celeba ] \
 
 ## Unlearning methods
 
---method [gd/ga/lora/iu] \
+--method [gd] \
 
 ## Unlearning params
---iu_ratio [0.5]
 --ga_ratio [1.0]
 --gd_steps [2000]
---lora_rank [16]
---lora_dropout [0.05]
 
 ## Removal distribution args
 
@@ -94,7 +91,7 @@ python unlearn.py
 --datamodel_alpha [0.5] \
 --removal_seed [0] \
 
-## Params specification for loading the full model for unlearning.
+## Params specification for loading the full or fine-tuned pruned model for unlearning.
 
 --pruning_ratio [0.3]\
 --pruner [magnitude]\
@@ -111,7 +108,6 @@ python unlearn.py
 
 ## model behavior
 --model_behavior [global]
-
 ```
 
 Finally, to compute linear datamodel score (LDS), execute the following command
@@ -132,16 +128,11 @@ Finally, to compute linear datamodel score (LDS), execute the following command
 --null_db path_to_null_model_behavior \
 --max_train_size 100 \
 
-## Validation set
+## Validation set params
+
 --test_db path_to_datamodel_behavior\
 --test_exp_name test_exp_name \
 --num_test_subset 100 \
 
 --by_class
 ```
-
-## References and Additional Resources
-
-- **Understanding Diffusion Models:** A comprehensive explanation can be found in this blog: [Lilian Weng's Blog on Diffusion Models](https://lilianweng.github.io/posts/2021-07-11-diffusion-models/).
-- **Original DDPM Paper:** The Denoising Diffusion Probabilistic Models paper is available at [arXiv](https://arxiv.org/pdf/2006.11239.pdf).
-- **PyTorch Implementation of DDPM:** A PyTorch version of DDPM can be found on GitHub: [Denoising Diffusion PyTorch Repository](https://github.com/lucidrains/denoising-diffusion-pytorch).
