@@ -135,7 +135,6 @@ Finally, to compute linear datamodel score (LDS), execute the following command
 ## Validation set
 --test_db path_to_datamodel_behavior\
 --test_exp_name test_exp_name \
-
 --num_test_subset 100 \
 
 --by_class
