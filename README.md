@@ -1,15 +1,26 @@
 # Explaining Diffusion Models via Sparsified Unlearning
 
 ## Overview
-With the widespread usage of diffusion models, effective data attribution is needed
-to ensure fair acknowledgment for contributors of high-quality training samples,
-and to identify potential sources of harmful content. In this early work, we in-
-troduce a novel framework tailored to removal-based data attribution for diffusion
-models, leveraging sparsified unlearning. This approach significantly improves
-the computational scalability and effectiveness of removal-based data attribution.
-In our experiments, we attribute diffusion model FID back to CIFAR-10 train-
-ing images with datamodel attributions, showing better linear datamodeling score
-(LDS) than datamodel attributions based on naive retraining
+As diffusion models are deployed in real-world settings, and their performance is
+driven by training data, appraising the contribution of data contributors is crucial
+to creating incentives for sharing quality data and to implementing policies for
+data compensation. Depending on the use case, model performance corresponds
+to various global properties of the distribution learned by a diffusion model (e.g.,
+overall aesthetic quality). Hence, here we address the problem of attributing
+global properties of diffusion models to data contributors. The Shapley value
+provides a principled approach to valuation by uniquely satisfying game-theoretic
+axioms of fairness. However, estimating Shapley values for diffusion models
+is computationally impractical because it requires retraining on many training
+data subsets corresponding to different contributors and rerunning inference. We
+introduce a method to efficiently retrain and rerun inference for Shapley value
+estimation, by leveraging model pruning and fine-tuning. We evaluate the utility
+of our method with three use cases: (i) image quality for a DDPM trained on a
+CIFAR dataset, (ii) demographic diversity for an LDM trained on CelebA-HQ,
+and (iii) aesthetic quality for a Stable Diffusion model LoRA-finetuned on Post-
+Impressionist artworks. Our results empirically demonstrate that our framework
+can identify important data contributors across models’ global properties, outper-
+forming existing attribution methods for diffusion models For more details, 
+please refer to our ICLR2025 paper at (https://openreview.net/pdf?id=9EqQC2ct4H)
 
 ## Training Instructions
 
@@ -48,36 +59,7 @@ export PYTHONPATH="$PYTHONPATH:$PWD"
 │   └── # some other module files
 │
 ├── unconditional_generation/  # Files for unconditional diffusion models.
-│   ├── README.md
-│   ├── main.py
-│   ├── prune.py
-│   ├── generate_samples.py
-│   ├── calculate_local_scores.py
-│   ├── cifar/
-│   │   ├── calculate_global_scores.py  # Global scores can differ between different datasets.
-│   │   └── results.ipynb  # Jupyter notebook(s) for plotting results.
-│   ├── celeba/
-│   │   ├── calculate_global_scores.py
-│   │   └── results.ipynb
-│   └── experiments/  # Files for managing SLURM experiments.
-│
 ├── text_to_image/  # Files for text-to-image diffusion models.
-│   ├── README.md
-│   ├── train_text_to_image_lora.py
-│   ├── prune_lora.py
-│   ├── generate_samples.py
-│   ├── compute_model_behaviors.py
-|   ├── baselines.py
-|   ├── shapley_lds.py
-|   ├── baseline_lds.py
-│   ├── artbench/
-|   |   ├── create_metadata.py
-│   │   └── *.ipynb  # Notebooks for analyzing results.
-│   └── experiments/  # Files for managing SLURM experiments.
-│
-├── some_common_script_0.py  # Script(s) that are useful for all diffusion models.
-├── some_common_script_1.py
-
 ```
 
 ## Development Guidlines
