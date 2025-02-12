@@ -64,7 +64,7 @@ python prune.py
 --pruner [magnitude]\
 --thr [0.05]\
 ```
-*Note that the pruned needs to be fine-tuned (retrained).
+*Note that the pruned model needs to be fine-tuned (retrained) after pruning to achieve comparable performance to the original full model.
 
 ## 3. For a full or fine-tuned pruned model to unlearn a removal distribution with gradient descent
 To unlearn a full model and compute its model behavior, execute the following command:
