@@ -2,7 +2,7 @@
 
 This README provides instructions for training **unconditional** diffusion models, including methods such as retraining (exact unlearning) and **sparsified unlearning**.
 
-## Training a Diffusion Model from Scratch with a removal distribution
+### 1. Training a Diffusion Model from Scratch with a removal distribution
 To train a diffusion model, execute the following command:
 
 ```bash
@@ -36,7 +36,7 @@ python main.py
 --gradient_accumulation_steps [1] \
 ```
 
-## Efficient Training for CelebA-HQ (256x 256)
+### Efficient Training for CelebA-HQ (256x 256)
 To reduce GPU memory usage and facilitate training with CelebA-HQ dataset (e.g., on RTX 2080ti),
 
 1. Create and set up the configuration file `deepspeed_config_dp.yaml` for [Accelerator](https://huggingface.co/docs/accelerate/en/package_reference/accelerator)
@@ -52,7 +52,7 @@ main.py --dataset celeba \
 ```
 3. To train with precomputed latent embeddings, change `--precompute_stage save` to `reuse` in the command.
 
-## Prune a full model
+## 2. Prune a full model
 To prune a trained diffusion model, execute the following command:
 ```bash
 python prune.py
@@ -66,7 +66,7 @@ python prune.py
 ```
 *Note that the pruned needs to be fine-tuned (retrained).
 
-## For a full or fine-tuned pruned model to unlearn a removal distribution with gradient descent
+## 3. For a full or fine-tuned pruned model to unlearn a removal distribution with gradient descent
 To unlearn a full model and compute its model behavior, execute the following command:
 
 ```bash
@@ -111,7 +111,11 @@ python unlearn.py
 --model_behavior [global]
 ```
 
-Finally, to compute linear datamodel score (LDS), execute the following command
+### 4. Linear datamodel score (LDS) computation
+
+*Note that the testing set are behavior of retraining models from datamodel distribution by following step 1. 
+
+To compute linear datamodel score (LDS), execute the following command
 
 ```bash
  python lds.py
