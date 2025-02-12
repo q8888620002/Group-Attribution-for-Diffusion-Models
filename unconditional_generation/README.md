@@ -140,7 +140,7 @@ python unlearn.py
 
 ### 3. Linear datamodel score (LDS) computation
 
-*Note: The testing set consists of the model behaviors from retrained models using the data model distribution, following **Step 1**.
+*Note: The testing set consists of the model behaviors from retrained models using the datamodel distribution, following **Step 1**.
 
 To compute linear datamodel score (LDS) for a given unlearning method and a attribution kernel, e.g. Shapley, execute the following command
 
