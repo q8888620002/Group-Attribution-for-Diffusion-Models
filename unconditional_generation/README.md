@@ -118,26 +118,23 @@ python unlearn.py
 To compute linear datamodel score (LDS), execute the following command
 
 ```bash
- python lds.py
-
+python lds.py \
 --dataset [cifar/celeba] \
 --removal_dist [shapley/datamodel] \
 --model_behavior_key [is/diversity_score/aesthetic_score] \
 
-## Training set params
+## Training Set Parameters
+--train_db [path_to_retrain/unlearn_model_behavior] \
+--train_exp_name [train_exp_name] \
+--method [retrain/ga/lora/iu] \
+--full_db [path_to_full_model_behavior] \
+--null_db [path_to_null_model_behavior] \
+--max_train_size [100] \
 
---train_db path_to_retrain/unlearn_model_behavior \
---train_exp_name train_exp_name \
---method [retrain/ga/ga/lora/iu] \
---full_db path_to_full_model_behavior \
---null_db path_to_null_model_behavior \
---max_train_size 100 \
-
-## Validation set params
-
---test_db path_to_datamodel_behavior\
---test_exp_name test_exp_name \
---num_test_subset 100 \
+## Validation Set Parameters
+--test_db [path_to_datamodel_behavior] \
+--test_exp_name [test_exp_name] \
+--num_test_subset [100] \
 
 --by_class
 ```
