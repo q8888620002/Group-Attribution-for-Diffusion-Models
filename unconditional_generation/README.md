@@ -1,6 +1,30 @@
 # Data Attribution via Sparsified Fine-tuning
 
-This README provides instructions for training **unconditional** diffusion models, including methods such as retraining (exact unlearning) and **sparsified unlearning**.
+# Unconditional Diffusion Model Training and Unlearning
+
+This README provides instructions for training **unconditional** diffusion models, including methods such as **retraining (exact unlearning)** and **sparsified unlearning**.
+
+## Steps to Replicate Results
+
+Follow these steps to reproduce our results:
+
+1. **Train a Full Model**  
+   Train the diffusion model on the original dataset.
+
+2. **Prune the Full Model**  
+   Apply pruning and fine-tune it on the original dataset.
+
+3. **Sparsified Fine-Tuning**  
+   Load the pruned model and fine-tune it on the **removal** or **remaining** distribution.
+
+4. **Compute Model Behavior**  
+   Evaluate the model’s performance and behavior.
+
+5. **Retrain with Data Model Distribution**  
+   Train models using the data model distribution and compute their behavior.
+
+6. **Compute LDS (Likelihood Difference Score)**  
+   Measure the impact of unlearning using LDS.
 
 ## 1. Training a Diffusion Model from Scratch with a removal distribution
 To train a diffusion model, execute the following command:
