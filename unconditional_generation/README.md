@@ -57,7 +57,6 @@ To prune a trained diffusion model, execute the following command:
 ```bash
 python prune.py
 
-##
 --load model_path
 
 ## Pruning params
@@ -82,6 +81,7 @@ python unlearn.py
 --method [gd] \
 
 ## Unlearning params
+
 --ga_ratio [1.0]
 --gd_steps [2000]
 
@@ -107,6 +107,7 @@ python unlearn.py
 --gradient_accumulation_steps [1] \
 
 ## model behavior
+
 --model_behavior [global]
 ```
 
