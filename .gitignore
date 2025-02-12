@@ -17,3 +17,4 @@ slurm/*
 slurms/*
 misc/*
 text_to_image/experiments/commands/*
+unconditional_generation/celeba_experiments/*
