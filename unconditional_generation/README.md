@@ -2,7 +2,7 @@
 
 This README provides instructions for training **unconditional** diffusion models, including methods such as retraining (exact unlearning) and **sparsified unlearning**.
 
-### 1. Training a Diffusion Model from Scratch with a removal distribution
+## 1. Training a Diffusion Model from Scratch with a removal distribution
 To train a diffusion model, execute the following command:
 
 ```bash
@@ -36,7 +36,7 @@ python main.py
 --gradient_accumulation_steps [1] \
 ```
 
-#### Efficient Training for CelebA-HQ (256x 256)
+### Efficient Training for CelebA-HQ (256x 256)
 To reduce GPU memory usage and facilitate training with CelebA-HQ dataset (e.g., on RTX 2080ti),
 
 1. Create and set up the configuration file `deepspeed_config_dp.yaml` for [Accelerator](https://huggingface.co/docs/accelerate/en/package_reference/accelerator)
@@ -51,6 +51,32 @@ main.py --dataset celeba \
 --precompute_stage save
 ```
 3. To train with precomputed latent embeddings, change `--precompute_stage save` to `reuse` in the command.
+
+### Compute global model behavior
+To compute global model behavior for a retrained model, execute the following command:
+```bash
+
+python unlearn.py
+
+--load [path_to_full_model]
+--dataset [cifar, celeba ] \
+--method [retrain] \
+--db [path_saved_results]
+--exp_name [exp_name]
+
+## Removal distribution args
+
+--removal_dist [datashapley/datamodel/uniform/None] \
+--datamodel_alpha [0.5] \
+--removal_seed [0] \
+
+## generation params
+--n_local_samples 100
+--n_noises 50
+--use_ema 
+--model_behavior global
+
+```
 
 ## 2. Prune a full model
 To prune a trained diffusion model, execute the following command:
