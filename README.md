@@ -47,7 +47,11 @@ export PYTHONPATH="$PYTHONPATH:$PWD"
 ## Bibltex
 if you find this project useful in your research, please consider citing our paper
 ```
-
+@inproceedings{luefficient,
+  title={An Efficient Framework for Crediting Data Contributors of Diffusion Models},
+  author={Lu, MingYu and Lin, Chris and Kim, Chanwoo and Lee, Su-In},
+  booktitle={The Thirteenth International Conference on Learning Representations}
+}
 ```
 
 
