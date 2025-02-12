@@ -81,14 +81,7 @@ python unlearn.py
 ### Prune a full model
 To prune a trained diffusion model, execute the following command:
 ```bash
-python prune.py
-
---load model_path
-
-## Pruning params
---pruning_ratio [0.3]\
---pruner [magnitude]\
---thr [0.05]\
+python prune.py --load model_path --pruning_ratio [0.3] --pruner [magnitude] --thr [0.05]
 ```
 *Note that the pruned model needs to be fine-tuned (retrained) after pruning to achieve comparable performance to the original full model.
 
