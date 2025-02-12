@@ -1,6 +1,4 @@
-# Data Attribution via Sparsified Fine-tuning
-
-# Unconditional Diffusion Model Training and Unlearning
+# Group Attribution via Sparsified Fine-tuning
 
 This README provides instructions for training **unconditional** diffusion models, including methods such as **retraining (exact unlearning)** and **sparsified unlearning**. Please follow these steps to reproduce our results:
 
