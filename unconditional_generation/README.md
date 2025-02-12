@@ -36,7 +36,7 @@ python main.py
 --gradient_accumulation_steps [1] \
 ```
 
-### Efficient Training for CelebA-HQ (256x 256)
+#### Efficient Training for CelebA-HQ (256x 256)
 To reduce GPU memory usage and facilitate training with CelebA-HQ dataset (e.g., on RTX 2080ti),
 
 1. Create and set up the configuration file `deepspeed_config_dp.yaml` for [Accelerator](https://huggingface.co/docs/accelerate/en/package_reference/accelerator)
