@@ -2,8 +2,8 @@
 
 This README provides instructions for training **unconditional** diffusion models, including methods such as retraining (exact unlearning) and **sparsified unlearning**.
 
-## Training a Diffusion Model from Scratch  and unlearning with a removal distribution
-To train an unlearned or retrained diffusion model, execute the following command:
+## Training a Diffusion Model from Scratch with a removal distribution
+To train an diffusion model, execute the following command:
 
 ```bash
 python main.py
@@ -12,7 +12,7 @@ python main.py
 
 ## Learning method
 
---method [unlearning/retrain/prune_fine_tune/gd/ga] \
+--method [retrain] \
 
 ## Removal distribution args
 
@@ -51,6 +51,65 @@ main.py --dataset celeba \
 --precompute_stage save
 ```
 3. To train with precomputed latent embeddings, change `--precompute_stage save` to `reuse` in the command.
+
+## Prune a full model 
+To prune a trained diffusion model, execute the following command:
+```bash 
+python prune.py
+
+##
+--load model_path
+
+## Pruning params
+--pruning_ratio [0.3]\
+--pruner [magnitude]\
+--thr [0.05]\
+```
+
+## Training a Unlearned Model from a full model with a removal distribution
+To unlearn a full model and compute their model behavior, execute the following command:
+
+```bash
+python unlearn.py
+
+--dataset [cifar, celeba ] \
+
+## Unlearning methods
+
+--method [gd/ga/lora/iu] \
+
+## Unlearning params
+--iu_ratio [0.5]
+--ga_ratio [1.0]
+--gd_steps [2000]
+--lora_rank [16]
+--lora_dropout [0.05]
+
+## Removal distribution args
+
+--removal_dist [datashapley/datamodel/uniform/None] \
+--datamodel_alpha [0.5] \
+--removal_seed [0] \ 
+
+## Params specification for loading the full model for unlearning.
+
+--pruning_ratio [0.3]\
+--pruner [magnitude]\
+--thr [0.05]\
+
+## Training args
+
+--keep_all_ckpts \
+
+## Accelerator args
+
+--mixed_precision [no, bf16, fp16] \ 
+--gradient_accumulation_steps [1] \
+
+## model behavior
+--model_behavior [global]
+
+```
 
 
 ## References and Additional Resources
