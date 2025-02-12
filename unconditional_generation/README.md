@@ -68,12 +68,14 @@ python prune.py
 *Note that the pruned needs to be fine-tuned (retrained).
 
 ## Training a Unlearned Model from a full model with a removal distribution
-To unlearn a full model and compute their model behavior, execute the following command:
+To unlearn a full model and compute its model behavior, execute the following command:
 
 ```bash
 python unlearn.py
 
+--load [full_model_path] \
 --dataset [cifar, celeba ] \
+--db [path_to_saved_results] \
 
 ## Unlearning methods
 
