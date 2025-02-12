@@ -20,7 +20,7 @@ python main.py
 --datamodel_alpha [0.5] \
 --removal_seed [0] \ 
 
-## Model sparsification args. This is needed when training unlearned models
+## Model sparsification args. This is needed when training a pruned model
 
 --pruning_ratio [0.3]\
 --pruner [magnitude]\
@@ -65,6 +65,7 @@ python prune.py
 --pruner [magnitude]\
 --thr [0.05]\
 ```
+Note that the pruned needs to be fine-tuned (retrained).
 
 ## Training a Unlearned Model from a full model with a removal distribution
 To unlearn a full model and compute their model behavior, execute the following command:
