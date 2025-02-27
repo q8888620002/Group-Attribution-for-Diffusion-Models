@@ -10,7 +10,6 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
-import wandb  # wandb for monitoring loss https://wandb.ai/
 from accelerate import Accelerator
 from lightning.pytorch import seed_everything
 from torch.utils.data import DataLoader, Subset
@@ -200,7 +199,7 @@ def parse_args():
         action="store_true",
         default=False,
         help="Whether to save the null model",
-    )    
+    )
     return parser.parse_args()
 
 
@@ -267,12 +266,15 @@ def main(args):
     elif args.removal_dist is not None:
         if args.removal_dist == "uniform":
             remaining_idx, removed_idx = remove_data_by_uniform(
-                train_dataset, seed=args.removal_seed
+                train_dataset, seed=args.removal_seed, by_class=True
             )
         elif args.removal_dist == "datamodel":
             if args.dataset in ["cifar100", "cifar100_f", "celeba"]:
                 remaining_idx, removed_idx = remove_data_by_datamodel(
-                    train_dataset, alpha=args.datamodel_alpha, seed=args.removal_seed,by_class=True
+                    train_dataset,
+                    alpha=args.datamodel_alpha,
+                    seed=args.removal_seed,
+                    by_class=True,
                 )
             else:
                 remaining_idx, removed_idx = remove_data_by_datamodel(
@@ -298,8 +300,8 @@ def main(args):
         remaining_idx, removed_idx = removed_idx, remaining_idx
 
     # Save the removed and remaining indices for reproducibility.
-    np.save( os.path.join(model_outdir, "remaining_idx.npy"), remaining_idx)
-    np.save( os.path.join(model_outdir, "removed_idx.npy"), removed_idx)              
+    np.save(os.path.join(model_outdir, "remaining_idx.npy"), remaining_idx)
+    np.save(os.path.join(model_outdir, "removed_idx.npy"), removed_idx)
 
     seed_everything(args.opt_seed, workers=True)  # Seed for model optimization.
 
@@ -325,7 +327,7 @@ def main(args):
         )
         pruned_model_ckpt = torch.load(pruned_model_path, map_location="cpu")
         model = pruned_model_ckpt["unet"]
-        accelerator.print(f"Pruned U-Net resumed from {pruned_model_ckpt}")
+        accelerator.print(f"Pruned U-Net resumed from {pruned_model_path}")
     else:
         model = model_cls(**config["unet_config"])
 
@@ -429,7 +431,8 @@ def main(args):
             f"Batch size is {config['batch_size']} "
             f"and number of processes is {accelerator.state.num_processes}",
             f"Batch size will be divided by number of processes."
-            f"Per process batch size is {config['batch_size'] // accelerator.state.num_processes}",
+            "Per process batch size is "
+            f"{config['batch_size'] // accelerator.state.num_processes}",
         )
 
     num_workers = 4 if torch.get_num_threads() >= 4 else torch.get_num_threads()
@@ -539,6 +542,7 @@ def main(args):
                     "vqvae_output.pt",
                 ),
                 map_location="cpu",
+                weights_only=True,
             )
 
         captioner = None
@@ -624,7 +628,7 @@ def main(args):
         pipeline_scheduler,
         lr_scheduler,
     )
-    
+
     if args.save_null_model and accelerator.is_main_process:
         torch.save(
             {
@@ -636,9 +640,7 @@ def main(args):
                 "removed_idx": torch.from_numpy(removed_idx),
                 "total_steps_time": total_steps_time,
             },
-            os.path.join(
-                model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"
-            ),
+            os.path.join(model_outdir, f"ckpt_steps_{param_update_steps:0>8}.pt"),
         )
         print(f"Checkpoint saved at step {param_update_steps}")
 

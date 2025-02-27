@@ -6,10 +6,15 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 import torch
+import pickle
+import torchvision.models as models
 from PIL import Image
-from torch.utils.data import Dataset
+from sklearn.cluster import KMeans
+from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.datasets import CIFAR10, CIFAR100, MNIST, ImageFolder
+
+import matplotlib.pyplot as plt
 
 import src.constants as constants
 
@@ -103,11 +108,166 @@ class CIFAR100_original(CIFAR100):
             i for i, target in enumerate(self.targets) if target in self.classes_to_keep
         ]
         self.data = self.data[filtered_indices]
+
+        # reset class label
+
         self.targets = [
             self.classes_to_keep.index(target)
             for i, target in enumerate(self.targets)
             if target in self.classes_to_keep
         ]
+
+
+class CIFAR100_regroup(CIFAR100):
+    """
+    Dataloader for regrouping CIFAR-100 dataset.
+
+    Return_
+        3x32x32 CIFAR-100 images, and its corresponding label
+    """
+
+    def __init__(
+        self, root, train=True, transform=None, target_transform=None, download=False
+    ):
+        super().__init__(
+            root,
+            train=train,
+            transform=None,
+            target_transform=target_transform,
+            download=download,
+        )
+
+        # Update this list based on CIFAR-100 animal class indices
+        self.classes_to_keep = [
+            # 0, 1, 2, 3, 4,   # Aquatic mammals
+            # 5, 6, 7, 8, 9,   # Fish
+            # 75, 76, 77, 78, 79,  # Reptiles
+            40,
+            41,
+            42,
+            43,
+            44,  # Large carnivores
+            55,
+            56,
+            57,
+            58,
+            59,  # Large omnivores and herbivores
+            60,
+            61,
+            62,
+            63,
+            64,  # Medium mammals
+            80,
+            81,
+            82,
+            83,
+            84,  # Small mammals
+        ]
+        # Filter the dataset
+
+        filtered_indices = [
+            i for i, target in enumerate(self.targets) if target in self.classes_to_keep
+        ]
+        self.data = self.data[filtered_indices]
+        # reset class label
+
+        self.original_targets = [
+            self.classes_to_keep.index(target)
+            for i, target in enumerate(self.targets)
+            if target in self.classes_to_keep
+        ]
+
+        targets_file = os.path.join(root,'cifar100_new_targets.pkl')
+
+        if os.path.exists(targets_file):
+            with open(targets_file, 'rb') as f:
+                self.targets = pickle.load(f)
+        else:
+            self.apply_clustering()
+            with open(targets_file, 'wb') as f:
+                pickle.dump(self.targets, f)
+
+        self.transform = transform or transforms.Compose(
+            [
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+            ]
+        )
+
+    def apply_clustering(self):
+        # Define the transformation for feature extraction
+        transform = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),
+            ]
+        )
+
+        # Extract features using a pre-trained CNN (e.g., ResNet)
+        model = models.resnet18(pretrained=True)
+        model = torch.nn.Sequential(
+            *(list(model.children())[:-1])
+        )  # Remove the classification layer
+        model.eval()
+
+        features = []
+        transformed_data = [transform(Image.fromarray(img)) for img in self.data]
+        transformed_data = torch.stack(transformed_data)
+        data_loader = DataLoader(transformed_data, batch_size=64, shuffle=False, num_workers=1)
+
+        for images in data_loader:
+            with torch.no_grad():
+                output = model(images).squeeze()
+                features.append(output.numpy())
+
+        features = np.vstack(features)
+
+        # Apply k-means clustering
+        k = 40  # Number of groups
+        kmeans = KMeans(n_clusters=k, random_state=0).fit(features)
+        group_labels = kmeans.labels_
+
+        # Update targets based on clustering groups
+        self.targets = group_labels
+
+
+    def get_group_distributions(self):
+        """
+        Calculate the distribution of the original class labels within each k-means group.
+
+        Returns:
+            dict: A dictionary where the keys are the group indices and the values are the distributions of the original class labels.
+        """
+        group_distributions = {i: [] for i in range(40)}
+        for i, label in enumerate(self.targets):
+            group_distributions[label].append(self.original_targets[i])
+
+        # Calculate the distribution of class labels within each group
+        group_distributions = {k: np.bincount(v, minlength=len(self.classes_to_keep)) for k, v in group_distributions.items()}
+
+        return group_distributions
+
+    def plot_group_distributions(self):
+        """
+        Plot the distribution of the original class labels within each k-means group.
+        """
+
+        group_distributions = self.get_group_distributions()
+        fig, axes = plt.subplots(nrows=5, ncols=8, figsize=(20, 15))
+        axes = axes.flatten()
+
+        for i, ax in enumerate(axes):
+            ax.bar(range(len(self.classes_to_keep)), group_distributions[i])
+            ax.set_title(f'Group {i}')
+            ax.set_xlabel('Class')
+            ax.set_ylabel('Count')
+
+        plt.tight_layout()
+        plt.savefig("distribution.png")
 
 
 class CIFAR100_filter(CIFAR100):
@@ -199,7 +359,7 @@ class ImageDataset(Dataset):
             if img.split(".")[-1] in {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
         ]
         if max_size is not None:
-            self.img_list[:max_size]
+            self.img_list = self.img_list[:max_size]
         self.transform = transform
 
     def __getitem__(self, idx):
@@ -215,10 +375,11 @@ class ImageDataset(Dataset):
 class TensorDataset(Dataset):
     """Wraps tensor data for easy dataset operations."""
 
-    def __init__(self, data, transform=None):
+    def __init__(self, data, transform=None, label=None):
         """Initializes dataset with data tensor."""
         self.data = data
         self.transform = transform
+        self.label = label
 
         if self.transform is not None:
             self.data = self.transform(self.data)
@@ -229,6 +390,8 @@ class TensorDataset(Dataset):
 
     def __getitem__(self, idx):
         """Retrieves sample at index `idx`."""
+        if self.label is not None:
+            return self.data[idx], self.label[idx]
         return self.data[idx]
 
 
@@ -306,7 +469,13 @@ def create_dataset(
         dataset = CIFAR100_filter(
             root=root_dir, train=train, download=True, transform=preprocess
         )
-
+    elif dataset_name == "cifar100_new":
+        root_dir = os.path.join(dataset_dir, "cifar100")
+        dataset = CIFAR100_regroup(
+            root=root_dir,
+            train=train,
+            download=True,
+        )
     elif dataset_name == "mnist":
         preprocess = transforms.Compose(
             [
@@ -344,8 +513,17 @@ def create_dataset(
     return dataset
 
 
+def removed_by_classes(index_to_class, remaining_idx):
+    """Function that maps data index to subgroup index"""
+    remaining_classes = set(index_to_class[idx] for idx in remaining_idx)
+    all_classes = set(index_to_class.values())
+    removed_classes = all_classes - remaining_classes
+
+    return np.array(list(remaining_classes)), np.array(list(removed_classes))
+
+
 def remove_data_by_class(
-    dataset: torch.utils.data.Dataset, excluded_class: int
+    dataset: torch.utils.data.Dataset, excluded_class: list
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Split a PyTorch Dataset into indices with the remaining and removed data, where
@@ -361,9 +539,20 @@ def remove_data_by_class(
         A numpy array with the remaining indices, and another numpy array with the
         indices corresponding to the removed data.
     """
-    removed_idx = [i for i, (_, label) in enumerate(dataset) if label == excluded_class]
+
+    unique_labels = sorted(set(data[1] for data in dataset))
+    value_to_number = {label: i for i, label in enumerate(unique_labels)}
+
+    excluded_class = [value_to_number[c] for c in excluded_class]
+
+    removed_idx = [
+        i
+        for i, batch in enumerate(dataset)
+        if value_to_number[batch[1]] in excluded_class
+    ]
     removed_idx = np.array(removed_idx)
     remaining_idx = np.setdiff1d(np.arange(len(dataset)), removed_idx)
+
     return remaining_idx, removed_idx
 
 
@@ -419,7 +608,7 @@ def remove_data_by_datamodel(
 
         remaining_class_size = int(alpha * len(possible_classes))
         rng.shuffle(possible_classes)  # Shuffle in place.
-        remaining_classes = possible_classes[remaining_class_size:]
+        remaining_classes = possible_classes[:remaining_class_size]
 
         remaining_idx = [
             i for i, data in enumerate(dataset) if data[1] in remaining_classes
@@ -482,6 +671,7 @@ def remove_data_by_shapley(
         ]
         removed_idx = np.array(removed_idx)
         remaining_idx = np.setdiff1d(np.arange(len(dataset)), removed_idx)
+
         return remaining_idx, removed_idx
     else:
         dataset_size = len(dataset)
@@ -503,6 +693,7 @@ def remove_data_by_shapley(
         rng.shuffle(all_idx)  # Shuffle in place.
         remaining_idx = all_idx[:remaining_size]
         removed_idx = all_idx[remaining_size:]
+
         return remaining_idx, removed_idx
 
 

@@ -126,6 +126,8 @@ def load_ckpt_model(args, model_loaddir):
         config = {**DDPMConfig.cifar2_config}
     elif args.dataset == "cifar100":
         config = {**DDPMConfig.cifar100_config}
+    elif args.dataset == "cifar100_new":
+        config = {**DDPMConfig.cifar100_config}
     elif args.dataset == "cifar100_f":
         config = {**DDPMConfig.cifar100_f_config}
     elif args.dataset == "celeba":
@@ -153,7 +155,7 @@ def load_ckpt_model(args, model_loaddir):
         ckpt_path = os.path.join(model_loaddir, f"ckpt_steps_{trained_steps:0>8}.pt")
         ckpt = torch.load(ckpt_path, map_location="cpu")
 
-        if args.method not in ["retrain"]:
+        if args.method not in ["retrain", "gd_u"]:
             # Load pruned model
             pruned_model_path = os.path.join(
                 args.outdir,
@@ -182,7 +184,8 @@ def load_ckpt_model(args, model_loaddir):
             removed_idx = np.array([], dtype=int)
 
         model.load_state_dict(ckpt["unet"])
-
+        model.eval()
+        
         model_str = "U-Net"
 
         print(f"Trained {model_str} loaded from {ckpt_path}")
@@ -241,7 +244,6 @@ def build_pipeline(args, model):
         if args.precompute_stage is None:
             # Move the VQ-VAE model to the device without any operations.
             vqvae = vqvae.to(device)
-            vqvae = None
             vqvae_latent_dict = None
 
         elif args.precompute_stage == "save":
