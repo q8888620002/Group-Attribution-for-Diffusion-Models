@@ -531,6 +531,12 @@ def parse_args():
         default=None,
     )
     parser.add_argument(
+        "--removal_bottom_proportion",
+        type=float,
+        help="proportion of bottom ranked units to remove",
+        default=None,
+    )
+    parser.add_argument(
         "--removal_unit",
         type=str,
         help="unit of data for removal",
@@ -588,8 +594,12 @@ def main():
             removal_dir += f"/{removal_dir_dist}_seed={args.removal_seed}"
     
     if args.removal_rank_file is not None:
-        assert args.removal_rank_proportion is not None
-        removal_dir = f"counterfactual_top_{args.removal_rank_proportion}"
+        if args.removal_rank_proportion is not None:
+            removal_dir = f"counterfactual_top_{args.removal_rank_proportion}"
+        elif args.removal_bottom_proportion is not None:
+            removal_dir = f"counterfactual_bottom_{args.removal_bottom_proportion}"
+        else:
+            raise ValueError
         rank_method = os.path.basename(args.removal_rank_file).split(".")[0]
         removal_dir += f"/{rank_method}"
 
@@ -981,11 +991,19 @@ def main():
         else:
             with open(args.removal_rank_file, "rb") as handle:
                 removal_rank = np.load(handle)
-            num_removed_units = math.floor(
-                len(removal_rank) * args.removal_rank_proportion
-            )
-            removed_idx = removal_rank[:num_removed_units]
-            remaining_idx = removal_rank[num_removed_units:]
+            if args.removal_rank_proportion is not None:
+                num_removed_units = math.floor(
+                    len(removal_rank) * args.removal_rank_proportion
+                )
+                removed_idx = removal_rank[:num_removed_units]
+                remaining_idx = removal_rank[num_removed_units:]
+            else:
+                num_removed_units = math.floor(
+                    len(removal_rank) * args.removal_bottom_proportion
+                )
+                removed_idx = removal_rank[-num_removed_units:]
+                remaining_idx = removal_rank[:-num_removed_units]
+
             removal_idx_df = pd.concat(
                 [
                     pd.DataFrame({"idx": remaining_idx, "remaining": True}),

@@ -47,6 +47,13 @@ def parse_args():
         required=True,
     )
     parser.add_argument(
+        "--removal_order",
+        type=str,
+        choices=["top", "bottom"],
+        default="top",
+        help="whether to remove from the top or the bottom of the rank file",
+    )
+    parser.add_argument(
         "--num_executions_per_job",
         type=int,
         help="number of script executions to run for each SLURM job",
@@ -72,17 +79,22 @@ def main(args):
         raise ValueError
     rank_method = f"{args.removal_unit}_rank_{args.rank_method}"
 
-    db_dir = os.path.join(OUTDIR, args.dataset, "counterfactual")
+    db_dir = os.path.join(OUTDIR, args.dataset, f"counterfactual_{args.removal_order}")
     os.makedirs(db_dir, exist_ok=True)
     db = os.path.join(db_dir, f"{rank_method}.jsonl")
     config["db"] = db
     df = pd.read_json(db, lines=True) if os.path.exists(db) else None
 
     ckpt_dir = os.path.join(
-        LOGDIR, args.dataset, "counterfactual_model_behaviors", rank_method
+        LOGDIR,
+        args.dataset,
+        f"counterfactual_{args.removal_order}_model_behaviors",
+        rank_method,
     )
     os.makedirs(ckpt_dir, exist_ok=True)
-    img_parent_dir = os.path.join(OUTDIR, args.dataset, "counterfactual", "images")
+    img_parent_dir = os.path.join(
+        OUTDIR, args.dataset, f"counterfactual_{args.removal_order}", "images"
+    )
     os.makedirs(img_parent_dir, exist_ok=True)
 
     command_outdir = os.path.join(
@@ -90,7 +102,7 @@ def main(args):
         "text_to_image",
         "experiments",
         "commands",
-        "counterfactual_model_behavior",
+        f"counterfactual_{args.removal_order}_model_behavior",
         rank_method,
     )
     os.makedirs(command_outdir, exist_ok=True)
@@ -99,8 +111,8 @@ def main(args):
     num_executions, num_jobs = 0, 0
     with open(command_file, "w") as handle:
         command = ""
-        for removal_rank_proportion in [0.02, 0.04, 0.06, 0.08]:
-            for opt_seed in [42, 43, 44, 45, 46]:
+        for removal_rank_proportion in [0.4]:
+            for opt_seed in [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]:
                 exp_name = os.path.join(
                     rank_method,
                     f"top_{removal_rank_proportion}",
@@ -128,7 +140,10 @@ def main(args):
                         args.dataset,
                         "retrain",
                         "models",
-                        f"counterfactual_top_{removal_rank_proportion}",
+                        (
+                            "counterfactual_"
+                            + f"{args.removal_order}_{removal_rank_proportion}"
+                        ),
                         f"all_generated_images_{rank_method}",
                     )
                     command += " --lora_dir={}".format(lora_dir)
@@ -157,9 +172,11 @@ def main(args):
             "counterfactual_model_behaviors.job",
         )
         array = f"1-{num_jobs}" if num_jobs > 1 else "1"
-        job_name = f"counterfactual-behavior-{rank_method}"
+        job_name = f"counterfactual-behavior-{args.removal_order}-{rank_method}"
 
-        logdir = os.path.join(LOGDIR, "counterfactual_model_behaviors", rank_method)
+        logdir = os.path.join(
+            LOGDIR, f"counterfactual_{args.removal_order}_model_behaviors", rank_method
+        )
         os.makedirs(logdir, exist_ok=True)
         output = os.path.join(logdir, "run-%A-%a.out")
         update_job_file(
