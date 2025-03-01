@@ -1,6 +1,7 @@
 """Class for TRAK score calculation."""
 import argparse
 import os
+import time
 
 import numpy as np
 import torch
@@ -9,19 +10,13 @@ from lightning.pytorch import seed_everything
 from torch.func import functional_call, grad, vmap
 from torch.utils.data import DataLoader, Subset
 from torchvision import transforms
+from tqdm import tqdm
 from trak.projectors import CudaProjector, ProjectionType
 from trak.utils import is_not_buffer
 
 import diffusers
 import src.constants as constants
-from diffusers import (
-    DDIMScheduler,
-    DDPMPipeline,
-    DDPMScheduler,
-    DiffusionPipeline,
-    LDMPipeline,
-    VQModel,
-)
+from diffusers import DDPMPipeline, DDPMScheduler, DiffusionPipeline
 from src.datasets import (
     ImageDataset,
     TensorDataset,
@@ -32,7 +27,7 @@ from src.datasets import (
     remove_data_by_uniform,
 )
 from src.ddpm_config import DDPMConfig
-from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer, generate_images
+from src.diffusion_utils import ImagenetteCaptioner, LabelTokenizer
 from src.utils import get_max_steps
 
 
@@ -125,18 +120,27 @@ def parse_args():
         "--model_behavior",
         type=str,
         choices=[
-            "loss",
+            "loss",  # TRAK
             "mean",
-            "mean-squared-l2-norm",
+            "mean-squared-l2-norm",  # D-TRAK
             "l1-norm",
             "l2-norm",
             "linf-norm",
+            "ssim",
+            "fid",
+            "nrmse",
+            "is",
         ],
         default=None,
         required=True,
         help="Specification for D-TRAK model behavior.",
     )
-
+    parser.add_argument(
+        "--model_behavior_value",
+        type=float,
+        default=None,
+        help="Model output for a pre-calculated model behavior e.g. FID, SSIM, IS.",
+    )
     parser.add_argument(
         "--t_strategy",
         type=str,
@@ -167,7 +171,12 @@ def parse_args():
         action="store_true",
         default=False,
     )
-
+    parser.add_argument(
+        "--n_samples",
+        type=int,
+        help="number of generated images to consider for local model behaviors",
+        default=None,
+    )
     return parser.parse_args()
 
 
@@ -224,14 +233,40 @@ def main(args):
 
     if args.dataset == "cifar":
         config = {**DDPMConfig.cifar_config}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 32, 32).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
     elif args.dataset == "cifar2":
         config = {**DDPMConfig.cifar2_config}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 32, 32).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
     elif args.dataset == "cifar100":
         config = {**DDPMConfig.cifar100_config}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 32, 32).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
     elif args.dataset == "cifar100_f":
         config = {**DDPMConfig.cifar100_f_config}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 32, 32).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
+    elif args.dataset == "cifar100_new":
+        config = {**DDPMConfig.cifar100_config}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 32, 32).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
     elif args.dataset == "celeba":
         config = {**DDPMConfig.celeba_config}
+        example_inputs = {
+            "sample": torch.randn(1, 3, 64, 64).to(device),
+            "timestep": torch.ones((1,)).long().to(device),
+        }
     elif args.dataset == "mnist":
         config = {**DDPMConfig.mnist_config}
     elif args.dataset == "imagenette":
@@ -292,21 +327,32 @@ def main(args):
     config["batch_size"] = 8
 
     if args.sample_dir is None:
+        if not args.calculate_gen_grad:
+            n_samples = len(train_dataset)
 
-        remaining_dataloader = DataLoader(
-            Subset(train_dataset, remaining_idx),
-            batch_size=config["batch_size"],
-            shuffle=True,
-            num_workers=1,
-        )
+            remaining_dataloader = DataLoader(
+                Subset(train_dataset, remaining_idx),
+                batch_size=config["batch_size"],
+                shuffle=True,
+                num_workers=1,
+                pin_memory=True,
+            )
 
-        save_dir = os.path.join(
-            args.outdir,
-            args.dataset,
-            "d_track",
-            removal_dir,
-            f"train_f={args.model_behavior}_t={args.t_strategy}",
-        )
+            save_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "d_trak",
+                removal_dir,
+                f"train_f={args.model_behavior}_t={args.t_strategy}_k={args.k_partition}_d={args.projector_dim}",
+            )
+        else:
+            save_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "d_trak",
+                removal_dir,
+                f"gen_f={args.model_behavior}_t={args.t_strategy}_k={args.k_partition}_d={args.projector_dim}",
+            )
 
     else:
 
@@ -319,20 +365,19 @@ def main(args):
             ]
         )
         sample_dataset = ImageDataset(args.sample_dir, preprocess)
-
+        n_samples = len(sample_dataset)
         remaining_dataloader = DataLoader(
             sample_dataset,
             batch_size=config["batch_size"],
             shuffle=True,
             num_workers=1,
+            pin_memory=True,
         )
 
         save_dir = os.path.join(
-            args.outdir,
-            args.dataset,
-            "d_track",
-            "reference",
-            f"reference_f={args.model_behavior}_t={args.t_strategy}",
+            args.sample_dir,
+            "d_trak",
+            f"reference_f={args.model_behavior}_t={args.t_strategy}_k={args.k_partition}_d={args.projector_dim}",
         )
 
     os.makedirs(os.path.dirname(save_dir), exist_ok=True)
@@ -362,17 +407,37 @@ def main(args):
         vqvae = vqvae.to(device)
         text_encoder = text_encoder.to(device)
     elif args.dataset == "celeba":
-        model_id = "CompVis/ldm-celebahq-256"
-        vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
+        # The pipeline is of class LDMPipeline.
+        pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256")
+        pipeline.unet = model
 
-        for param in vqvae.parameters():
-            param.requires_grad = False
+        pipeline.scheduler.set_timesteps(
+            config["scheduler_config"]["num_train_timesteps"]
+        )
+        vqvae = pipeline.vqvae
+        pipeline.vqvae.config.scaling_factor = 1
+        vqvae.requires_grad_(False)
 
-        pipeline = LDMPipeline(
-            unet=model,
-            vqvae=vqvae,
-            scheduler=DDIMScheduler(**config["scheduler_config"]),
-        ).to(device)
+        if args.sample_dir is None:
+            # Load the precomputed output, avoiding GPU memory usage by the VQ-VAE model
+            pipeline.vqvae = None
+            vqvae_latent_dir = os.path.join(
+                args.outdir,
+                args.dataset,
+                "precomputed_emb",
+            )
+            vqvae_latent_dict = torch.load(
+                os.path.join(
+                    vqvae_latent_dir,
+                    "vqvae_output.pt",
+                ),
+                map_location="cpu",
+            )
+        else:
+            vqvae = vqvae.to(device)
+
+        pipeline.to(device)
+
     else:
         pipeline = DDPMPipeline(
             unet=model, scheduler=DDPMScheduler(**config["scheduler_config"])
@@ -382,11 +447,57 @@ def main(args):
 
     # Init a memory-mapped array stored on disk directly for D-TRAK results.
 
+    if args.calculate_gen_grad:
+        # Generate samples for Journey TRAK
+        generated_samples = []
+        n_samples = args.n_samples
+
+        pipeline.scheduler.num_train_steps = 1000
+        pipeline.scheduler.num_inference_steps = 100
+
+        for random_seed in tqdm(range(n_samples)):
+            noise_latents = []
+            noise_generator = torch.Generator(device=args.device).manual_seed(
+                random_seed
+            )
+
+            with torch.no_grad():
+                noises = torch.randn(
+                    example_inputs["sample"].shape,
+                    generator=noise_generator,
+                    device=args.device,
+                )
+                input = noises
+
+                for t in range(999, -1, -1000 // args.k_partition):
+                    noise_latents.append(input.squeeze(0).detach().cpu())
+
+                    noisy_residual = pipeline.unet(input, t).sample
+                    previous_noisy_image = pipeline.scheduler.step(
+                        noisy_residual, t, input
+                    ).prev_sample
+                    input = previous_noisy_image
+
+                noise_latents = torch.stack(noise_latents[::-1]) #  flip the order so noise_latents[0] gives us the final image
+            generated_samples.append(noise_latents)
+        generated_samples = torch.stack(generated_samples)
+        bogus_labels = torch.zeros(n_samples, dtype=torch.int)
+        images_dataset = TensorDataset(
+            generated_samples, transform=None, label=bogus_labels
+        )
+
+        remaining_dataloader = DataLoader(
+            images_dataset,
+            batch_size=config["batch_size"],
+            num_workers=1,
+            pin_memory=True,
+        )
+
     dstore_keys = np.memmap(
         save_dir,
         dtype=np.float32,
         mode="w+",
-        shape=(len(remaining_idx), args.projector_dim),
+        shape=(n_samples, args.projector_dim),
     )
 
     # Initialize random matrix projector from trak
@@ -405,7 +516,7 @@ def main(args):
     buffers = {
         k: v.detach() for k, v in model.named_buffers() if v.requires_grad is True
     }
-
+    starttime = time.time()
     if args.model_behavior == "mean-squared-l2-norm":
         print(args.model_behavior)
 
@@ -438,6 +549,7 @@ def main(args):
             # print(f.size())
             # print(f)
             ####
+
             return f
 
     elif args.model_behavior == "mean":
@@ -465,6 +577,7 @@ def main(args):
             # print(f.size())
             # print(f)
             ####
+
             return f
 
     elif args.model_behavior == "l1-norm":
@@ -537,6 +650,7 @@ def main(args):
                     "timestep": timesteps,
                 },
             )
+
             predictions = predictions.sample
             ####
             predictions = predictions.reshape(1, -1)
@@ -583,12 +697,23 @@ def main(args):
             0,
         ),
     )
-
-    for step, (image, _) in enumerate(remaining_dataloader):
+    for step, batch in enumerate(remaining_dataloader):
 
         seed_everything(args.opt_seed, workers=True)
+
+        image, label = batch[0], batch[1]
         image = image.to(device)
         bsz = image.shape[0]
+
+        if args.dataset == "celeba" and not args.calculate_gen_grad:
+            if args.sample_dir is None:  # Compute TRAK with pre-computed embeddings.
+                imageid = batch[2]
+                image = torch.stack(
+                    [vqvae_latent_dict[imageid[i]] for i in range(len(image))]
+                ).to(device)
+            else:  # Directly encode the images if there's no precomputation
+                image = vqvae.encode(image, False)[0]
+            image = image * vqvae.config.scaling_factor
 
         if args.t_strategy == "uniform":
             selected_timesteps = range(0, 1000, 1000 // args.k_partition)
@@ -601,8 +726,12 @@ def main(args):
             timesteps = timesteps.long()
             seed_everything(args.opt_seed * 1000 + t)  # !!!!
 
-            noise = torch.randn_like(image)
-            noisy_latents = pipeline_scheduler.add_noise(image, noise, timesteps)
+            if args.calculate_gen_grad:
+                noisy_latents = image[:, index_t, :, :, :]
+                noise = torch.randn_like(noisy_latents)
+            else:
+                noise = torch.randn_like(image)
+                noisy_latents = pipeline_scheduler.add_noise(image, noise, timesteps)
 
             # Get the target for loss depending on the prediction type
             if pipeline_scheduler.config.prediction_type == "epsilon":
@@ -621,6 +750,7 @@ def main(args):
                 timesteps,
                 target,
             )
+
             # if len(keys) == 0:
             #     keys = ft_per_sample_grads.keys()
 
@@ -663,123 +793,7 @@ def main(args):
         print(f"{step} / {len(remaining_dataloader)}, {t}")
         print(step * config["batch_size"], step * config["batch_size"] + bsz)
 
-    # Calculating phi for generated images
-
-    if args.calculate_gen_grad:
-        args.batch_size = 128
-        args.n_samples = 128
-
-        val_save_dir = os.path.join(
-            args.outdir,
-            args.dataset,
-            "d_track",
-            removal_dir,
-            f"gen_f={args.model_behavior}_t={args.t_strategy}",
-        )
-
-        os.makedirs(os.path.dirname(val_save_dir), exist_ok=True)
-
-        # Init a memory-mapped array stored on disk directly for D-TRAK results.
-
-        dstore_keys = np.memmap(
-            val_save_dir,
-            dtype=np.float32,
-            mode="w+",
-            shape=(len(remaining_idx), args.projector_dim),
-        )
-
-        generated_samples = generate_images(args, pipeline)
-
-        generated_samples = generated_samples.float() / 255.0
-        normalize = transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-        generated_samples = [normalize(tensor) for tensor in generated_samples]
-
-        images_dataset = TensorDataset(generated_samples)
-
-        val_dataloader = DataLoader(
-            images_dataset,
-            batch_size=config["batch_size"],
-            num_workers=1,
-        )
-        for step, image in enumerate(val_dataloader):
-
-            seed_everything(args.opt_seed, workers=True)
-            image = image.to(device)
-            bsz = image.shape[0]
-
-            if args.t_strategy == "uniform":
-                selected_timesteps = range(0, 1000, 1000 // args.k_partition)
-            elif args.t_strategy == "cumulative":
-                selected_timesteps = range(0, args.k_partition)
-
-            for index_t, t in enumerate(selected_timesteps):
-                # Sample a random timestep for each image
-                timesteps = torch.tensor([t] * bsz, device=image.device)
-                timesteps = timesteps.long()
-                seed_everything(args.opt_seed * 1000 + t)  # !!!!
-
-                noise = torch.randn_like(image)
-                noisy_latents = pipeline_scheduler.add_noise(image, noise, timesteps)
-
-                # Get the target for loss depending on the prediction type
-                if pipeline_scheduler.config.prediction_type == "epsilon":
-                    target = noise
-                elif pipeline_scheduler.config.prediction_type == "v_prediction":
-                    target = pipeline_scheduler.get_velocity(image, noise, timesteps)
-                else:
-                    raise ValueError(
-                        f"Unknown prediction type {pipeline_scheduler.config.prediction_type}"
-                    )
-
-                ft_per_sample_grads = ft_compute_sample_grad(
-                    params,
-                    buffers,
-                    noisy_latents,
-                    timesteps,
-                    target,
-                )
-                # if len(keys) == 0:
-                #     keys = ft_per_sample_grads.keys()
-
-                ft_per_sample_grads = vectorize_and_ignore_buffers(
-                    list(ft_per_sample_grads.values())
-                )
-
-                # print(ft_per_sample_grads.size())
-                # print(ft_per_sample_grads.dtype)
-
-                if index_t == 0:
-                    emb = ft_per_sample_grads
-                else:
-                    emb += ft_per_sample_grads
-                # break
-
-            emb = emb / args.k_partition
-            print(emb.size())
-
-            # If is_grads_dict == True, then turn emb into a dict.
-            # emb_dict = {k: v for k, v in zip(keys, emb)}
-
-            emb = projector.project(emb, model_id=0)
-            print(emb.size())
-            print(emb.dtype)
-
-            while (
-                np.abs(
-                    dstore_keys[
-                        step * config["batch_size"] : step * config["batch_size"] + bsz,
-                        0:32,
-                    ]
-                ).sum()
-                == 0
-            ):
-                print("saving")
-                dstore_keys[
-                    step * config["batch_size"] : step * config["batch_size"] + bsz
-                ] = (emb.detach().cpu().numpy())
-            print(f"{step} / {len(remaining_dataloader)}, {t}")
-            print(step * config["batch_size"], step * config["batch_size"] + bsz)
-
+    print("total_time", time.time() - starttime)
 
 if __name__ == "__main__":
     args = parse_args()

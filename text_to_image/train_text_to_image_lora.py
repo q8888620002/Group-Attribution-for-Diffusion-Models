@@ -1022,6 +1022,14 @@ def main():
         assert set(dataset["train"][args.removal_unit]) == set(kept_units)
         if args.removal_unit == "filename":
             assert dataset["train"].num_rows == len(remaining_idx)
+    
+    # If all data points are removed, save the LoRA weights and exit.
+    if dataset["train"].num_rows == 0:
+        unet.save_attn_procs(args.model_outdir)
+        print(
+            "All data points are removed. LoRA weights saved without further training."
+        )
+        sys.exit(0)
 
     # Preprocessing the datasets.
     # We need to tokenize inputs and targets.

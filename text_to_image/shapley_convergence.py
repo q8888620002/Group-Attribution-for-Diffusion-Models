@@ -6,7 +6,7 @@ import os
 
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
+from scipy.stats import pearsonr, spearmanr
 
 from src.attributions.methods.datashapley import data_shapley
 from src.ddpm_config import DatasetStats
@@ -77,7 +77,7 @@ def parse_args():
         type=int,
         nargs="*",
         help="number of subsets used for fitting baseline data attributions",
-        default=[300],
+        default=[500],
     )
     parser.add_argument(
         "--model_behavior_key",
@@ -260,8 +260,12 @@ def main(args):
         baseline_attrs_all = baseline_attrs_all.flatten()
         attrs_all = attrs_all.flatten()
         mse = ((baseline_attrs_all - attrs_all) ** 2).mean()
+        pearson_val, _ = pearsonr(baseline_attrs_all, attrs_all)
+        spearman_val, _ = spearmanr(baseline_attrs_all, attrs_all)
         print(f"Baseline fit size: {baseline_fit_size}, fit size: {fit_size}")
         print(f"MSE: {mse:.5f}")
+        print(f"Pearson: {pearson_val:.5f}")
+        print(f"Spearman: {spearman_val:.5f}")
 
 
 if __name__ == "__main__":

@@ -24,7 +24,6 @@ from diffusers import (
     DDPMScheduler,
     DiffusionPipeline,
     LDMPipeline,
-    VQModel,
 )
 from diffusers.models.attention import Attention
 from diffusers.models.resnet import Downsample2D, Upsample2D
@@ -292,17 +291,6 @@ def main(args):
         vqvae = vqvae.to(device)
         text_encoder = text_encoder.to(device)
     elif args.dataset == "celeba":
-        model_id = "CompVis/ldm-celebahq-256"
-        # vqvae = VQModel.from_pretrained(model_id, subfolder="vqvae")
-
-        # for param in vqvae.parameters():
-        #     param.requires_grad = False
-
-        # pipeline = LDMPipeline(
-        #     unet=model,
-        #     vqvae=vqvae,
-        #     scheduler=DDIMScheduler(**config["scheduler_config"]),
-        # ).to(device)
         pipeline = DiffusionPipeline.from_pretrained("CompVis/ldm-celebahq-256").to(
             device
         )
@@ -346,10 +334,7 @@ def main(args):
         ignored_layers = [model.conv_out]
         channel_groups = {}
 
-        if args.dataset == "celeba":
-
-            # Prunig attention for celeba
-
+        if args.dataset == "celeba":  # Prunig attention for LDM
             for m in model.modules():
                 if isinstance(m, Attention):
                     channel_groups[m.to_q] = m.heads
