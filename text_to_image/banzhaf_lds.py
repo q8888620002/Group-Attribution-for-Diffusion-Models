@@ -47,7 +47,7 @@ def parse_args():
         type=int,
         nargs="*",
         help="number of subsets used for fitting Banzhaf values",
-        default=[300],
+        default=[1000],
     )
     parser.add_argument(
         "--model_behavior_key",
