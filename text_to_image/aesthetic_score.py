@@ -1,6 +1,7 @@
 """Compute aesthetic score for each training image as a simple global baseline."""
 import argparse
 import os
+import pickle
 
 import numpy as np
 import open_clip
@@ -150,6 +151,15 @@ def main(args):
     # Save results.
     output_dir = os.path.join(args.output_dir, "baselines")
     os.makedirs(output_dir, exist_ok=True)
+
+    with open(os.path.join(output_dir, "image_aesthetic_score.npy"), "wb") as handle:
+        np.save(handle, all_aesthetic_scores)
+
+    with open(
+        os.path.join(output_dir, f"aesthetic_score_{args.group}_indices_dict.pkl"), "wb"
+    ) as handle:
+        pickle.dump(group_indices_dict, handle)
+
     for name, output in output_dict.items():
         with open(os.path.join(output_dir, f"{args.group}_{name}.npy"), "wb") as handle:
             np.save(handle, output)

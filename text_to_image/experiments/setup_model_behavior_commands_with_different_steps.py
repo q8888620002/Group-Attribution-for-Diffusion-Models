@@ -2,11 +2,12 @@
 
 import argparse
 import os
+import sys
 
 import pandas as pd
 
-from src.constants import DATASET_DIR, LOGDIR, TMP_OUTDIR
-from src.ddpm_config import LoraTrainingConfig, TextToImageModelBehaviorConfig
+from src.constants import LOGDIR, TMP_OUTDIR
+from src.ddpm_config import TextToImageModelBehaviorConfig
 from src.experiment_utils import format_config_arg, update_job_file
 from src.utils import print_args
 
@@ -79,17 +80,6 @@ def parse_args():
 def main(args):
     """Main function."""
     if args.dataset == "artbench_post_impressionism":
-        training_config = LoraTrainingConfig.artbench_post_impressionism_config
-        train_data_dir = os.path.join(
-            DATASET_DIR, "artbench-10-imagefolder-split", "train"
-        )
-        training_config["train_data_dir"] = train_data_dir
-        training_config["output_dir"] = os.path.join(TMP_OUTDIR, f"seed{args.seed}")
-        training_config["seed"] = args.seed
-        training_config["method"] = args.method
-        training_config["removal_dist"] = args.removal_dist
-        training_config["removal_unit"] = args.removal_unit
-
         model_behavior_config = (
             TextToImageModelBehaviorConfig.artbench_post_impressionism_config
         )
@@ -126,57 +116,44 @@ def main(args):
 
     db_dir = os.path.join(TMP_OUTDIR, f"seed{args.seed}", args.dataset)
     os.makedirs(db_dir, exist_ok=True)
-    db = os.path.join(
-        db_dir, f"{args.method}_{args.removal_unit}_{args.removal_dist}.jsonl"
-    )
 
-    idx_list = [i for i in range(args.num_removal_subsets)]
-    if os.path.exists(db):
-        df = pd.read_json(db, lines=True)
-        if args.removal_dist in ["shapley", "uniform"]:
-            df["removal_seed"] = (
-                df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
-            )
-            existing_idx_list = df["removal_seed"].tolist()
-        else:
-            df["group_idx"] = (
-                df["exp_name"].str.split("idx_", expand=True)[1].astype(int)
-            )
-            existing_idx_list = df["group_idx"].tolist()
+    steps_list = [100, 200, 400, 800, 1200, 1600]
+    command_list = []
+    for steps in steps_list:
+        db = os.path.join(
+            db_dir,
+            f"{args.method}_{args.removal_unit}_{args.removal_dist}_{steps}steps.jsonl",
+        )
+        idx_list = [i for i in range(args.num_removal_subsets)]
 
-        idx_list = set(idx_list) - set(existing_idx_list)
-        idx_list = sorted(list(idx_list))
-        if len(idx_list) == 0:
-            print("Model behaviors have already been computed for all subsets!")
-        elif 0 < len(idx_list) < args.num_removal_subsets:
-            print(f"Only {len(idx_list)} subsets are missing model behaviors")
-    assert len(idx_list) % args.num_subsets_per_job == 0
-
-    ckpt_dir = os.path.join(
-        LOGDIR, f"seed{args.seed}", args.dataset, "model_behaviors", "unlearn", exp_name
-    )
-    os.makedirs(ckpt_dir, exist_ok=True)
-
-    num_jobs = 0
-    with open(command_file, "w") as handle:
-        command = ""
-        for i, idx in enumerate(idx_list):
-            command += "accelerate launch"
-            command += " --gpu_ids=0"
-            command += " --mixed_precision={}".format("fp16")
-            command += " text_to_image/train_text_to_image_lora.py"
-            for key, val in training_config.items():
-                command += " " + format_config_arg(key, val)
+        if os.path.exists(db):
+            df = pd.read_json(db, lines=True)
             if args.removal_dist in ["shapley", "uniform"]:
-                command += f" --removal_seed={idx}"
-            elif args.removal_dist == "loo":
-                command += f" --loo_idx={idx}"
+                df["removal_seed"] = (
+                    df["exp_name"].str.split("seed_", expand=True)[1].astype(int)
+                )
+                existing_idx_list = df["removal_seed"].tolist()
             else:
-                command += f" --aoi_idx={idx}"
+                df["group_idx"] = (
+                    df["exp_name"].str.split("idx_", expand=True)[1].astype(int)
+                )
+                existing_idx_list = df["group_idx"].tolist()
 
-            command += " ; "
+            idx_list = set(idx_list) - set(existing_idx_list)
+            idx_list = sorted(list(idx_list))
 
-            command += "python text_to_image/compute_model_behaviors.py"
+        ckpt_dir = os.path.join(
+            LOGDIR,
+            f"seed{args.seed}",
+            args.dataset,
+            "model_behaviors",
+            f"unlearn_{steps}steps",
+            exp_name,
+        )
+        os.makedirs(ckpt_dir, exist_ok=True)
+
+        for idx in idx_list:
+            command = "python text_to_image/compute_model_behaviors.py"
             for key, val in model_behavior_config.items():
                 command += " " + format_config_arg(key, val)
 
@@ -209,13 +186,33 @@ def main(args):
             command += " --db={}".format(db)
             command += " --exp_name={}".format(idx_exp_name)
             command += " --lora_dir={}".format(lora_dir)
+            command += " --lora_steps={}".format(steps)
+
+            command_list.append(command)
+
+    total_command_count = len(steps_list) * args.num_removal_subsets
+    remaining_command_count = len(command_list)
+
+    if remaining_command_count == 0:
+        print("Model behaviors have already been computed for all subsets and steps.")
+        sys.exit(0)
+    elif 0 < remaining_command_count <= total_command_count:
+        print(f"There are {remaining_command_count} missing model behaviors!")
+    assert remaining_command_count % args.num_subsets_per_job == 0
+
+    job_command = ""
+    num_jobs = 0
+    with open(command_file, "w") as handle:
+        for i, command in enumerate(command_list):
+            job_command += command
 
             if (i + 1) % args.num_subsets_per_job == 0:
-                handle.write(command + "\n")
-                command = ""
+                handle.write(job_command + "\n")
+                job_command = ""
                 num_jobs += 1
             else:
-                command += " ; "
+                job_command += " ; "
+
     print(f"Commands saved to {command_file}")
 
     # Update the SLURM job submission file.
