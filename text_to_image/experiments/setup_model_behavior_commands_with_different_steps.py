@@ -117,7 +117,7 @@ def main(args):
     db_dir = os.path.join(TMP_OUTDIR, f"seed{args.seed}", args.dataset)
     os.makedirs(db_dir, exist_ok=True)
 
-    steps_list = [1200, 1600, 2000]
+    steps_list = [100, 200, 400, 800, 1200, 1600]
     command_list = []
     for steps in steps_list:
         db = os.path.join(
