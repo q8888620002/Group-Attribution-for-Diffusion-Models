@@ -14,8 +14,12 @@ from scipy.cluster.hierarchy import fcluster, ward
 from scipy.spatial.distance import squareform
 from transformers import BlipForQuestionAnswering, BlipImageProcessor
 
+from src.attributions.methods.attribution_utils import aggregate_by_class
+from src.datasets import create_dataset
+
 
 class ImageDataset(torch.utils.data.Dataset):
+    """Image dataset class for generated images."""
 
     def __init__(self, image_dir_or_tensor, processor):
         if isinstance(image_dir_or_tensor, torch.Tensor):
@@ -28,15 +32,20 @@ class ImageDataset(torch.utils.data.Dataset):
                 or file.endswith(".png")
                 or file.endswith(".jpeg")
             ]
-            self.image_files_or_tensor=sorted(self.image_files_or_tensor, key=lambda x: os.path.basename(x).split(".")[0])
+            self.image_files_or_tensor = sorted(
+                self.image_files_or_tensor,
+                key=lambda x: os.path.basename(x).split(".")[0],
+            )
         else:
             raise ValueError("Image directory or tensor should be provided")
         self.processor = processor
 
     def __len__(self):
+        """Return the length of dataset."""
         return len(self.image_files_or_tensor)
 
     def __getitem__(self, idx):
+        """Iterate dataset"""
         if isinstance(self.image_files_or_tensor, torch.Tensor):
             # to comply with generate_images function output
             image = Image.fromarray(
@@ -56,10 +65,12 @@ class ImageDataset(torch.utils.data.Dataset):
         tensor["pixel_values"] = tensor["pixel_values"][0]
 
         return tensor
-    
-# convert image file list to tensor
+
+
 def image_files_to_tensor(image_files):
-    tensor_list=[]
+    """Convert image file list to tensor"""
+
+    tensor_list = []
     for image in image_files:
         image = Image.open(image)
         image = image.convert("RGB")
@@ -67,25 +78,36 @@ def image_files_to_tensor(image_files):
         tensor_list.append(torch_image)
     return torch.stack(tensor_list)
 
+
 def calculate_diversity_score(
-    ref_image_dir_or_tensor, generated_images_dir_or_tensor, num_cluster, use_cache=True,
+    ref_image_dir_or_tensor,
+    generated_images_dir_or_tensor,
+    num_cluster,
+    use_cache=True,
 ):
-    
+    """Calcualte entropy based on BLIP-VQA embedding of reference images."""
     processor = BlipImageProcessor.from_pretrained("Salesforce/blip-vqa-base")
     model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base")
     model = model.vision_model.to("cuda")
     model.eval()
-    
+
     dataset1 = ImageDataset(ref_image_dir_or_tensor, processor)
-    
+
     if use_cache:
-        assert isinstance(ref_image_dir_or_tensor, str), "Cache can only be used with image directory"
-        if os.path.exists(os.path.join(ref_image_dir_or_tensor,"cache.pt")):
-            cache=torch.load(os.path.join(ref_image_dir_or_tensor,"cache.pt"))
-            dataset1.image_files_or_tensor=cache["image_files_or_tensor"]
+        assert isinstance(
+            ref_image_dir_or_tensor, str
+        ), "Cache can only be used with image directory"
+        if os.path.exists(os.path.join(ref_image_dir_or_tensor, "cache.pt")):
+            cache = torch.load(os.path.join(ref_image_dir_or_tensor, "cache.pt"))
+            dataset1.image_files_or_tensor = cache["image_files_or_tensor"]
         else:
-            dataset1.image_files_or_tensor=image_files_to_tensor(dataset1.image_files_or_tensor)
-            torch.save({"image_files_or_tensor":dataset1.image_files_or_tensor},os.path.join(ref_image_dir_or_tensor,"cache.pt"))
+            dataset1.image_files_or_tensor = image_files_to_tensor(
+                dataset1.image_files_or_tensor
+            )
+            torch.save(
+                {"image_files_or_tensor": dataset1.image_files_or_tensor},
+                os.path.join(ref_image_dir_or_tensor, "cache.pt"),
+            )
 
     dataloader1 = torch.utils.data.DataLoader(
         dataset1, batch_size=32, shuffle=False, drop_last=False, num_workers=4
@@ -101,7 +123,7 @@ def calculate_diversity_score(
     distance_matrix = np.max(sim_mtx) - sim_mtx
 
     np.fill_diagonal(distance_matrix, 0)
-    
+
     seed_everything(42)
     # Ward's linkage clustering
     # Convert to a condensed distance matrix for ward's linkage (if needed)
@@ -137,10 +159,10 @@ def calculate_diversity_score(
 
     # Calculate proportions of each cluster
     new_image_labels = np.array(new_image_labels)
-    cluster_count=np.zeros(num_cluster)
+    cluster_count = np.zeros(num_cluster)
     for i in range(1, num_cluster + 1):
         cluster_count[i - 1] = np.sum(new_image_labels == i)
-    
+
     cluster_proportions = cluster_count / len(new_image_labels)
 
     # Entropy calculation.
@@ -166,9 +188,55 @@ def calculate_diversity_score(
     )
 
 
-def plot_cluster_proportions(cluster_proportions, num_cluster):
+def calcualte_embedding_dist(
+    dataset_name, ref_image_dir_or_tensor, num_cluster, use_cache=True, by="mean"
+):
+    """Function to calculate l2 distance of reference samples"""
+    processor = BlipImageProcessor.from_pretrained("Salesforce/blip-vqa-base")
+    model = BlipForQuestionAnswering.from_pretrained("Salesforce/blip-vqa-base")
+    model = model.vision_model.to("cuda")
+    model.eval()
 
-    # Plot the histogram of the clusters
+    dataset1 = ImageDataset(ref_image_dir_or_tensor, processor)
+
+    if use_cache:
+        assert isinstance(
+            ref_image_dir_or_tensor, str
+        ), "Cache can only be used with image directory"
+        if os.path.exists(os.path.join(ref_image_dir_or_tensor, "cache.pt")):
+            cache = torch.load(os.path.join(ref_image_dir_or_tensor, "cache.pt"))
+            dataset1.image_files_or_tensor = cache["image_files_or_tensor"]
+        else:
+            dataset1.image_files_or_tensor = image_files_to_tensor(
+                dataset1.image_files_or_tensor
+            )
+            torch.save(
+                {"image_files_or_tensor": dataset1.image_files_or_tensor},
+                os.path.join(ref_image_dir_or_tensor, "cache.pt"),
+            )
+
+    dataloader1 = torch.utils.data.DataLoader(
+        dataset1, batch_size=32, shuffle=False, drop_last=False, num_workers=1
+    )
+    emb1 = []
+    with torch.no_grad():
+        for inputs in tqdm.tqdm(dataloader1):
+            inputs["pixel_values"] = inputs["pixel_values"].to("cuda")
+            emb1.append((model(**inputs).pooler_output).detach().cpu().numpy())
+    emb1 = np.vstack(emb1)
+
+    # L2 distance between training samples and cluster mean.
+
+    dist_to_mean = np.linalg.norm(emb1 - np.mean(emb1, axis=0), axis=1)
+    dataset = create_dataset(dataset_name=dataset_name, train=True)
+    coeff = aggregate_by_class(dist_to_mean, dataset, by=by)
+
+    return coeff
+
+
+def plot_cluster_proportions(cluster_proportions, num_cluster):
+    """Helper function that plot the histogram of the clusters"""
+
     fig = plt.figure(figsize=(10, 6))  # Create a figure with specified dimensions
     ax = fig.add_subplot(111)  # Add a subplot to the figure
     ax.bar(
@@ -185,7 +253,7 @@ def plot_cluster_proportions(cluster_proportions, num_cluster):
 
 
 def plot_cluster_images(ref_cluster_images, new_cluster_images, num_cluster):
-    # plot images for each cluster
+    """Helper function that plot images for each cluster"""
 
     # Plotting the images
     num_sample_ref = 10

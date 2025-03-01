@@ -1,6 +1,5 @@
 """Utility functions for data attribution calculation."""
 import glob
-import json
 
 import clip
 import numpy as np
@@ -9,13 +8,74 @@ from PIL import Image
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.datasets import (
-    ImageDataset,
-    create_dataset,
-    remove_data_by_datamodel,
-    remove_data_by_shapley,
-)
+from src.datasets import ImageDataset, create_dataset
 
+
+
+def aggregate_by_class(scores, dataset, by="mean"):
+    """
+    Compute mean scores by classes and return group-based means.
+
+    :param scores: sample-based coefficients
+    :param dataset:
+        dataset, each entry should be a tuple or list with the label as the last element
+    :return: Numpy array with mean scores, indexed by label.
+    """
+    if scores.ndim == 1:
+        scores = scores.reshape(1, -1)
+
+    n, _ = scores.shape
+
+
+    unique_values = sorted(set(data[1] for data in dataset))
+    value_to_number = {value: i  for i, value in enumerate(unique_values)}
+    labels = np.array([value_to_number[entry[1]] for entry in dataset])
+    num_labels = len(np.unique(labels))
+
+    result = np.zeros((n, num_labels))
+
+    for i in range(num_labels):
+        # Create a mask for columns corresponding to the current label
+        label_mask = labels == i
+        # Average scores across groups
+        if by == "mean":
+            result[:, i] = np.divide(
+                scores[:, label_mask].sum(axis=1), np.sum(label_mask)
+            )
+        elif by == "max":
+            result[:, i] = np.max(scores[:, label_mask])
+
+    return result
+
+
+def process_images_np(file_list, max_size=None):
+    """Function to load and process images into numpy"""
+
+    valid_extensions = {"jpg", "jpeg", "png", "bmp", "webp", "tiff"}
+    images = []
+    filtered_files = [
+        file for file in file_list if file.split(".")[-1].lower() in valid_extensions
+    ]
+
+    if max_size is not None:
+        filtered_files = filtered_files[:max_size]
+
+    for filename in tqdm(filtered_files):
+        try:
+            image = Image.open(filename).convert("RGB")
+            image = np.array(image).astype(np.float32)
+
+            # Convert PIL Image to NumPy array and scale from 0 to 1
+            image_np = np.array(image, dtype=np.float32) / 255.0
+
+            # Normalize: shift and scale the image to have pixel values in range [-1, 1]
+            image_np = (image_np - 0.5) / 0.5
+
+            images.append(image_np)
+        except Exception as e:
+            print(f"Failed to process {filename}: {e}")
+
+    return np.stack(images) if images else np.array([])
 
 class CLIPScore:
     """Class for initializing CLIP model and calculating clip score."""
@@ -24,12 +84,22 @@ class CLIPScore:
         self.device = device
         self.clip_model, self.clip_transform = clip.load("ViT-B/32", device=device)
 
-    def clip_score(self, dataset_name, sample_size, sample_dir, training_dir):
+    def clip_score(
+        self,
+        model_behavior_key,
+        by,
+        dataset_name,
+        sample_size,
+        sample_dir,
+        training_dir,
+    ):
         """
         Function that calculate CLIP score between generated and training data
 
         Args:
         ----
+            model_behavior_key: model behavior
+            by: aggregate class based coefficients based on mean or max
             dataset_name: name of the dataset.
             sample_size: number of samples to calculate local model behavior
             sample_dir: directory of the first set of images.
@@ -57,7 +127,7 @@ class CLIPScore:
 
         with torch.no_grad():
             print(f"Calculating CLIP embeddings for {sample_dir}...")
-            for sample_batch, _  in tqdm(sample_loader):
+            for sample_batch, _ in tqdm(sample_loader):
                 features = self.clip_model.encode_image(sample_batch.to(self.device))
                 all_sample_features.append(features.cpu().numpy())
 
@@ -78,104 +148,24 @@ class CLIPScore:
         )
 
         similarity = all_sample_features @ all_training_features.T
-        coeff = np.mean(similarity, axis=0)
 
-        if dataset_name in ["cifar100", "cifar100_f"]:
+        if model_behavior_key not in ["ssim", "nrmse", "diffusion_loss"]:
+            # average across all samples
+
+            coeff = np.mean(similarity, axis=0)
+        else:
+            coeff = similarity
+
+        if dataset_name in ["cifar100", "cifar100_f", "celeba", "cifar100_new"]:
             dataset = create_dataset(dataset_name=dataset_name, train=True)
-            coeff = mean_scores_by_class(coeff, dataset)
+            coeff = aggregate_by_class(coeff, dataset, by)
 
         return coeff
 
 
-def load_filtered_behaviors(file_path, exp_name):
-    """Define function to load and filter model behaviors based on experiment name"""
-
-    filtered_behaviors = []
-    with open(file_path, "r") as f:
-        for line in f:
-            row = json.loads(line)
-            if row.get("exp_name") == exp_name:
-                filtered_behaviors.append(row)
-    return filtered_behaviors
-
-
-def create_removal_path(args, seed_index):
-    """Create removal directory based on removal distribution and subset index."""
-
-    full_dataset = create_dataset(dataset_name=args.dataset, train=True)
-
-    if args.removal_dist == "datamodel":
-        removal_dir = (
-            f"{args.removal_dist}/"
-            f"{args.removal_dist}_"
-            f"alpha={args.datamodel_alpha}_seed={seed_index}"
-        )
-        remaining_idx, _ = remove_data_by_datamodel(
-            full_dataset, alpha=args.datamodel_alpha, seed=seed_index
-        )
-    elif args.removal_dist == "shapley":
-        removal_dir = f"{args.removal_dist}/{args.removal_dist}_seed={seed_index}"
-        remaining_idx, _ = remove_data_by_shapley(full_dataset, seed=seed_index)
-    else:
-        raise NotImplementedError(f"{args.removal_dist} does not exist.")
-
-    return removal_dir, remaining_idx
-
-
-def mean_scores_by_class(scores, dataset):
-    """
-    Compute mean scores by classes and return group-based means.
-
-    :param scores: sample-based coefficients
-    :param dataset:
-        dataset, each entry should be a tuple or list with the label as the last element
-    :return: Numpy array with mean scores, indexed by label.
-    """
-    # Initialize dictionaries to accumulate scores and counts for each label
-    scores_and_counts = {}
-
-    # Gather sums and counts per label
-    for score, (_, label) in zip(scores, dataset):
-        if label in scores_and_counts:
-            scores_and_counts[label][0] += score
-            scores_and_counts[label][1] += 1
-        else:
-            scores_and_counts[label] = [score, 1]  # [sum, count]
-
-    # Prepare the result array
-    num_labels = max(scores_and_counts.keys()) + 1
-    result_array = np.zeros(num_labels)
-
-    # Compute the mean for each label
-    for label, (total_score, count) in scores_and_counts.items():
-        result_array[label] = total_score / count
-
-    return result_array
-
-
-def process_images_np(file_list, max_size=None):
-    """Function to load and process images into numpy"""
-    images = []
-
-    if max_size is not None:
-        file_list = file_list[:max_size]
-
-    for filename in tqdm(file_list):
-        image = Image.open(filename).convert("RGB")
-        image = np.array(image).astype(np.float32)
-
-        # Convert PIL Image to NumPy array and scale from 0 to 1
-        image_np = np.array(image, dtype=np.float32) / 255.0
-
-        # Normalize: shift and scale the image to have pixel values in range [-1, 1]
-        image_np = (image_np - 0.5) / 0.5
-
-        images.append(image_np)
-
-    return np.stack(images)
-
-
-def pixel_distance(args, sample_size, generated_dir, training_dir):
+def pixel_distance(
+    model_behavior_key, by, dataset_name, sample_size, generated_dir, training_dir
+):
     """
     Function that calculate the pixel distance between two image sets,
     generated images and training images. Using the average distance
@@ -183,7 +173,9 @@ def pixel_distance(args, sample_size, generated_dir, training_dir):
 
     Args:
     ----
-        args: argument for calculating lds.
+        model_behavior_key: model behavior
+        by: aggregated class based coefficients based on mean or max
+        dataset_name: dataset
         sample_size: number of generated samples.
         generated_dir: directory of the generated images.
         training_dir: directory of the training set images.
@@ -210,10 +202,16 @@ def pixel_distance(args, sample_size, generated_dir, training_dir):
     ref_images = ref_images / np.linalg.norm(ref_images, axis=1, keepdims=True)
 
     similarities = np.dot(generated_images, ref_images.T)
-    coeff = np.mean(similarities, axis=0)
 
-    if args.by_class:
-        dataset = create_dataset(dataset_name=args.dataset, train=True)
-        coeff = mean_scores_by_class(coeff, dataset)
+    if model_behavior_key not in ["ssim", "nrmse", "diffusion_loss"]:
+        coeff = np.mean(similarities, axis=0)
+    else:
+        coeff = similarities
+
+    if dataset_name in ["cifar100", "cifar100_f", "celeba","cifar100_new"]:
+        dataset = create_dataset(dataset_name=dataset_name, train=True)
+        # coeff = mean_scores_by_class(coeff, dataset)
+
+        coeff = aggregate_by_class(coeff, dataset, by)
 
     return coeff
